@@ -11,6 +11,7 @@
 #include <linux/pm_qos.h>
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
+#include "auxiliary_compat.h"
 
 #ifndef HAVE_AUXILIARY_DEVICE_ID
 /* For some kernel, auxiliary is not mature enough so that part code is
