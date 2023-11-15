@@ -4181,6 +4181,9 @@ static void idpf_rx_csum(struct idpf_queue *rxq, struct sk_buff *skb,
 	if (csum_bits->l4e)
 		goto checksum_fail;
 
+#ifdef IDPF_ADD_PROBES
+	u64_stats_update_begin(&port_stats->stats_sync);
+#endif /* IDPF_ADD_PROBES */
 	/* Only report checksum unnecessary for ICMP, TCP, UDP, or SCTP */
 	switch (decoded->inner_prot) {
 	case IDPF_RX_PTYPE_INNER_PROT_ICMP:
@@ -4192,25 +4195,27 @@ static void idpf_rx_csum(struct idpf_queue *rxq, struct sk_buff *skb,
 			skb->csum = csum_unfold((__force __sum16)~swab16(csum));
 			skb->ip_summed = rxq->gen_rxcsum_status;
 #ifdef IDPF_ADD_PROBES
-			u64_stats_update_begin(&port_stats->stats_sync);
 			u64_stats_inc(&port_stats->extra_stats.rx_csum_complete);
-			u64_stats_update_end(&port_stats->stats_sync);
 #endif /* IDPF_ADD_PROBES */
 		} else {
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 #ifdef IDPF_ADD_PROBES
-			u64_stats_update_begin(&port_stats->stats_sync);
 			u64_stats_inc(&port_stats->extra_stats.rx_csum_unnecessary);
-			u64_stats_update_end(&port_stats->stats_sync);
 #endif /* IDPF_ADD_PROBES */
 		}
 		break;
 	case IDPF_RX_PTYPE_INNER_PROT_SCTP:
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
+#ifdef IDPF_ADD_PROBES
+		u64_stats_inc(&port_stats->extra_stats.rx_csum_unnecessary);
+#endif /* IDPF_ADD_PROBES */
 		break;
 	default:
 		break;
 	}
+#ifdef IDPF_ADD_PROBES
+	u64_stats_update_end(&port_stats->stats_sync);
+#endif /* IDPF_ADD_PROBES */
 
 	return;
 
