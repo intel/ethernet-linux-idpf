@@ -25,7 +25,7 @@
  * an appropriate message.
  */
 #define IIDC_MAJOR_VER		10
-#define IIDC_MINOR_VER		3
+#define IIDC_MINOR_VER		4
 
 enum iidc_event_type {
 	IIDC_EVENT_BEFORE_MTU_CHANGE,
