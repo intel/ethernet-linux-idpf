@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2019-2024 Intel Corporation
+
+# updates for the system pci.ids file
+#
+# IMPORTANT!  Entries in this list must be sorted as they
+#             would appear in the system pci.ids file.  Entries
+#             are sorted by ven, dev, subven, subdev
+#             (numerical order).
+#
+8086  Intel Corporation
+        1452  Smart Network Adapter ES2000
+        145c  Smart Network Adapter ES2000 Virtual Function
+        0dd5  SIOV Virtual Function
+
