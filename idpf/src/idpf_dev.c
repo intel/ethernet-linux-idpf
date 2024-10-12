@@ -209,7 +209,7 @@ static void idpf_ptp_reg_init(struct idpf_adapter *adapter)
  */
 static int idpf_idc_register(struct idpf_adapter *adapter)
 {
-	return idpf_idc_init_aux_device(adapter, IIDC_FUNCTION_TYPE_PF);
+	return idpf_idc_init_aux_device(&adapter->rdma_data, IIDC_FUNCTION_TYPE_PF);
 }
 
 /**

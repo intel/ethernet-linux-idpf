@@ -73,8 +73,7 @@
 /* Default vector sharing */
 #define IDPF_MBX_Q_VEC		1
 #define IDPF_MIN_Q_VEC		1
-#define IDPF_MAX_RDMA_VEC	2 /* To share with RDMA */
-#define IDPF_MIN_RDMA_VEC	1 /* Minimum vectors to be shared with RDMA */
+#define IDPF_MIN_RDMA_VEC	4 /* Minimum vectors to be shared with RDMA */
 
 #define IDPF_DFLT_TX_Q_DESC_COUNT		512
 #define IDPF_DFLT_TX_COMPLQ_DESC_COUNT		512
@@ -595,33 +594,32 @@ struct idpf_vec_regs {
 /**
  * struct idpf_intr_reg
  * @dyn_ctl: Dynamic control interrupt register
- * @dyn_ctl_intena_m: Mask for dyn_ctl interrupt enable
- * @dyn_ctl_intena_msk_m: Mask to disable interrupt enable settings. When set,
- *			  interrupt enable settings doesn't have any impact.
- * @dyn_ctl_itridx_s: Register bit offset for ITR index
- * @dyn_ctl_itridx_m: Mask for ITR index
- * @dyn_ctl_intrvl_s: Register bit offset for ITR interval
- * @dyn_ctl_wb_on_itr_m: When set, the associated vector is processed without
- *			 triggering an interrupt
  * @rx_itr: RX ITR register
  * @tx_itr: TX ITR register
  * @icr_ena: Interrupt cause register offset
  * @icr_ena_ctlq_m: Mask for ICR
+ * @dyn_ctl_intena_msk_m: Mask to disable interrupt enable settings. When set,
+ *			  interrupt enable settings doesn't have any impact.
+ * @dyn_ctl_wb_on_itr_m: When set, the associated vector is processed without
+ *			 triggering an interrupt
+ * @dyn_ctl_itridx_m: Mask for ITR index
+ * @dyn_ctl_itridx_s: Register bit offset for ITR index
+ * @dyn_ctl_intena_m: Mask for dyn_ctl interrupt enable
  */
 struct idpf_intr_reg {
 	void __iomem *dyn_ctl;
-	u32 dyn_ctl_intena_m;
-	u32 dyn_ctl_intena_msk_m;
-	u32 dyn_ctl_itridx_s;
-	u32 dyn_ctl_itridx_m;
-	u32 dyn_ctl_intrvl_s;
-	u32 dyn_ctl_wb_on_itr_m;
 	void __iomem *rx_itr;
 	void __iomem *tx_itr;
-	u32 dyn_ctl_swint_trig_m;
-	u32 dyn_ctl_sw_itridx_ena_m;
 	void __iomem *icr_ena;
 	u32 icr_ena_ctlq_m;
+	u32 dyn_ctl_intena_msk_m;
+	u32 dyn_ctl_wb_on_itr_m;
+	u32 dyn_ctl_sw_itridx_ena_m;
+	u8 dyn_ctl_swint_trig_m:3;
+	u8 dyn_ctl_itridx_m:5;
+	u8 dyn_ctl_intrvl_s:3;
+	u8 dyn_ctl_itridx_s:2;
+	u8 dyn_ctl_intena_m:1;
 };
 
 /**
@@ -714,6 +712,7 @@ union idpf_queue_stats {
 #define IDPF_ITR_TX_DEF		IDPF_ITR_20K
 #define IDPF_ITR_RX_DEF		IDPF_ITR_20K
 /* Index used for 'No ITR' update in DYN_CTL register */
+#define IDPF_SW_ITR_UPDATE_IDX	2
 #define IDPF_NO_ITR_UPDATE_IDX	3
 #define IDPF_ITR_IDX_SPACING(spacing, dflt)	(spacing ? spacing : dflt)
 #define IDPF_DIM_DEFAULT_PROFILE_IX		1
@@ -873,8 +872,8 @@ struct idpf_queue {
 	struct idpf_vport *vport;
 	union {
 		struct {
-			u64 num_compl;
-			u64 num_compl_pend;
+			u32 num_compl;
+			u32 num_compl_pend;
 			struct idpf_queue *complq;
 			struct idpf_queue **txqs;
 			struct idpf_tx_buf *bufs;
@@ -1082,6 +1081,7 @@ void idpf_vport_intr_update_itr_ena_irq(struct idpf_q_vector *q_vector);
 void idpf_vport_intr_deinit(struct idpf_vport *vport,
 			    struct idpf_intr_grp *intr_grp);
 int idpf_vport_intr_init(struct idpf_vport *vport, struct idpf_vgrp *vgrp);
+void idpf_vport_intr_ena(struct idpf_vport *vport, struct idpf_vgrp *vgrp);
 void idpf_vport_intr_set_wb_on_itr(struct idpf_q_vector *q_vector);
 enum
 pkt_hash_types idpf_ptype_to_htype(const struct idpf_rx_ptype_decoded *decoded);

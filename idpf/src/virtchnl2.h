@@ -128,6 +128,7 @@ enum virtchnl2_op {
 	VIRTCHNL2_OP_PTP_GET_VPORT_TX_TSTAMP_CAPS	= 548,
 	VIRTCHNL2_OP_GET_LAN_MEMORY_REGIONS		= 549,
 	VIRTCHNL2_OP_GET_OEM_CAPS			= 4999,
+	VIRTCHNL2_OP_OEM_RCA                            = 5000,
 };
 
 #define VIRTCHNL2_RDMA_INVALID_QUEUE_IDX	0xFFFF
@@ -325,12 +326,14 @@ enum virtchnl2_flow_types {
  * selected according to this identification.
  */
 #define VIRTCHNL2_CAP_OEM_P2P			BIT(0)
+#define VIRTCHNL2_CAP_OEM_RCA			BIT(1)
 /* Other OEM specific caps */
 
 /* Underlying device type */
 enum virtchl2_device_type {
 	VIRTCHNL2_MEV_DEVICE			= 0,
 	VIRTCHNL2_MEV_TS_DEVICE			= 1,
+	VIRTCHNL2_MMG_DEVICE			= 2,
 };
 
 /**
@@ -2268,6 +2271,8 @@ static inline const char *virtchnl2_op_str(__le32 v_opcode)
 		return "VIRTCHNL2_OP_DEL_QUEUE_GROUPS";
 	case VIRTCHNL2_OP_GET_PORT_STATS:
 		return "VIRTCHNL2_OP_GET_PORT_STATS";
+	case VIRTCHNL2_OP_OEM_RCA:
+		return "VIRTCHNL2_OP_OEM_RCA";
 	case VIRTCHNL2_OP_GET_EDT_CAPS:
 		return "VIRTCHNL2_OP_GET_EDT_CAPS";
 	case VIRTCHNL2_OP_PTP_GET_CAPS:

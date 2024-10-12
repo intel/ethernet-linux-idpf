@@ -1010,8 +1010,7 @@ static struct sk_buff *idpf_rx_construct_skb_zc(struct idpf_queue *rxq,
 				     (u8 *)rx_buf->xdp->data_hard_start;
 	struct sk_buff *skb;
 
-	skb = __napi_alloc_skb(&rxq->q_vector->napi, datasize_hard,
-			       GFP_ATOMIC);
+	skb = napi_alloc_skb(&rxq->q_vector->napi, datasize_hard);
 
 	if (unlikely(!skb))
 		return NULL;
@@ -1090,7 +1089,7 @@ int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget)
 			break;
 
 		rx_buf->xdp->data_end = (u8 *)rx_buf->xdp->data + pkt_len;
-		xsk_buff_dma_sync_for_cpu(rx_buf->xdp, rxq->xsk_pool);
+		xsk_buff_dma_sync_for_cpu(rx_buf->xdp);
 
 		xdp_res = idpf_run_xdp_zc(rxq, xdpq, rx_buf->xdp);
 
@@ -1144,6 +1143,7 @@ int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget)
 		}
 
 		/* send completed skb up the stack */
+		skb->protocol = eth_type_trans(skb, rxq->vport->netdev);
 		napi_gro_receive(&rxq->q_vector->napi, skb);
 		skb = NULL;
 
@@ -1226,7 +1226,7 @@ int idpf_rx_singleq_clean_zc(struct idpf_queue *rxq, int budget)
 			break;
 
 		rx_buf->xdp->data_end = (u8 *)rx_buf->xdp->data + pkt_len;
-		xsk_buff_dma_sync_for_cpu(rx_buf->xdp, rxq->xsk_pool);
+		xsk_buff_dma_sync_for_cpu(rx_buf->xdp);
 
 		xdp_res = idpf_run_xdp_zc(rxq, xdpq, rx_buf->xdp);
 		if (xdp_res) {

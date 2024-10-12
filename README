@@ -1,7 +1,7 @@
-idpf Linux* Base Driver Readme for Infrastructure Data-Plane Function
-*********************************************************************
+5.5.1. idpf Linux* Base Driver Readme for Infrastructure Data-Plane Function
+****************************************************************************
 
-Jun 24, 2024
+September 17, 2024
 
 
 On This Page
@@ -23,8 +23,8 @@ On This Page
   * Known Issues/Troubleshooting
 
 
-Overview
-========
+5.5.1.1. Overview
+=================
 
 This document provides the README for the out-of-tree idpf Linux
 driver. The driver is compatible with devices based on the following:
@@ -46,12 +46,12 @@ This driver supports XDP (Express Data Path) and AF_XDP zero-copy.
 Note that XDP is blocked for frame sizes larger than 3KB.
 
 
-Building and Installation
-=========================
+5.5.1.2. Building and Installation
+==================================
 
 
-To manually build the driver
-----------------------------
+5.5.1. To manually build the driver
+-----------------------------------
 
 1. Move the base driver tar file to the directory of your choice. For
    example, use "/home/username/idpf" or "/usr/local/src/idpf".
@@ -112,8 +112,8 @@ To manually build the driver
       ping <IP_address>
 
 
-To build a binary RPM package of this driver
---------------------------------------------
+5.5.1. To build a binary RPM package of this driver
+---------------------------------------------------
 
 Note:
 
@@ -155,18 +155,18 @@ Note:
     -r'/build".
 
 
-Command Line Parameters
-=======================
+5.5.1.3. Command Line Parameters
+================================
 
 The idpf driver does not support any command line parameters.
 
 
-Additional Features and Configurations
-======================================
+5.5.1.4. Additional Features and Configurations
+===============================================
 
 
-Configuring SR-IOV for improved network security
-------------------------------------------------
+5.5.1. Configuring SR-IOV for improved network security
+-------------------------------------------------------
 
 In a virtualized environment, on Intel(R) Ethernet Network Adapters
 that support SR-IOV or Intel(R) Scalable I/O Virtualization (Intel(R)
@@ -183,8 +183,8 @@ configuration allows unexpected, and potentially malicious, frames to
 be dropped.
 
 
-ethtool
--------
+5.5.1. ethtool
+--------------
 
 The driver utilizes the ethtool interface for driver configuration and
 diagnostics, as well as displaying statistical information. The latest
@@ -193,8 +193,8 @@ one yet, you can obtain it at  at:
 https://kernel.org/pub/software/network/ethtool/.
 
 
-Viewing Link Messages
----------------------
+5.5.1. Viewing Link Messages
+----------------------------
 
 Link messages will not be displayed to the console if the distribution
 is restricting system messages. In order to see network driver link
@@ -204,8 +204,8 @@ following:
    dmesg -n 8
 
 
-Jumbo Frames
-------------
+5.5.1. Jumbo Frames
+-------------------
 
 Jumbo Frames support is enabled by changing the Maximum Transmission
 Unit (MTU) to a value larger than the default value of 1500.
@@ -222,9 +222,10 @@ Note:
 
   * The supported maximum MTU setting for jumbo frames on Intel(R) IPU
     ASIC E2100 B1 Stepping is 7652 bytes as mentioned in the release
-    notes for Release 1.3.0. This corresponds to the maximum frame
-    size of 7678 bytes. Later revisions of the Intel IPU support the
-    maximum MTU of 9188 bytes and maximum frame size of 9216 bytes.
+    notes for Release 1.3.0 Release Notes. This corresponds to the
+    maximum frame size of 7678 bytes. Later revisions of the Intel IPU
+    support the maximum MTU of 9188 bytes and maximum frame size of
+    9216 bytes.
 
   * This driver will attempt to use multiple page sized buffers to
     receive each jumbo packet. This should help to avoid buffer
@@ -235,15 +236,15 @@ Note:
     jumbo frames, enabling flow control may mitigate the issue.
 
 
-Subfunctions
-------------
+5.5.1. Subfunctions
+-------------------
 
 Subfunctions are supported using the devlink interface to create,
 activate or delete subfunction netdevs or dynamic vports.
 
 
-Configuring Subfunctions
-~~~~~~~~~~~~~~~~~~~~~~~~
+5.5.1. Configuring Subfunctions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 1. After loading the driver, run the following command to verify that
    the IDPF driver supports devlink based interface:
@@ -349,16 +350,16 @@ Configuring Subfunctions
       pci/0000:4b:00.1/0: type eth netdev ens785f1 flavour physical port 1 splittable false
 
 
-Performance Optimization
-========================
+5.5.1.5. Performance Optimization
+=================================
 
 Driver defaults are meant to fit a wide variety of workloads, but if
 further optimization is required, we recommend experimenting with the
 following settings.
 
 
-IRQ to Adapter Queue Alignment
-------------------------------
+5.5.1. IRQ to Adapter Queue Alignment
+-------------------------------------
 
 Pin the adapter's IRQs to specific cores by disabling the irqbalance
 service and using the included "set_irq_affinity" script. Please see
@@ -378,8 +379,8 @@ the script's help text for further options.
   all cores.
 
 
-Interrupt Rate Limiting
------------------------
+5.5.1. Interrupt Rate Limiting
+------------------------------
 
 This driver supports an adaptive interrupt throttle rate (ITR)
 mechanism that is tuned for general workloads. The user can customize
@@ -422,8 +423,8 @@ Per-queue interrupt rate settings:
      ethtool --per-queue <ethX> queue_mask 0xa --show-coalesce
 
 
-Transmit/Receive Queue Allocation
----------------------------------
+5.5.1. Transmit/Receive Queue Allocation
+----------------------------------------
 
 To set the number of symmetrical (Rx/Tx) or asymmetrical (mix of
 combined and Tx or Rx) queues, use the "ethtool -L" option. For
@@ -442,8 +443,8 @@ Note:
   Dedicated Tx and Rx queues are not supported.
 
 
-Virtualized Environments
-------------------------
+5.5.1. Virtualized Environments
+-------------------------------
 
 The following methods may be helpful to optimize performance in
 virtual machines (VMs):
@@ -462,19 +463,19 @@ virtual machines (VMs):
     Dedicated Tx and Rx queues are not supported.
 
 
-Known Issues/Troubleshooting
-============================
+5.5.1.6. Known Issues/Troubleshooting
+=====================================
 
 
-Receive Error Counts May Be Higher Than the Actual Packet Error Count
----------------------------------------------------------------------
+5.5.1. Receive Error Counts May Be Higher Than the Actual Packet Error Count
+----------------------------------------------------------------------------
 
 When a packet is received with more than one error, two bad packets
 may be reported.
 
 
-"ethtool -S" Does Not Display Tx/Rx Packet Statistics
------------------------------------------------------
+5.5.1. "ethtool -S" Does Not Display Tx/Rx Packet Statistics
+------------------------------------------------------------
 
 Issuing the command "ethtool -S" does not display Tx/Rx packet
 statistics. This is by convention. Use other tools (such as the **ip**
@@ -482,16 +483,16 @@ command) that display standard netdev statistics such as Tx/Rx packet
 statistics.
 
 
-Changing Ring Size During Heavy Traffic is Unstable
----------------------------------------------------
+5.5.1. Changing Ring Size During Heavy Traffic is Unstable
+----------------------------------------------------------
 
 "ethtool -G" should not be used while the driver is being used to send
 or receive heavy traffic. This can result in the interface going into
 the no-carrier state.
 
 
-Unexpected Issues When the Device Driver and DPDK Share a Device
-----------------------------------------------------------------
+5.5.1. Unexpected Issues When the Device Driver and DPDK Share a Device
+-----------------------------------------------------------------------
 
 Unexpected issues may result when an idpf device is in multi driver
 mode and the kernel driver and DPDK driver are sharing the device.
@@ -503,19 +504,19 @@ device. Loading DPDK with the "multi-driver" module parameter may
 mitigate some of the issues.
 
 
-Support
-=======
+5.5.1.7. Support
+================
 
 For general information, go to the Intel support website at:
-*<http://www.intel.com/support/>*
+http://www.intel.com/support/
 
 If an issue is identified with the released source code on a supported
 kernel with a supported adapter, email the specific information
 related to the issue to intel-wired-lan@lists.osuosl.org.
 
 
-License
-=======
+5.5.1.8. License
+================
 
 This program is free software; you can redistribute it and/or modify
 it under the terms and conditions of the GNU General Public License,
@@ -537,8 +538,8 @@ in the file called "COPYING".
 Copyright (c) 2019 - 2024 Intel Corporation.
 
 
-Trademarks
-==========
+5.5.1.9. Trademarks
+===================
 
 Intel is a trademark or registered trademark of Intel Corporation or
 its subsidiaries in the United States and/or other countries.

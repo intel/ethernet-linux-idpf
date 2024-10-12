@@ -9,5 +9,4 @@
 #define IDPF_DEV_ID_VF			0x145C
 #define IDPF_DEV_ID_VF_SIOV		0x0DD5
 
-
 #endif /* _IDPF_DEVIDS_H_ */
