@@ -38,9 +38,13 @@ KSP :=  /lib/modules/${BUILD_KERNEL}/source \
 test_dir = $(shell [ -e ${dir}/include/linux ] && echo ${dir})
 KSP := $(foreach dir, ${KSP}, ${test_dir})
 
-# we will use this first valid entry in the search path
+# We will use this first valid entry in the search path, unless KSRC was set
+# by the caller, in which case we assume a custom build and will skip depmod
+# and initramfs update.
 ifeq (,${KSRC})
   KSRC := $(firstword ${KSP})
+else
+  CUSTOM_BUILD := 1
 endif
 
 ifeq (,${KSRC})
@@ -81,13 +85,55 @@ ifeq (${SPARSE_CHECK},YES)
   EXTRA_OPTS += C=2 W=1 CF="-D__CHECK_ENDIAN__"
 endif
 
+# Wrapper around kcompat's cmd_initrd, with checks for module signing.
+ifeq (${CUSTOM_BUILD},1)
+define cmd_initrd_check
+@echo "Custom build detected. Skipping initramfs update."
+endef
+else ifeq (${cmd_initrd},)
+define cmd_initrd_check
+@echo "Unable to update initramfs. You may need to do this manually."
+endef
+else ifeq (${DISABLE_MODULE_SIGNING},Yes)
+define cmd_initrd_check
+@echo "Skipping initramfs update because idpf module cannot be signed."
+endef
+else
+define cmd_initrd_check
+@echo "Updating initramfs..."
+$(call cmd_initrd)
+endef
+endif
+
+#Wrapper around kcompat's cmd_depmod. In some build environments, depmod may not be present.
+ifeq (${CUSTOM_BUILD},1)
+define cmd_initrd_check
+@echo "Custom build detected. Skipping depmod update."
+endef
+else ifeq (${cmd_depmod},)
+define cmd_depmod_check
+@echo "Unable to run depmod. You may need to do this manually."
+endef
+else ifeq (,$(wildcard /sbin/depmod))
+define cmd_depmod_check
+@echo "Unable to run depmod. You may need to do this manually."
+endef
+else
+define cmd_depmod_check
+@echo "Calling post install depmod..."
+$(call cmd_depmod)
+endef
+endif
+
 compile:
 	@${MAKE} -C ${KSRC} M=$$PWD ${CONFIG_DRIVERS} ccflags-y="${CFLAGS_EXTRA} ${EXTRA_CFLAGS}" modules \
 		NEED_AUX_BUS=${NEED_AUX_BUS} ${EXTRA_OPTS}
 
 .PHONY: install
 install: compile
-	@${MAKE} -C ${KSRC} M=$$PWD ${CONFIG_DRIVERS} modules_install
+	$(call kernelbuild,${CONFIG_DRIVERS},modules_install)
+	$(call cmd_depmod_check)
+	$(call cmd_initrd_check)
 
 INSTALLED_MODS := $(strip $(addprefix ${INSTALL_MOD_PATH}/lib/modules/${KVER}/${INSTALL_MOD_DIR}/,${TARGETS}))
 .PHONY: uninstall

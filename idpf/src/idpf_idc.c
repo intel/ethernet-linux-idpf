@@ -61,20 +61,19 @@ idpf_get_auxiliary_drv(struct iidc_core_dev_info *cdev_info)
 
 /**
  * idpf_idc_event - Function to handle IDC event
- * @adapter: driver private data structure
+ * @rdma_data: pointer to rdma data struct
  * @reason: event reason
  * @pre_event: before triggering the event
  */
-void idpf_idc_event(struct idpf_adapter *adapter,
+void idpf_idc_event(struct idpf_rdma_data *rdma_data,
 		    enum idpf_vport_reset_cause reason,
 		    bool pre_event)
 {
-	struct iidc_core_dev_info *cdev_info;
+	struct iidc_core_dev_info *cdev_info = rdma_data->cdev_info;
 	struct iidc_auxiliary_drv *iadrv;
 	enum iidc_event_type event_type;
 	struct iidc_event *event;
 
-	cdev_info = adapter->rdma_data.cdev_info;
 	if (!cdev_info)
 		/* RDMA is not enabled */
 		return;
@@ -109,7 +108,7 @@ void idpf_idc_event(struct idpf_adapter *adapter,
 
 /**
  * idpf_idc_vc_receive - Used to pass the received msg over IDC
- * @adapter: driver specific private data
+ * @rdma_data: pointer to rdma data struct
  * @f_id: function source id
  * @msg: payload received on mailbox
  * @msg_size: size of the payload
@@ -117,10 +116,9 @@ void idpf_idc_event(struct idpf_adapter *adapter,
  * This function is used by the Auxiliary Device to pass the receive mailbox
  * message an Auxiliary Driver cell
  */
-int idpf_idc_vc_receive(struct idpf_adapter *adapter, u32 f_id, const u8 *msg,
+int idpf_idc_vc_receive(struct idpf_rdma_data *rdma_data, u32 f_id, const u8 *msg,
 			u16 msg_size)
 {
-	struct idpf_rdma_data *rdma_data = &adapter->rdma_data;
 	struct iidc_core_dev_info *cdev_info;
 	struct iidc_auxiliary_drv *iadrv;
 	int err = 0;
@@ -180,10 +178,9 @@ idpf_idc_vc_async_handler(struct idpf_adapter *adapter, struct idpf_vc_xn *xn,
 	if (ctlq_msg->cookie.mbx.chnl_opcode != VIRTCHNL2_OP_RDMA)
 		return -EINVAL;
 
-	idpf_idc_vc_receive(adapter, 0,
-			    (u8 *)ctlq_msg->ctx.indirect.payload->va,
-			    ctlq_msg->ctx.indirect.payload->size);
-	return 0;
+	return idpf_idc_vc_receive(&adapter->rdma_data, 0,
+				   (u8 *)ctlq_msg->ctx.indirect.payload->va,
+				   ctlq_msg->ctx.indirect.payload->size);
 }
 
 /**
@@ -379,24 +376,19 @@ static void idpf_unplug_aux_dev(struct idpf_rdma_data *rdma_data)
 
 /**
  * idpf_idc_init_msix_data - initialize MSIX data for the cdev_info structure
- * @adapter: driver private data structure
+ * @rdma_data: pointer to rdma data struct
  */
 static void
-idpf_idc_init_msix_data(struct idpf_adapter *adapter)
+idpf_idc_init_msix_data(struct idpf_rdma_data *rdma_data)
 {
-	u16 default_vports = idpf_get_default_vports(adapter);
 	struct iidc_core_dev_info *cdev_info;
-	struct idpf_rdma_data *rdma_data;
-	int idc_vector_start;
 
-	if (!adapter->msix_entries)
+	if (!rdma_data->msix_entries)
 		return;
 
-	rdma_data = &adapter->rdma_data;
 	cdev_info = rdma_data->cdev_info;
 
-	idc_vector_start = IDPF_MBX_Q_VEC + (IDPF_MIN_Q_VEC * default_vports);
-	cdev_info->msix_entries = &adapter->msix_entries[idc_vector_start];
+	cdev_info->msix_entries = rdma_data->msix_entries;
 	cdev_info->msix_count = rdma_data->num_vecs;
 }
 
@@ -422,18 +414,16 @@ idpf_idc_init_qos_info(struct iidc_qos_params *qos_info)
 
 /**
  * idpf_idc_init_aux_device - initialize Auxiliary Device(s)
- * @adapter: driver private data structure
+ * @rdma_data: pointer to rdma data struct
  * @ftype: function type
  */
 int
-idpf_idc_init_aux_device(struct idpf_adapter *adapter,
+idpf_idc_init_aux_device(struct idpf_rdma_data *rdma_data,
 			 enum iidc_function_type ftype)
 {
 	struct iidc_core_dev_info *cdev_info;
-	struct idpf_rdma_data *rdma_data;
+	struct idpf_adapter *adapter;
 	int err;
-
-	rdma_data = &adapter->rdma_data;
 
 	/* structure layout needed for container_of's looks like:
 	 * iidc_auxiliary_dev (container_of super-struct for adev)
@@ -451,6 +441,8 @@ idpf_idc_init_aux_device(struct idpf_adapter *adapter,
 		goto err_cdev_info_alloc;
 	}
 
+	adapter = container_of(rdma_data, struct idpf_adapter, rdma_data);
+
 	cdev_info = rdma_data->cdev_info;
 	cdev_info->hw_addr = (u8 __iomem *)adapter->hw.hw_addr;
 	cdev_info->ver.major = IIDC_MAJOR_VER;
@@ -464,7 +456,7 @@ idpf_idc_init_aux_device(struct idpf_adapter *adapter,
 	cdev_info->cdev_info_id = IIDC_RDMA_ID;
 
 	idpf_idc_init_qos_info(&cdev_info->qos_info);
-	idpf_idc_init_msix_data(adapter);
+	idpf_idc_init_msix_data(rdma_data);
 
 	err = idpf_plug_aux_dev(rdma_data);
 	if (err)

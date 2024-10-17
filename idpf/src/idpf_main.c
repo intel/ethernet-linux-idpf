@@ -4,7 +4,6 @@
 #include "kcompat.h"
 #include <linux/aer.h>
 #include "idpf.h"
-#include "idpf_devids.h"
 
 MODULE_VERSION(IDPF_DRV_VER);
 #define DRV_SUMMARY    "Intel(R) Infrastructure Data Path Function Linux Driver"
@@ -124,8 +123,7 @@ static void idpf_remove(struct pci_dev *pdev)
 	 * end up in bad state.
 	 */
 	cancel_delayed_work_sync(&adapter->vc_event_task);
-	if (adapter->num_vfs)
-		idpf_sriov_configure(pdev, 0);
+
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
 	if (adapter->dev_ops.vdcm_deinit)
 		adapter->dev_ops.vdcm_deinit(pdev);
@@ -136,7 +134,12 @@ static void idpf_remove(struct pci_dev *pdev)
 #ifdef DEVLINK_ENABLED
 	idpf_devlink_deinit(adapter);
 #endif /* DEVLINK_ENABLED */
+
+	idpf_init_ctrl_lock(adapter);
+	if (adapter->num_vfs)
+		idpf_sriov_config_vfs(pdev, 0);
 	idpf_vc_core_deinit(adapter);
+	idpf_init_ctrl_unlock(adapter);
 
 	/* Shut down the per-adapter virtchnl transactions */
 	idpf_vc_xn_shutdown(&adapter->vcxn_mngr);
@@ -178,6 +181,7 @@ destroy_wqs:
 	kfree(adapter->netdevs);
 	adapter->netdevs = NULL;
 
+	mutex_destroy(&adapter->init_ctrl_lock);
 	mutex_destroy(&adapter->vport_ctrl_lock);
 	mutex_destroy(&adapter->vector_lock);
 	mutex_destroy(&adapter->queue_lock);
@@ -241,7 +245,7 @@ static int idpf_cfg_hw(struct idpf_adapter *adapter)
 
 	len = pci_resource_len(pdev, 0) - region2_start;
 	if (len <= 0)
-		goto store_adapter;
+		goto store_hw_info;
 
 	hw->hw_addr_region2 = ioremap(res_start + region2_start, len);
 	if (!hw->hw_addr_region2) {
@@ -250,9 +254,10 @@ static int idpf_cfg_hw(struct idpf_adapter *adapter)
 		return -EIO;
 	}
 	hw->hw_addr_region2_len = len;
+store_hw_info:
 	hw->vendor_id = pdev->vendor;
 	hw->device_id = pdev->device;
-store_adapter:
+	hw->subsystem_device_id = pdev->subsystem_device;
 	hw->back = adapter;
 
 	return 0;
@@ -367,6 +372,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	pci_set_drvdata(pdev, adapter);
 
 	/* Initialize the per-adapter virtchnl transactions. */
+	idpf_init_vc_xn_completion(&adapter->vcxn_mngr);
 	idpf_vc_xn_init(&adapter->vcxn_mngr);
 	init_completion(&adapter->corer_done);
 
@@ -392,9 +398,9 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_serv_wq_alloc;
 	}
 
-	adapter->mbx_wq = alloc_workqueue("%s-%s-mbx", 0, 0,
-					   dev_driver_string(dev),
-					   dev_name(dev));
+	adapter->mbx_wq = alloc_workqueue("%s-%s-mbx", WQ_UNBOUND, 0,
+					  dev_driver_string(dev),
+					  dev_name(dev));
 	if (!adapter->mbx_wq) {
 		dev_err(dev, "Failed to allocate mailbox workqueue\n");
 		err = -ENOMEM;
@@ -402,8 +408,8 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	adapter->stats_wq = alloc_workqueue("%s-%s-stats", 0, 0,
-					   dev_driver_string(dev),
-					   dev_name(dev));
+					    dev_driver_string(dev),
+					    dev_name(dev));
 	if (!adapter->stats_wq) {
 		dev_err(dev, "Failed to allocate statistics workqueue\n");
 		err = -ENOMEM;
@@ -433,6 +439,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->adi_info.vdcm_init_ok = (adapter->dev_ops.vdcm_init &&
 			adapter->dev_ops.vdcm_init(adapter->pdev) == 0);
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
+	mutex_init(&adapter->init_ctrl_lock);
 	mutex_init(&adapter->vport_ctrl_lock);
 	mutex_init(&adapter->vector_lock);
 	mutex_init(&adapter->queue_lock);
@@ -553,24 +560,21 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
  */
 static void idpf_reset_prepare(struct idpf_adapter *adapter)
 {
-	mutex_lock(&adapter->vport_ctrl_lock);
+	idpf_init_ctrl_lock(adapter);
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	dev_info(idpf_adapter_to_dev(adapter), "Device FLR Reset initiated\n");
-	mutex_unlock(&adapter->vport_ctrl_lock);
 
 	idpf_device_detach(adapter);
-
-	mutex_lock(&adapter->vport_ctrl_lock);
 
 	idpf_netdev_stop_all(adapter);
 	idpf_vc_xn_shutdown(&adapter->vcxn_mngr);
 
-	idpf_idc_event(adapter, IDPF_HR_WARN_RESET, true);
+	idpf_idc_event(&adapter->rdma_data, IDPF_HR_WARN_RESET, true);
 	idpf_set_vport_state(adapter);
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);
 
-	mutex_unlock(&adapter->vport_ctrl_lock);
+	idpf_init_ctrl_unlock(adapter);
 }
 
 /**
@@ -645,18 +649,19 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 		return;
 	}
 
+	idpf_init_ctrl_lock(adapter);
+
 	err = idpf_check_reset_complete(adapter);
 	if (err) {
 		dev_err(&adapter->pdev->dev, "The driver was unable to contact the device's firmware.  Check that the FW is running. Driver state=%u\n",
 			adapter->state);
+		idpf_init_ctrl_unlock(adapter);
 		return;
 	}
 
-	mutex_lock(&adapter->vport_ctrl_lock);
-
 	idpf_reset_recover(adapter);
 
-	mutex_unlock(&adapter->vport_ctrl_lock);
+	idpf_init_ctrl_unlock(adapter);
 
 	/* Wait for all init_task WQs to complete */
 	do {

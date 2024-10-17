@@ -313,6 +313,21 @@ static void idpf_vc_xn_release_bufs(struct idpf_vc_xn *xn)
 }
 
 /**
+ * idpf_init_vc_xn_completion - Initialize virtchnl completion object
+ * @vcxn_mngr: pointer to vc transaction manager struct
+ */
+void idpf_init_vc_xn_completion(struct idpf_vc_xn_manager *vcxn_mngr)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(vcxn_mngr->ring); i++) {
+		struct idpf_vc_xn *xn = &vcxn_mngr->ring[i];
+
+		init_completion(&xn->completed);
+	}
+}
+
+/**
  * idpf_vc_xn_init - Initialize virtchnl transaction object
  * @vcxn_mngr: pointer to vc transaction manager struct
  */
@@ -333,7 +348,7 @@ void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr)
 		xn->state = IDPF_VC_XN_IDLE;
 		xn->idx = i;
 		idpf_vc_xn_release_bufs(xn);
-		init_completion(&xn->completed);
+		reinit_completion(&xn->completed);
 		INIT_LIST_HEAD(&xn->free_list);
 		list_add(&xn->free_list, &vcxn_mngr->free_xns);
 		idpf_vc_xn_unlock(xn);
@@ -634,7 +649,7 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 
 	if (ctlq_msg->data_len) {
 		payload = ctlq_msg->ctx.indirect.payload->va;
-		payload_size = ctlq_msg->ctx.indirect.payload->size;
+		payload_size = ctlq_msg->data_len;
 	}
 
 	xn->reply_sz = payload_size;
@@ -1023,10 +1038,11 @@ static int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 	struct virtchnl2_ptp_get_vport_tx_tstamp_caps send_tx_tstamp_caps;
 	struct virtchnl2_ptp_get_vport_tx_tstamp_caps *rcv_tx_tstamp_caps;
 	struct idpf_ptp_vport_tx_tstamp_caps *tx_tstamp_caps;
-	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp;
+	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp, *tmp;
 	struct idpf_vc_xn_params xn_params = { };
 	enum idpf_ptp_access access_type;
 	int err = 0, i, reply_sz;
+	struct list_head *head;
 	u16 num_latches;
 	u32 size;
 
@@ -1035,7 +1051,6 @@ static int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 		return -EOPNOTSUPP;
 
 	rcv_tx_tstamp_caps = kzalloc(IDPF_CTLQ_MAX_BUF_LEN, GFP_KERNEL);
-
 	if (!rcv_tx_tstamp_caps)
 		return -ENOMEM;
 
@@ -1049,21 +1064,24 @@ static int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 	xn_params.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC;
 
 	reply_sz = idpf_vc_xn_exec(vport->adapter, xn_params);
-	if (reply_sz < 0)
-		return reply_sz;
+	if (reply_sz < 0) {
+		err = reply_sz;
+		goto get_tstamp_caps_out;
+	}
 
 	num_latches = le16_to_cpu(rcv_tx_tstamp_caps->num_latches);
 	size = struct_size(rcv_tx_tstamp_caps, tstamp_latches, num_latches);
 	if (reply_sz < size) {
 		err = -EIO;
-		goto free_recv_buf;
+		goto get_tstamp_caps_out;
 	}
 
 	tx_tstamp_caps = kzalloc(sizeof(struct idpf_ptp_vport_tx_tstamp_caps),
 				 GFP_ATOMIC);
-
-	if (!tx_tstamp_caps)
-		return -ENOMEM;
+	if (!tx_tstamp_caps) {
+		err = -ENOMEM;
+		goto get_tstamp_caps_out;
+	}
 
 	vport->tx_tstamp_caps = tx_tstamp_caps;
 
@@ -1079,9 +1097,17 @@ static int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 	tx_tstamp_caps->tx_tstamp_status = kcalloc(tx_tstamp_caps->num_entries,
 						   sizeof(struct idpf_ptp_tx_tstamp_status),
 						   GFP_ATOMIC);
+	if (!tx_tstamp_caps->tx_tstamp_status) {
+		err = -ENOMEM;
+		goto err_free_tstamp_caps;
+	}
 
 	for (i = 0; i < tx_tstamp_caps->num_entries; i++) {
 		ptp_tx_tstamp = kzalloc(sizeof(*ptp_tx_tstamp), GFP_ATOMIC);
+		if (!ptp_tx_tstamp) {
+			err = -ENOMEM;
+			goto err_free_ptp_tx_stamp_list;
+		}
 
 		if (access_type == IDPF_PTP_DIRECT) {
 			ptp_tx_tstamp->tx_latch_reg_offset_l =
@@ -1099,7 +1125,19 @@ static int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 		tx_tstamp_caps->tx_tstamp_status[i].state = IDPF_PTP_FREE;
 	}
 
-free_recv_buf:
+	goto get_tstamp_caps_out;
+
+err_free_ptp_tx_stamp_list:
+	mutex_lock(&tx_tstamp_caps->lock_free);
+	head = &tx_tstamp_caps->latches_free;
+	list_for_each_entry_safe(ptp_tx_tstamp, tmp, head, list_member) {
+		list_del(&ptp_tx_tstamp->list_member);
+		kfree(ptp_tx_tstamp);
+	}
+	mutex_unlock(&tx_tstamp_caps->lock_free);
+err_free_tstamp_caps:
+	kfree(tx_tstamp_caps);
+get_tstamp_caps_out:
 	kfree(rcv_tx_tstamp_caps);
 	return err;
 }
@@ -1386,7 +1424,7 @@ int idpf_ptp_get_tx_tstamp(struct idpf_vport *vport)
 	struct list_head *head = &tx_tstamp_caps->latches_in_use;
 	struct idpf_vc_xn_params xn_params = { };
 	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp;
-	int reply_sz, size, err = 0;
+	int reply_sz, msg_size, size, err = 0;
 	u16 id = 0, i;
 
 	size = struct_size(send_tx_tstamp_latches_msg, tstamp_latches,
@@ -1413,9 +1451,14 @@ int idpf_ptp_get_tx_tstamp(struct idpf_vport *vport)
 	send_tx_tstamp_latches_msg->vport_id = cpu_to_le32(vport->vport_id);
 	send_tx_tstamp_latches_msg->num_latches = cpu_to_le16(id);
 
+	/* Calculate the size of message based on number of requested Tx
+	 * timestamp latches.
+	 */
+	msg_size = struct_size(send_tx_tstamp_latches_msg, tstamp_latches, id);
+
 	xn_params.vc_op = VIRTCHNL2_OP_PTP_GET_VPORT_TX_TSTAMP;
 	xn_params.send_buf.iov_base = send_tx_tstamp_latches_msg;
-	xn_params.send_buf.iov_len = IDPF_CTLQ_MAX_BUF_LEN;
+	xn_params.send_buf.iov_len = msg_size;
 	xn_params.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC;
 	xn_params.async = true;
 	xn_params.async_handler = idpf_ptp_get_tx_tstamp_async_handler;
@@ -1848,10 +1891,6 @@ int idpf_send_create_vport_msg(struct idpf_adapter *adapter,
 	reply_sz = idpf_vc_xn_exec(adapter, xn_params);
 	if (reply_sz < 0) {
 		err = reply_sz;
-		goto create_vport_fail_rel_recv_params;
-	}
-	if (reply_sz < IDPF_CTLQ_MAX_BUF_LEN) {
-		err = -EIO;
 		goto create_vport_fail_rel_recv_params;
 	}
 
@@ -2364,7 +2403,7 @@ static int idpf_send_ena_dis_queues_msg(struct idpf_vport *vport,
 		xn_params.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC;
 	} else {
 		xn_params.vc_op = VIRTCHNL2_OP_DISABLE_QUEUES;
-		xn_params.timeout_ms = IDPF_VC_XN_MIN_TIMEOUT_MSEC;
+	xn_params.timeout_ms = IDPF_VC_XN_MIN_TIMEOUT_MSEC;
 	}
 
 	num_chunks = le16_to_cpu(chunks->num_chunks);
@@ -2476,8 +2515,8 @@ int idpf_send_map_unmap_queue_vector_msg(struct idpf_vport *vport,
 		memcpy(vqvm->qv_maps, vqv, chunk_sz * num_chunks);
 
 		reply_sz = idpf_vc_xn_exec(vport->adapter, xn_params);
-		if (reply_sz < buf_sz) {
-			err = reply_sz < 0 ? reply_sz : -EIO;
+		if (reply_sz < 0) {
+			err = reply_sz;
 			goto mbx_error;
 		}
 
@@ -3323,10 +3362,6 @@ int idpf_send_get_rx_ptype_msg(struct idpf_vport *vport)
 			err = -EINVAL;
 			goto ptype_rel;
 		}
-		if (reply_sz < IDPF_CTLQ_MAX_BUF_LEN) {
-			err = -EIO;
-			goto ptype_rel;
-		}
 
 		ptypes_recvd += le16_to_cpu(ptype_info->num_ptypes);
 		if (ptypes_recvd > max_ptype) {
@@ -3845,7 +3880,6 @@ restart:
 
 	return 0;
 
-	idpf_intr_rel(adapter);
 err_intr_req:
 	cancel_delayed_work_sync(&adapter->serv_task);
 	idpf_vport_params_buf_rel(adapter);
@@ -4018,6 +4052,21 @@ static int idpf_uplink_port_stats_alloc(struct idpf_vport *vport)
 	return 0;
 }
 
+#ifdef HAVE_XDP_SUPPORT
+/**
+ * idpf_vport_set_xdp_tx_desc_handler - Set a handler function for XDP Tx
+ *					descriptor
+ * @vport: vport to setup XDP Tx descriptor handler for
+ */
+static void idpf_vport_set_xdp_tx_desc_handler(struct idpf_vport *vport)
+{
+	if (vport->dflt_grp.q_grp.txq_model == VIRTCHNL2_QUEUE_MODEL_SINGLE)
+		vport->xdp_prepare_tx_desc = idpf_prepare_xdp_tx_singleq_desc;
+	else
+		vport->xdp_prepare_tx_desc = idpf_prepare_xdp_tx_splitq_desc;
+}
+
+#endif /* HAVE_XDP_SUPPORT */
 /**
  * idpf_vport_init - Initialize virtual port
  * @vport: virtual port to be initialized
@@ -4077,6 +4126,8 @@ int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q)
 	memcpy(vport->tx_itr_profile, tx_itr, IDPF_DIM_PROFILE_SLOTS);
 
 #ifdef HAVE_XDP_SUPPORT
+	idpf_vport_set_xdp_tx_desc_handler(vport);
+
 	if (idpf_xdp_is_prog_ena(vport))
 		idpf_vport_set_hsplit(vport, false);
 	else
@@ -4114,13 +4165,7 @@ int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q)
 			return err;
 		};
 
-		vport->tstamp_wq = alloc_workqueue("%s-%s-mbx", 0, 0,
-						   dev_driver_string(&vport->adapter->pdev->dev),
-						   dev_name(&vport->adapter->pdev->dev));
-		if (!vport->tstamp_wq)
-			return -ENOMEM;
-
-		INIT_DELAYED_WORK(&vport->tstamp_task, idpf_tstamp_task);
+		INIT_WORK(&vport->tstamp_task, idpf_tstamp_task);
 	}
 	return err;
 }
@@ -4304,21 +4349,29 @@ int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 {
 	/* We may never deal with more than 256 same type of queues */
 #define IDPF_MAX_QIDS	256
-	u32 qids[IDPF_MAX_QIDS];
-	int num_ids;
+	int num_ids, ret = 0;
 	u16 q_type;
+	u32 *qids;
+
+	qids = kcalloc(IDPF_MAX_QIDS, sizeof(u32), GFP_KERNEL);
+	if (!qids)
+		return -ENOMEM;
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_TX;
 	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
-	if (num_ids < q_grp->num_txq)
-		return -EINVAL;
+	if (num_ids < q_grp->num_txq) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	__idpf_vport_queue_ids_init(q_grp, qids, num_ids, q_type);
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_RX;
 	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
-	if (num_ids < q_grp->num_rxq)
-		return -EINVAL;
+	if (num_ids < q_grp->num_rxq) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	__idpf_vport_queue_ids_init(q_grp, qids, num_ids, q_type);
 
@@ -4327,26 +4380,33 @@ int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_TX_COMPLETION;
 	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
-	if (num_ids < q_grp->num_complq)
-		return -EINVAL;
+	if (num_ids < q_grp->num_complq) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	__idpf_vport_queue_ids_init(q_grp, qids, num_ids, q_type);
 
 check_rx:
 	if (!idpf_is_queue_model_split(q_grp->rxq_model))
-		return 0;
+		goto out;
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_RX_BUFFER;
 	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
-	if (num_ids < q_grp->num_bufq)
-		return -EINVAL;
+	if (num_ids < q_grp->num_bufq) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	__idpf_vport_queue_ids_init(q_grp, qids, num_ids, q_type);
 
 	if (idpf_rx_map_bufq_qids(q_grp))
-		return -ENOMEM;
+		ret = -ENOMEM;
 
-	return 0;
+out:
+	kfree(qids);
+
+	return ret;
 }
 
 /**

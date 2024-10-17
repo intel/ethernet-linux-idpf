@@ -1,6 +1,6 @@
 Name: idpf
 Summary: Infrastructure Data Path Function Linux Driver
-Version: 0.0.756
+Version: 0.0.766
 Release: %{?dist}
 Source: %{name}-%{version}.tar.gz
 Vendor: Intel Corporation

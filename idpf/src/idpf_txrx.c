@@ -736,8 +736,10 @@ static int idpf_rx_buf_alloc(struct idpf_queue *q, bool is_splitq)
 	 * of AF_XDP data structures in bpf.
 	 * The initialization of AF_XDP is contained in 'idpf_vport_xdp_init()'.
 	 */
-	if (idpf_xsk_is_zc_bufq(q))
+	if (idpf_xsk_is_zc_bufq(q)) {
+		idpf_rx_post_init_bufs(q);
 		return 0;
+	}
 
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
 	err = idpf_rx_buf_hw_alloc(q, is_splitq);
@@ -1899,9 +1901,8 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 					 * descriptor through virtchnl msg to
 					 * report to stack.
 					 */
-					mod_delayed_work(txq->vport->tstamp_wq,
-							 &txq->vport->tstamp_task,
-							 0);
+					queue_work(system_unbound_wq,
+						   &txq->vport->tstamp_task);
 					break;
 				}
 			}
@@ -2212,9 +2213,8 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 				/* Fetch timestamp from completion descriptor
 				 * through virtchnl msg to report to stack.
 				 */
-				mod_delayed_work(txq->vport->tstamp_wq,
-						 &txq->vport->tstamp_task,
-						 0);
+				queue_work(system_unbound_wq,
+					   &txq->vport->tstamp_task);
 				break;
 			}
 		}
@@ -3546,7 +3546,7 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		return idpf_tx_drop_skb(tx_q, skb);
 
 	/* Check for splitq specific TX resources */
-	count += (IDPF_TX_DESCS_PER_CACHE_LINE + tso);
+	count += tso;
 	if (idpf_tx_maybe_stop_splitq(tx_q, count)) {
 		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
 		return NETDEV_TX_BUSY;
@@ -4216,8 +4216,7 @@ struct sk_buff *idpf_rx_construct_skb(struct idpf_queue *rxq,
 	/* prefetch first cache line of first page */
 	net_prefetch(va);
 	/* allocate a skb to store the frags */
-	skb = __napi_alloc_skb(&rxq->q_vector->napi, IDPF_RX_HDR_SIZE,
-			       GFP_ATOMIC);
+	skb = napi_alloc_skb(&rxq->q_vector->napi, IDPF_RX_HDR_SIZE);
 	if (unlikely(!skb))
 		return NULL;
 
@@ -4269,7 +4268,7 @@ static struct sk_buff *idpf_rx_hdr_construct_skb(struct idpf_queue *rxq,
 	struct sk_buff *skb;
 
 	/* allocate a skb to store the frags */
-	skb = __napi_alloc_skb(&rxq->q_vector->napi, size, GFP_ATOMIC);
+	skb = napi_alloc_skb(&rxq->q_vector->napi, size);
 	if (unlikely(!skb))
 		return NULL;
 
@@ -5096,22 +5095,37 @@ static void idpf_vport_intr_dis_irq_all(struct idpf_intr_grp *intr_grp)
 
 /**
  * idpf_vport_intr_buildreg_itr - Enable default interrupt generation settings
- * @q_vector: pointer to q_vector
- * @type: itr index
- * @itr: itr value
+ * @qvec: pointer to q_vector
  */
-static u32 idpf_vport_intr_buildreg_itr(struct idpf_q_vector *q_vector,
-					const int type, u16 itr)
+static u32 idpf_vport_intr_buildreg_itr(struct idpf_q_vector *qvec)
 {
 	u32 itr_val;
 
-	itr &= IDPF_ITR_MASK;
 	/* Don't clear PBA because that can cause lost interrupts that
 	 * came in while we were cleaning/polling
 	 */
-	itr_val = q_vector->intr_reg.dyn_ctl_intena_m |
-		  (type << q_vector->intr_reg.dyn_ctl_itridx_s) |
-		  (itr << (q_vector->intr_reg.dyn_ctl_intrvl_s - 1));
+	itr_val = qvec->intr_reg.dyn_ctl_intena_m |
+		  (IDPF_NO_ITR_UPDATE_IDX << qvec->intr_reg.dyn_ctl_itridx_s);
+
+	return itr_val;
+}
+
+/**
+ * idpf_vport_intr_buildreg_sw_itr - enable sw interrupt generation settings
+ * @qvec: pointer to q_vector
+ *
+ * Enable SW triggered interrupt while also enabling default interrupt
+ * generation settings.
+ */
+static u32 idpf_vport_intr_buildreg_sw_itr(struct idpf_q_vector *qvec)
+{
+	u32 itr_val;
+
+	itr_val = qvec->intr_reg.dyn_ctl_intena_m |
+		  qvec->intr_reg.dyn_ctl_swint_trig_m |
+		  qvec->intr_reg.dyn_ctl_sw_itridx_ena_m |
+		  (IDPF_SW_ITR_UPDATE_IDX << qvec->intr_reg.dyn_ctl_itridx_s) |
+		  (IDPF_ITR_20K << (qvec->intr_reg.dyn_ctl_intrvl_s - 1));
 
 	return itr_val;
 }
@@ -5208,11 +5222,18 @@ void idpf_vport_intr_update_itr_ena_irq(struct idpf_q_vector *q_vector)
 
 	/* net_dim() updates ITR out-of-band using a work item */
 	idpf_net_dim(q_vector);
-	intval = idpf_vport_intr_buildreg_itr(q_vector,
-					      IDPF_NO_ITR_UPDATE_IDX, 0);
+	/* Trigger a software interrupt when exiting busy poll, to make sure to
+	 * catch any pending cleanups that might have been missed due to
+	 * interrupt state transition.
+	 */
+	if (q_vector->wb_on_itr) {
+		q_vector->wb_on_itr = false;
+		intval = idpf_vport_intr_buildreg_sw_itr(q_vector);
+	} else {
+		intval = idpf_vport_intr_buildreg_itr(q_vector);
+	}
 
 	writel(intval, q_vector->intr_reg.dyn_ctl);
-	q_vector->wb_on_itr = false;
 }
 
 /**
@@ -5375,9 +5396,9 @@ void idpf_vport_intr_set_wb_on_itr(struct idpf_q_vector *q_vector)
 void idpf_vport_intr_deinit(struct idpf_vport *vport,
 			    struct idpf_intr_grp *intr_grp)
 {
+	idpf_vport_intr_dis_irq_all(intr_grp);
 	idpf_vport_intr_napi_dis_all(intr_grp);
 	idpf_vport_intr_napi_del_all(intr_grp);
-	idpf_vport_intr_dis_irq_all(intr_grp);
 	idpf_vport_intr_rel_irq(vport, intr_grp);
 }
 
@@ -5547,8 +5568,8 @@ static int idpf_vport_splitq_napi_poll(struct napi_struct *napi, int budget)
 {
 	struct idpf_q_vector *q_vector =
 				container_of(napi, struct idpf_q_vector, napi);
+	int work_done = 0, tx_wd = 0;
 	bool clean_complete;
-	int work_done = 0;
 
 	/* Handle case where we are called by netpoll with a budget of 0 */
 	if (unlikely(!budget)) {
@@ -5557,7 +5578,7 @@ static int idpf_vport_splitq_napi_poll(struct napi_struct *napi, int budget)
 	}
 
 	clean_complete = idpf_rx_splitq_clean_all(q_vector, budget, &work_done);
-	clean_complete &= idpf_tx_splitq_clean_all(q_vector, budget, &work_done);
+	clean_complete &= idpf_tx_splitq_clean_all(q_vector, budget, &tx_wd);
 
 	/* If work not completed, return budget and polling will return */
 	if (!clean_complete) {
@@ -5570,7 +5591,7 @@ static int idpf_vport_splitq_napi_poll(struct napi_struct *napi, int budget)
 	/* Exit the polling mode, but don't re-enable interrupts if stack might
 	 * poll us due to busy-polling
 	 */
-	if (likely(napi_complete_done(napi, work_done)))
+	if (napi_complete_done(napi, work_done))
 		idpf_vport_intr_update_itr_ena_irq(q_vector);
 	else
 		idpf_vport_intr_set_wb_on_itr(q_vector);
@@ -5716,7 +5737,7 @@ static void idpf_vport_intr_napi_add_all(struct idpf_vport *vport,
  */
 int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 {
-	u16 txqs_per_vector, rxqs_per_vector, num_txq_vec_need;
+	u16 txqs_per_vector, rxqs_per_vector, bufq_per_vector, num_txq_vec_need;
 	struct idpf_intr_grp *intr_grp = &vgrp->intr_grp;
 	struct idpf_q_grp *q_grp = &vgrp->q_grp;
 	struct idpf_q_vector *q_vector;
@@ -5776,7 +5797,8 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 
 		if (!idpf_is_queue_model_split(q_grp->rxq_model))
 			continue;
-		q_vector->bufq = kcalloc(q_grp->bufq_per_rxq * rxqs_per_vector,
+		bufq_per_vector = q_grp->bufq_per_rxq * rxqs_per_vector;
+		q_vector->bufq = kcalloc(bufq_per_vector,
 					 sizeof(struct idpf_queue *),
 					 GFP_KERNEL);
 		if (!q_vector->bufq) {
@@ -5812,7 +5834,6 @@ int idpf_vport_intr_init(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 
 	idpf_vport_intr_map_vector_to_qs(vgrp);
 	idpf_vport_intr_napi_add_all(vport, vgrp);
-	idpf_vport_intr_napi_ena_all(intr_grp);
 	if (vgrp->type == IDPF_GRP_TYPE_P2P) {
 		u16 qv_idx;
 
@@ -5833,15 +5854,25 @@ int idpf_vport_intr_init(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 	if (err)
 		goto unroll_vectors_alloc;
 
-	idpf_vport_intr_ena_irq_all(vport, intr_grp);
-
 	return 0;
 
 unroll_vectors_alloc:
-	idpf_vport_intr_napi_dis_all(intr_grp);
 	idpf_vport_intr_napi_del_all(intr_grp);
 
 	return err;
+}
+
+/**
+ * idpf_vport_intr_ena - Enable NAPI and all vectors for the given vport
+ * @vport: virtual port
+ * @vgrp: Queue and interrupt resource group
+ */
+void idpf_vport_intr_ena(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
+{
+	struct idpf_intr_grp *intr_grp = &vgrp->intr_grp;
+
+	idpf_vport_intr_napi_ena_all(intr_grp);
+	idpf_vport_intr_ena_irq_all(vport, intr_grp);
 }
 
 /**

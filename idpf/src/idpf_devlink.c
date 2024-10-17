@@ -54,8 +54,13 @@ static int idpf_devlink_create_sf_port(struct idpf_sf *sf)
 	devlink_port_attrs_set(devlink_port, &attrs);
 	devlink = priv_to_devlink(adapter);
 #ifdef HAVE_DEVLINK_PORT_OPS
+#ifdef HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG
+	err = devl_port_register_with_ops(devlink, devlink_port, sf->sf_id,
+					  &idpf_devlink_port_ops);
+#else
 	err = devlink_port_register_with_ops(devlink, devlink_port, sf->sf_id,
 					     &idpf_devlink_port_ops);
+#endif /* HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG */
 #else
 #ifdef HAVE_DEVL_PORT_REGISTER
 	err = devl_port_register(devlink, devlink_port, sf->sf_id);
@@ -160,24 +165,6 @@ unroll_sf_alloc:
 	return err;
 }
 
-static void idpf_cleanup_task(struct work_struct *work)
-{
-	struct idpf_sf *sf, *temp_sf;
-	struct idpf_adapter *adapter;
-
-	adapter = container_of(work, struct idpf_adapter, cleanup_task.work);
-	mutex_lock(&adapter->sf_mutex);
-	list_for_each_entry_safe(sf, temp_sf, &adapter->sf_list, list) {
-		if (!sf->deleted)
-			continue;
-		devlink_port_unregister(&sf->devl_port);
-		list_del(&sf->list);
-		kfree(sf);
-		adapter->sf_cnt--;
-	}
-	mutex_unlock(&adapter->sf_mutex);
-}
-
 /**
  * idpf_destroy_sf - Free the vport and the associated subfunc structure.
  * the corresponding devlink port is also unregistered.
@@ -205,9 +192,51 @@ static void idpf_destroy_sf(struct idpf_sf *sf)
 		adapter->vport_config[idx] = NULL;
 	}
 
-	sf->deleted = true;
-	schedule_delayed_work(&adapter->cleanup_task,
-			      msecs_to_jiffies(DEVLINK_DEFER_TIME));
+#ifdef HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG
+	devl_port_unregister(&sf->devl_port);
+#else
+	devlink_port_unregister(&sf->devl_port);
+#endif /* HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG */
+	mutex_lock(&adapter->sf_mutex);
+	sf->vport = NULL;
+	kfree(sf);
+	adapter->sf_cnt--;
+	mutex_unlock(&adapter->sf_mutex);
+}
+
+/**
+ * idpf_destroy_sfs - delete all the associated subfunctions
+ * marked for deletion.
+ * @adapter: pointer to idpf adapter structure
+ */
+static void idpf_destroy_sfs(struct idpf_adapter *adapter)
+{
+	struct idpf_sf *sf, *temp_sf;
+
+	mutex_lock(&adapter->sf_mutex);
+	list_for_each_entry_safe(sf, temp_sf, &adapter->sf_list, list) {
+		if (!sf->deleted)
+			continue;
+
+		/* remove this entry first */
+		list_del(&sf->list);
+		mutex_unlock(&adapter->sf_mutex);
+		idpf_destroy_sf(sf);
+		mutex_lock(&adapter->sf_mutex);
+	}
+	mutex_unlock(&adapter->sf_mutex);
+}
+
+/**
+ * idpf_cleanup_task - task to delete associated vport and sf
+ * @work: pointer to work_struct structure
+ */
+static void idpf_cleanup_task(struct work_struct *work)
+{
+	struct idpf_adapter *adapter;
+
+	adapter = container_of(work, struct idpf_adapter, cleanup_task.work);
+	idpf_destroy_sfs(adapter);
 }
 
 /**
@@ -250,12 +279,23 @@ static int idpf_dl_port_del(struct devlink *devlink,
 			break;
 		}
 	}
-	mutex_unlock(&adapter->sf_mutex);
 	if (!sf) {
 		NL_SET_ERR_MSG_MOD(extack, "Failed to find a SF port with a given index");
+		mutex_unlock(&adapter->sf_mutex);
 		return -EINVAL;
 	}
+
+	sf->deleted = true;
+#ifdef HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG
+	list_del(&sf->list);
+	mutex_unlock(&adapter->sf_mutex);
 	idpf_destroy_sf(sf);
+#else
+	mutex_unlock(&adapter->sf_mutex);
+	schedule_delayed_work(&adapter->cleanup_task,
+			      msecs_to_jiffies(DEVLINK_DEFER_TIME));
+#endif /* HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG */
+
 	return 0;
 }
 
@@ -310,7 +350,9 @@ static int idpf_dl_port_fn_state_set(struct devlink *unused,
 #ifdef HAVE_DEVLINK_PORT_TYPE_ETH_HAS_NETDEV
 	devlink_port_type_eth_set(&sf->devl_port, adapter->netdevs[next_vport]);
 #else
+#ifndef HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG
 	devlink_port_type_eth_set(&sf->devl_port);
+#endif /* HAVE_DEVL_PORT_REG_WITH_OPS_AND_UNREG */
 #endif /* HAVE_DEVLINK_PORT_TYPE_ETH_HAS_NETDEV */
 	sf->state = DEVLINK_PORT_FN_STATE_ACTIVE;
 	return 0;
@@ -323,13 +365,16 @@ static int idpf_dl_port_fn_state_set(struct devlink *unused,
  */
 static void idpf_destroy_sf_list(struct idpf_adapter *adapter)
 {
-	struct idpf_sf *sf;
+	struct idpf_sf *sf, *temp_sf;
 
 	cancel_delayed_work_sync(&adapter->cleanup_task);
+	/* Mark all the subfunctions as deleted and call destroy handler */
 	mutex_lock(&adapter->sf_mutex);
-	list_for_each_entry(sf, &adapter->sf_list, list)
-		idpf_destroy_sf(sf);
+	list_for_each_entry_safe(sf, temp_sf, &adapter->sf_list, list)
+		sf->deleted = true;
+
 	mutex_unlock(&adapter->sf_mutex);
+	idpf_destroy_sfs(adapter);
 }
 
 #ifdef HAVE_DEVLINK_PORT_OPS

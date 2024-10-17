@@ -52,7 +52,7 @@ struct idpf_rss_data;
 #endif /* CONFIG_IOMMU_BYPASS */
 
 #define IDPF_DRV_NAME "idpf"
-#define IDPF_DRV_VER "0.0.756"
+#define IDPF_DRV_VER "0.0.766"
 
 #define IDPF_M(m, s)	((m) << (s))
 
@@ -61,6 +61,7 @@ struct idpf_rss_data;
 #include "virtchnl2.h"
 #include "idpf_txrx.h"
 #include "idpf_controlq.h"
+#include "idpf_devids.h"
 #ifdef HAVE_XDP_SUPPORT
 #include <linux/bpf_trace.h>
 #include <linux/filter.h>
@@ -90,8 +91,6 @@ struct idpf_rss_data;
 #define IDPF_NUM_CHUNKS_PER_MSG(struct_sz, chunk_sz)   \
 	((IDPF_CTLQ_MAX_BUF_LEN - (struct_sz)) / (chunk_sz))
 
-#define IDPF_VC_XN_MIN_TIMEOUT_MSEC	6000
-#define IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC	(60 * 1000)
 #define IDPF_VC_XN_IDX_M		GENMASK(7, 0)
 #define IDPF_VC_XN_SALT_M		GENMASK(15, 8)
 
@@ -132,6 +131,7 @@ struct idpf_mac_filter {
 
 struct idpf_rdma_data {
 	struct iidc_core_dev_info *cdev_info;
+	struct msix_entry *msix_entries;
 	int aux_idx;
 	u16 num_vecs;
 };
@@ -207,6 +207,9 @@ enum idpf_cap_field {
  * @vport_id: Vport identifier
  * @link_speed_mbps: Link speed in mbps
  * @vport_idx: Relative vport index
+#ifdef HAVE_NDO_FEATURES_CHECK
+ * @max_tx_hdr_size: Max header length hardware can support
+#endif
  * @active: vport is open or stopped
  * @stats_lock: Lock to protect stats update
  * @netstats: Packet and byte stats
@@ -217,6 +220,9 @@ struct idpf_netdev_priv {
 	u32 vport_id;
 	u32 link_speed_mbps;
 	u16 vport_idx;
+#ifdef HAVE_NDO_FEATURES_CHECK
+	u16 max_tx_hdr_size;
+#endif /* HAVE_NDO_FEATURES_CHECK */
 	bool active;
 	spinlock_t stats_lock;
 	struct rtnl_link_stats64 netstats;
@@ -601,7 +607,6 @@ struct idpf_vgrp {
  * @tstamp_config: The Tx tstamp config
  * @tx_tstamps_caps: The capabilities negotiated for Tx timestamping
  * @tstamp_task: Tx timestamping task
- * @tstamp_wq: Workqueue for Tx timestamping task
  */
 struct idpf_vport {
 	struct idpf_vgrp dflt_grp;
@@ -647,8 +652,7 @@ struct idpf_vport {
 	wait_queue_head_t sw_marker_wq;
 	struct hwtstamp_config tstamp_config;
 	struct idpf_ptp_vport_tx_tstamp_caps *tx_tstamp_caps;
-	struct delayed_work tstamp_task;
-	struct workqueue_struct *tstamp_wq;
+	struct work_struct tstamp_task;
 };
 
 /**
@@ -840,7 +844,6 @@ struct idpf_iommu_bypass {
  * @parent: MDEV parent
 #endif
 #endif
- * @num_req_msix: Requested number of MSIX vectors
  * @num_avail_msix: Available number of MSIX vectors
  * @num_msix_entries: Number of entries in MSIX table
  * @msix_entries: MSIX table
@@ -879,6 +882,7 @@ struct idpf_iommu_bypass {
  * @req_tx_splitq: TX split or single queue model to request
  * @req_rx_splitq: RX split or single queue model to request
  * @crc_enable: Enable CRC insertion offload
+ * @init_ctrl_lock: Lock to protect init, re-init, and deinit flow
  * @vport_ctrl_lock: Lock to protect access to vports during alloc/dealloc/reset
  * @vector_lock: Lock to protect vector distribution
  * @queue_lock: Lock to protect queue distribution
@@ -915,7 +919,6 @@ struct idpf_adapter {
 	struct mdev_parent parent;
 #endif /* HAVE_MDEV_REGISTER_PARENT && ENABLE_ACC_PASID_WA */
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
-	u16 num_req_msix;
 	u16 num_avail_msix;
 	u16 num_msix_entries;
 	struct msix_entry *msix_entries;
@@ -954,6 +957,7 @@ struct idpf_adapter {
 	bool req_tx_splitq;
 	bool req_rx_splitq;
 	bool crc_enable;
+	struct mutex init_ctrl_lock;
 	struct mutex vport_ctrl_lock;
 	struct mutex vector_lock;
 	struct mutex queue_lock;
@@ -1042,6 +1046,15 @@ bool idpf_is_capability_ena(struct idpf_adapter *adapter, bool all,
 static inline bool idpf_is_rdma_cap_ena(struct idpf_adapter *adapter)
 {
 	return idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_RDMA);
+}
+
+/**
+ * idpf_get_reserved_rdma_vecs - Get reserved RDMA vectors
+ * @adapter: private data struct
+ */
+static inline u16 idpf_get_reserved_rdma_vecs(struct idpf_adapter *adapter)
+{
+       return le16_to_cpu(adapter->caps.num_rdma_allocated_vectors);
 }
 
 #define IDPF_CAP_RSS (\
@@ -1287,28 +1300,46 @@ idpf_get_queue_group_info(struct virtchnl2_add_queue_groups *aqg) {
 }
 
 /**
+ * idpf_init_ctrl_lock -Acquire the init/deinit control lock. It
+ * controls and protect initialization, re-initialization and
+ * deinitialization code flow and its resources.
+ * @adapter: private data struct
+ *
+ * This lock is only used by non-datapath code to protect.
+ */
+static inline void idpf_init_ctrl_lock(struct idpf_adapter *adapter)
+{
+	mutex_lock(&adapter->init_ctrl_lock);
+}
+
+/**
+ * idpf_init_ctrl_unlock - Release the init/deinit control lock
+ * @adapter: private data struct
+ */
+static inline void idpf_init_ctrl_unlock(struct idpf_adapter *adapter)
+{
+	mutex_unlock(&adapter->init_ctrl_lock);
+}
+
+/**
  * idpf_vport_ctrl_lock -Acquire the vport control lock
- * @netdev: Network interface device structure
+ * @adapter: private data struct
  *
  * This lock should be used by non-datapath code to protect against vport
  * destruction.
  */
-static inline void idpf_vport_ctrl_lock(struct net_device *netdev)
+static inline void idpf_vport_ctrl_lock(struct idpf_adapter *adapter)
 {
-	struct idpf_netdev_priv *np = netdev_priv(netdev);
-
-	mutex_lock(&np->adapter->vport_ctrl_lock);
+	mutex_lock(&adapter->vport_ctrl_lock);
 }
 
 /**
  * idpf_vport_ctrl_unlock - Release the vport control lock
- * @netdev: Network interface device structure
+ * @adapter: private data struct
  */
-static inline void idpf_vport_ctrl_unlock(struct net_device *netdev)
+static inline void idpf_vport_ctrl_unlock(struct idpf_adapter *adapter)
 {
-	struct idpf_netdev_priv *np = netdev_priv(netdev);
-
-	mutex_unlock(&np->adapter->vport_ctrl_lock);
+	mutex_unlock(&adapter->vport_ctrl_lock);
 }
 
 void idpf_statistics_task(struct work_struct *work);
@@ -1319,6 +1350,7 @@ void idpf_tstamp_task(struct work_struct *work);
 void idpf_vc_event_task(struct work_struct *work);
 void idpf_dev_ops_init(struct idpf_adapter *adapter);
 void idpf_vf_dev_ops_init(struct idpf_adapter *adapter);
+void idpf_init_vc_xn_completion(struct idpf_vc_xn_manager *vcxn_mngr);
 void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr);
 void idpf_vc_xn_shutdown(struct idpf_vc_xn_manager *vcxn_mngr);
 void idpf_vport_adjust_qs(struct idpf_vport *vport);
@@ -1439,15 +1471,16 @@ void idpf_xdp_flush(struct net_device *dev);
 #endif /* HAVE_XDP_SUPPORT */
 int idpf_send_set_sriov_vfs_msg(struct idpf_adapter *adapter, u16 num_vfs);
 int idpf_sriov_configure(struct pci_dev *pdev, int num_vfs);
+int idpf_sriov_config_vfs(struct pci_dev *pdev, int num_vfs);
 int idpf_idc_init(struct idpf_adapter *adapter);
 void idpf_idc_deinit(struct idpf_adapter *adapter);
 int
-idpf_idc_init_aux_device(struct idpf_adapter *adapter,
+idpf_idc_init_aux_device(struct idpf_rdma_data *rdma_data,
 			 enum iidc_function_type ftype);
 void idpf_idc_deinit_aux_device(struct idpf_adapter *adapter);
-int idpf_idc_vc_receive(struct idpf_adapter *adapter, u32 f_id, const u8 *msg,
+int idpf_idc_vc_receive(struct idpf_rdma_data *rdma_data, u32 f_id, const u8 *msg,
 			u16 msg_size);
-void idpf_idc_event(struct idpf_adapter *adapter,
+void idpf_idc_event(struct idpf_rdma_data *rdma_data,
 		    enum idpf_vport_reset_cause reason,
 		    bool pre_event);
 static inline bool idpf_is_feature_ena(struct idpf_vport *vport,
@@ -1467,5 +1500,8 @@ struct idpf_adapter *idpf_ptp_info_to_adapter(struct ptp_clock_info *info)
 
 	return container_of(ptp, struct idpf_adapter, ptp);
 }
+
+#define IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC	(120 * 1000)
+#define IDPF_VC_XN_MIN_TIMEOUT_MSEC	2000
 
 #endif /* !_IDPF_H_ */

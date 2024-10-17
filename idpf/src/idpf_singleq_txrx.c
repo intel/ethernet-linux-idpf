@@ -401,7 +401,7 @@ static netdev_tx_t idpf_tx_singleq_frame(struct sk_buff *skb,
 		offload.tx_flags |= IDPF_TX_FLAGS_IPV6;
 
 	tso = idpf_tso(skb, &offload);
-	if (tso < 0)
+	if (unlikely(tso < 0))
 		goto out_drop;
 
 	if (idpf_tx_singleq_csum(skb, &offload))

@@ -18,6 +18,11 @@
 /* Control Queue default settings */
 #define IDPF_CTRL_SQ_CMD_TIMEOUT	250  /* msecs */
 
+#define IDPF_CTLQ_DESC_VF_ID_S	0
+#define IDPF_CTLQ_DESC_VF_ID_M	(0x7FF << IDPF_CTLQ_DESC_VF_ID_S)
+#define IDPF_CTLQ_DESC_PF_ID_S	11
+#define IDPF_CTLQ_DESC_PF_ID_M	(0x1F << IDPF_CTLQ_DESC_PF_ID_S)
+
 struct idpf_ctlq_desc {
 	__le16	flags;
 	__le16	opcode;
@@ -25,10 +30,6 @@ struct idpf_ctlq_desc {
 	union {
 		__le16 ret_val;
 		__le16 pfid_vfid;
-#define IDPF_CTLQ_DESC_VF_ID_S	0
-#define IDPF_CTLQ_DESC_VF_ID_M	(0x7FF << IDPF_CTLQ_DESC_VF_ID_S)
-#define IDPF_CTLQ_DESC_PF_ID_S	11
-#define IDPF_CTLQ_DESC_PF_ID_M	(0x1F << IDPF_CTLQ_DESC_PF_ID_S)
 	};
 	__le32 cookie_high;
 	__le32 cookie_low;

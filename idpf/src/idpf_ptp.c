@@ -2,7 +2,7 @@
 /* Copyright (C) 2019-2024 Intel Corporation */
 
 #include "idpf.h"
-#if defined(CONFIG_ARM64) || defined(CONFIG_ARM_ARCH_TIMER)
+#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 #include <clocksource/arm_arch_timer.h>
 #endif
 
@@ -146,7 +146,6 @@ static int idpf_ptp_read_src_clk_reg(struct idpf_adapter *adapter,
 }
 
 #ifdef HAVE_PTP_CROSSTIMESTAMP
-#if IS_ENABLED(CONFIG_PCIE_PTM) || (defined(CONFIG_ARM64) && defined(CONFIG_ARM_ARCH_TIMER))
 /**
  * idpf_ptp_get_sync_device_time - Get the cross time stamp info
  * @device: Current device time
@@ -204,11 +203,11 @@ static int idpf_ptp_get_sync_device_time(ktime_t *device,
 	}
 
 	*device = ns_to_ktime(ns_time_dev);
-#if defined(CONFIG_ARM64) && defined(CONFIG_ARM_ARCH_TIMER)
+#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 	*system = arch_timer_wrap_counter(ns_time_sys);
 #elif IS_ENABLED(CONFIG_PCIE_PTM)
 	*system = convert_art_ns_to_tsc(ns_time_sys);
-#endif /* CONFIG_ARM64 && CONFIG_ARM_ARCH_TIMER */
+#endif /* CONFIG_ARM_ARCH_TIMER */
 
 	return err;
 }
@@ -231,7 +230,6 @@ static int idpf_ptp_get_crosststamp(struct ptp_clock_info *info,
 					     adapter, NULL, cts);
 }
 
-#endif /* CONFIG_PCIE_PTM || (CONFIG_ARM64 && CONFIG_ARM_ARCH_TIMER) */
 #endif /* HAVE_PTP_CROSSTIMESTAMP */
 /**
  * idpf_ptp_update_cached_phctime - Update the cached PHC time values
@@ -567,6 +565,12 @@ static int idpf_ptp_init_work(struct idpf_adapter *adapter)
 	struct idpf_ptp *ptp = &adapter->ptp;
 	struct kthread_worker *kworker;
 
+	/* Do not initialize the PTP work if the device clock time cannot be
+	 * read.
+	 */
+	if (adapter->ptp.get_dev_clk_time_access == IDPF_PTP_NONE)
+		return 0;
+
 	kthread_init_delayed_work(&ptp->work, idpf_periodic_work);
 
 	kworker = kthread_create_worker(0, "idpf-ptp-%s",
@@ -828,7 +832,7 @@ static void idpf_ptp_set_caps(struct idpf_adapter *adapter)
 	info->gettime = idpf_ptp_gettime32;
 #endif
 #ifdef HAVE_PTP_CROSSTIMESTAMP
-#if defined(CONFIG_ARM64) && defined(CONFIG_ARM_ARCH_TIMER)
+#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 	info->getcrosststamp = idpf_ptp_get_crosststamp;
 #elif IS_ENABLED(CONFIG_PCIE_PTM)
 	if (pcie_ptm_enabled(adapter->pdev) &&
@@ -839,7 +843,7 @@ static void idpf_ptp_set_caps(struct idpf_adapter *adapter)
 		dev_dbg(idpf_adapter_to_dev(adapter), "PTM not enabled\n");
 	}
 
-#endif /* CONFIG_ARM64 && CONFIG_ARM_ARCH_TIMER */
+#endif /* CONFIG_ARM_ARCH_TIMER */
 #endif /* HAVE_PTP_CROSSTIMESTAMP */
 }
 
@@ -891,8 +895,7 @@ static void idpf_ptp_release_tstamp(struct idpf_adapter *adapter)
 		if (!vport || !vport->tx_tstamp_caps)
 			continue;
 
-		cancel_delayed_work_sync(&vport->tstamp_task);
-		destroy_workqueue(vport->tstamp_wq);
+		cancel_work_sync(&vport->tstamp_task);
 
 		/* Remove list with free latches */
 		mutex_lock(&vport->tx_tstamp_caps->lock_free);
@@ -1004,7 +1007,8 @@ remove_clock:
  */
 void idpf_ptp_release(struct idpf_adapter *adapter)
 {
-	kthread_cancel_delayed_work_sync(&adapter->ptp.work);
+	if (adapter->ptp.get_dev_clk_time_access != IDPF_PTP_NONE)
+		kthread_cancel_delayed_work_sync(&adapter->ptp.work);
 
 	if (adapter->ptp.tx_tstamp_access != IDPF_PTP_NONE)
 		idpf_ptp_release_tstamp(adapter);
