@@ -146,6 +146,7 @@ static int idpf_ptp_read_src_clk_reg(struct idpf_adapter *adapter,
 }
 
 #ifdef HAVE_PTP_CROSSTIMESTAMP
+#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER) || IS_ENABLED(CONFIG_PCIE_PTM)
 /**
  * idpf_ptp_get_sync_device_time - Get the cross time stamp info
  * @device: Current device time
@@ -230,7 +231,9 @@ static int idpf_ptp_get_crosststamp(struct ptp_clock_info *info,
 					     adapter, NULL, cts);
 }
 
+#endif /* CONFIG_ARM_ARCH_TIMER || CONFIG_PCIE_PTM */
 #endif /* HAVE_PTP_CROSSTIMESTAMP */
+
 /**
  * idpf_ptp_update_cached_phctime - Update the cached PHC time values
  * @adapter: Driver specific private structure
