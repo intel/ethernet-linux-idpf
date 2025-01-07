@@ -9,7 +9,7 @@
 #             (numerical order).
 #
 8086  Intel Corporation
-        1452  Smart Network Adapter ES2000
-        145c  Smart Network Adapter ES2000 Virtual Function
+        1452  Infrastructure Data Path Function
+        145c  Infrastructure Data Path Function
         0dd5  SIOV Virtual Function
 

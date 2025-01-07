@@ -263,6 +263,9 @@ store_hw_info:
 	return 0;
 }
 
+static struct lock_class_key idpf_pf_init_ctrl_lock_key;
+static struct lock_class_key idpf_pf_work_lock_key;
+
 /**
  * idpf_probe - Device initialization routine
  * @pdev: PCI device information struct
@@ -312,9 +315,24 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->req_tx_splitq = true;
 	adapter->req_rx_splitq = true;
 
+	mutex_init(&adapter->init_ctrl_lock);
+	mutex_init(&adapter->vport_ctrl_lock);
+	mutex_init(&adapter->vector_lock);
+	mutex_init(&adapter->queue_lock);
+
+	INIT_DELAYED_WORK(&adapter->init_task, idpf_init_task);
+	INIT_DELAYED_WORK(&adapter->serv_task, idpf_service_task);
+	INIT_DELAYED_WORK(&adapter->mbx_task, idpf_mbx_task);
+	INIT_DELAYED_WORK(&adapter->stats_task, idpf_statistics_task);
+	INIT_DELAYED_WORK(&adapter->vc_event_task, idpf_vc_event_task);
+
 	switch (ent->device) {
 	case IDPF_DEV_ID_PF:
 		idpf_dev_ops_init(adapter);
+		lockdep_set_class(&adapter->init_ctrl_lock,
+				  &idpf_pf_init_ctrl_lock_key);
+		lockdep_init_map(&adapter->vc_event_task.work.lockdep_map,
+				 "idpf-PF-vc-work", &idpf_pf_work_lock_key, 0);
 		break;
 	case IDPF_DEV_ID_VF:
 		idpf_vf_dev_ops_init(adapter);
@@ -439,16 +457,6 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->adi_info.vdcm_init_ok = (adapter->dev_ops.vdcm_init &&
 			adapter->dev_ops.vdcm_init(adapter->pdev) == 0);
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
-	mutex_init(&adapter->init_ctrl_lock);
-	mutex_init(&adapter->vport_ctrl_lock);
-	mutex_init(&adapter->vector_lock);
-	mutex_init(&adapter->queue_lock);
-
-	INIT_DELAYED_WORK(&adapter->init_task, idpf_init_task);
-	INIT_DELAYED_WORK(&adapter->serv_task, idpf_service_task);
-	INIT_DELAYED_WORK(&adapter->mbx_task, idpf_mbx_task);
-	INIT_DELAYED_WORK(&adapter->stats_task, idpf_statistics_task);
-	INIT_DELAYED_WORK(&adapter->vc_event_task, idpf_vc_event_task);
 
 	adapter->dev_ops.reg_ops.reset_reg_init(adapter);
 	set_bit(IDPF_HR_DRV_LOAD, adapter->flags);

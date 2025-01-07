@@ -10,6 +10,8 @@
 #include <linux/ptp_clock_kernel.h>
 #include <linux/ptp_classify.h>
 
+#define IDPF_PTP_VALID_BIT BIT(0)
+
 enum idpf_ptp_access {
 	IDPF_PTP_NONE = 0,
 	IDPF_PTP_DIRECT,
@@ -110,8 +112,8 @@ struct idpf_ptp_vport_tx_tstamp_caps {
 	u32 vport_id;
 	u16 num_entries;
 	u8 tstamp_ns_lo_bit;
-	struct mutex lock_in_use; /* lock to used latches list */
-	struct mutex lock_free; /* lock to free latches list */
+	spinlock_t lock_in_use; /* lock to used latches list */
+	spinlock_t lock_free; /* lock to free latches list */
 	struct list_head latches_free;
 	struct list_head latches_in_use;
 	struct idpf_ptp_tx_tstamp_status *tx_tstamp_status;
@@ -175,11 +177,12 @@ int idpf_ptp_get_cross_time(struct idpf_adapter *adapter,
 int idpf_ptp_set_dev_clk_time(struct idpf_adapter *adapter, u64 time);
 int idpf_ptp_adj_dev_clk_fine(struct idpf_adapter *adapter, u64 incval);
 int idpf_ptp_adj_dev_clk_time(struct idpf_adapter *adapter, s64 delta);
+int idpf_ptp_get_tx_tstamp_mb(struct idpf_vport *vport);
 int idpf_ptp_get_tx_tstamp(struct idpf_vport *vport);
 int idpf_ptp_get_ts_config(struct idpf_vport *vport, struct ifreq *ifr);
 int idpf_ptp_set_ts_config(struct idpf_vport *vport, struct ifreq *ifr);
 s8 idpf_ptp_request_ts(struct idpf_vport *vport, struct sk_buff *skb);
-u64 idpf_ptp_extend_ts(struct idpf_adapter *adapter, u32 in_tstamp);
+u64 idpf_ptp_extend_ts(struct idpf_adapter *adapter, u64 in_tstamp);
 u64 idpf_ptp_tstamp_extend_32b_to_64b(u64 cached_phc_time, u32 in_timestamp);
 #else /* IS_ENABLED(CONFIG_PTP_1588_CLOCK) */
 static inline int idpf_ptp_get_caps(struct idpf_adapter *adapter)
@@ -232,6 +235,11 @@ static inline int idpf_ptp_adj_dev_clk_time(struct idpf_adapter *adapter,
 	return -EOPNOTSUPP;
 }
 
+static inline int idpf_ptp_get_tx_tstamp_mb(struct idpf_vport *vport)
+{
+	return -EOPNOTSUPP;
+}
+
 static inline int idpf_ptp_get_tx_tstamp(struct idpf_vport *vport)
 {
 	return -EOPNOTSUPP;
@@ -256,7 +264,7 @@ static inline s8 idpf_ptp_request_ts(struct idpf_vport *vport,
 }
 
 static inline u64 idpf_ptp_extend_ts(struct idpf_adapter *adapter,
-				     u32 in_tstamp)
+				     u64 in_tstamp)
 {
 	return 0;
 }
@@ -266,5 +274,6 @@ static inline u64 idpf_ptp_tstamp_extend_32b_to_64b(u64 cached_phc_time,
 {
 	return 0;
 }
+
 #endif /* IS_ENABLED(CONFIG_PTP_1588_CLOCK) */
 #endif /* _IDPF_PTP_H_ */

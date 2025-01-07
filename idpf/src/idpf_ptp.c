@@ -624,19 +624,20 @@ u64 idpf_ptp_tstamp_extend_32b_to_64b(u64 cached_phc_time, u32 in_timestamp)
  * time stored in the device private PTP structure as the basis for timestamp
  * extension.
  */
-u64 idpf_ptp_extend_ts(struct idpf_adapter *adapter, u32 in_tstamp)
+u64 idpf_ptp_extend_ts(struct idpf_adapter *adapter, u64 in_tstamp)
 {
 	unsigned long discard_time;
-	u64 ticks;
+	u32 tstamp;
 
 	discard_time = adapter->ptp.cached_phc_jiffies + msecs_to_jiffies(2000);
 
 	if (time_is_before_jiffies(discard_time))
 		return 0;
 
-	ticks =  idpf_ptp_tstamp_extend_32b_to_64b(adapter->ptp.cached_phc_time,
-						   in_tstamp);
-	return ticks;
+	tstamp = lower_32_bits(in_tstamp);
+
+	return idpf_ptp_tstamp_extend_32b_to_64b(adapter->ptp.cached_phc_time,
+						 tstamp);
 }
 
 /**
@@ -654,6 +655,7 @@ s8 idpf_ptp_request_ts(struct idpf_vport *vport, struct sk_buff *skb)
 {
 	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp;
 	struct list_head *head;
+	unsigned long flags;
 	u8 idx = -1;
 
 	if (!vport->tx_tstamp_caps)
@@ -665,22 +667,100 @@ s8 idpf_ptp_request_ts(struct idpf_vport *vport, struct sk_buff *skb)
 		return idx;
 
 	/* Get the index from the free latches list */
-	mutex_lock(&vport->tx_tstamp_caps->lock_free);
+	spin_lock_irqsave(&vport->tx_tstamp_caps->lock_free, flags);
 	ptp_tx_tstamp = list_first_entry(head, struct idpf_ptp_tx_tstamp,
 					 list_member);
 	list_del(&ptp_tx_tstamp->list_member);
-	mutex_unlock(&vport->tx_tstamp_caps->lock_free);
+	spin_unlock_irqrestore(&vport->tx_tstamp_caps->lock_free, flags);
 
 	ptp_tx_tstamp->skb = skb_get(skb);
 	skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
 
 	/* Move the element to the used latches list */
-	mutex_lock(&vport->tx_tstamp_caps->lock_in_use);
+	spin_lock_irqsave(&vport->tx_tstamp_caps->lock_in_use, flags);
 	list_add(&ptp_tx_tstamp->list_member,
 		 &vport->tx_tstamp_caps->latches_in_use);
-	mutex_unlock(&vport->tx_tstamp_caps->lock_in_use);
+	spin_unlock_irqrestore(&vport->tx_tstamp_caps->lock_in_use, flags);
 
 	return ptp_tx_tstamp->idx;
+}
+
+/**
+ * idpf_ptp_get_tx_tstamp - Read the Tx timestamp value
+ * @vport: Virtual port structure
+ *
+ * Read the Tx timestamp value directly - through BAR registers - and provide
+ * it back to the skb.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int idpf_ptp_get_tx_tstamp(struct idpf_vport *vport)
+{
+	struct idpf_ptp_vport_tx_tstamp_caps *tx_tstamp_caps;
+	u32 tstamp_lo, tstamp_hi, offset_lo, offset_hi;
+	struct skb_shared_hwtstamps shhwtstamps = {};
+	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp;
+	struct idpf_ptp_tx_tstamp_status *status;
+	u64 tstamp, extended_tstamp;
+	u8 tstamp_ns_lo_bit, valid;
+	struct list_head *head;
+	bool idx_found = false;
+	unsigned long flags;
+	u16 i;
+
+	tx_tstamp_caps = vport->tx_tstamp_caps;
+	head =  &tx_tstamp_caps->latches_in_use;
+
+	/* Find a proper idx on the used-latches list */
+	spin_lock_irqsave(&tx_tstamp_caps->lock_in_use, flags);
+	list_for_each_entry(ptp_tx_tstamp, head, list_member) {
+		for (i = 0; i < tx_tstamp_caps->num_entries; i++) {
+			status = &tx_tstamp_caps->tx_tstamp_status[i];
+			if (status->skb == ptp_tx_tstamp->skb  &&
+			    status->state == IDPF_PTP_REQUEST) {
+				status->state = IDPF_PTP_READ_VALUE;
+				list_del(&ptp_tx_tstamp->list_member);
+				idx_found = true;
+				break;
+			}
+		}
+
+		if (idx_found)
+			break;
+	}
+	spin_unlock_irqrestore(&tx_tstamp_caps->lock_in_use, flags);
+
+	if (!idx_found)
+		return -EACCES;
+
+	offset_lo = ptp_tx_tstamp->tx_latch_reg_offset_l;
+	offset_hi = ptp_tx_tstamp->tx_latch_reg_offset_h;
+
+	tstamp_lo = readl(idpf_get_reg_addr(vport->adapter, offset_lo));
+	tstamp_hi = readl(idpf_get_reg_addr(vport->adapter, offset_hi));
+	tstamp = (u64)tstamp_hi << 32 | tstamp_lo;
+	valid = tstamp & IDPF_PTP_VALID_BIT;
+
+	if (!valid)
+		return -EIO;
+
+	/* Move tstamp value to skip ns part and the valid bit */
+	tstamp_ns_lo_bit = tx_tstamp_caps->tstamp_ns_lo_bit;
+	tstamp >>= tstamp_ns_lo_bit + 1;
+
+	extended_tstamp = idpf_ptp_extend_ts(vport->adapter, tstamp);
+
+	shhwtstamps.hwtstamp = ns_to_ktime(extended_tstamp);
+	skb_tstamp_tx(ptp_tx_tstamp->skb, &shhwtstamps);
+	dev_kfree_skb_any(ptp_tx_tstamp->skb);
+
+	/* Free the latch index */
+	status->state = IDPF_PTP_FREE;
+	spin_lock_irqsave(&tx_tstamp_caps->lock_free, flags);
+	list_add(&ptp_tx_tstamp->list_member, &tx_tstamp_caps->latches_free);
+	spin_unlock_irqrestore(&tx_tstamp_caps->lock_free, flags);
+
+	return 0;
 }
 
 /**
@@ -694,7 +774,7 @@ static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, bool on)
 	u16 i;
 
 	access = vport->adapter->ptp.tx_tstamp_access;
-	if (access != IDPF_PTP_MAILBOX)
+	if (access == IDPF_PTP_NONE)
 		return;
 
 	for (i = 0; i < vport->dflt_grp.q_grp.num_rxq; i++)
@@ -887,6 +967,7 @@ static void idpf_ptp_release_tstamp(struct idpf_adapter *adapter)
 {
 	struct idpf_ptp_tx_tstamp *ptp_tx_tstamp, *tmp;
 	struct list_head *head;
+	unsigned long flags;
 	int i;
 
 	idpf_for_each_vport(adapter, i) {
@@ -898,7 +979,7 @@ static void idpf_ptp_release_tstamp(struct idpf_adapter *adapter)
 		cancel_work_sync(&vport->tstamp_task);
 
 		/* Remove list with free latches */
-		mutex_lock(&vport->tx_tstamp_caps->lock_free);
+		spin_lock_irqsave(&vport->tx_tstamp_caps->lock_free, flags);
 
 		head = &vport->tx_tstamp_caps->latches_free;
 		list_for_each_entry_safe(ptp_tx_tstamp, tmp, head, list_member) {
@@ -906,11 +987,11 @@ static void idpf_ptp_release_tstamp(struct idpf_adapter *adapter)
 			kfree(ptp_tx_tstamp);
 		}
 
-		mutex_unlock(&vport->tx_tstamp_caps->lock_free);
-		mutex_destroy(&vport->tx_tstamp_caps->lock_free);
+		spin_unlock_irqrestore(&vport->tx_tstamp_caps->lock_free,
+				       flags);
 
 		/* Remove list with latches in use */
-		mutex_lock(&vport->tx_tstamp_caps->lock_in_use);
+		spin_lock_irqsave(&vport->tx_tstamp_caps->lock_in_use, flags);
 
 		head = &vport->tx_tstamp_caps->latches_in_use;
 		list_for_each_entry_safe(ptp_tx_tstamp, tmp, head, list_member) {
@@ -918,8 +999,8 @@ static void idpf_ptp_release_tstamp(struct idpf_adapter *adapter)
 			kfree(ptp_tx_tstamp);
 		}
 
-		mutex_unlock(&vport->tx_tstamp_caps->lock_in_use);
-		mutex_destroy(&vport->tx_tstamp_caps->lock_in_use);
+		spin_unlock_irqrestore(&vport->tx_tstamp_caps->lock_in_use,
+				       flags);
 
 		kfree(vport->tx_tstamp_caps->tx_tstamp_status);
 		kfree(vport->tx_tstamp_caps);
