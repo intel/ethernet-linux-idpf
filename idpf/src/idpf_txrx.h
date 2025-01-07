@@ -73,7 +73,7 @@
 /* Default vector sharing */
 #define IDPF_MBX_Q_VEC		1
 #define IDPF_MIN_Q_VEC		1
-#define IDPF_MIN_RDMA_VEC	4 /* Minimum vectors to be shared with RDMA */
+#define IDPF_MIN_RDMA_VEC	2 /* Minimum vectors to be shared with RDMA */
 
 #define IDPF_DFLT_TX_Q_DESC_COUNT		512
 #define IDPF_DFLT_TX_COMPLQ_DESC_COUNT		512
