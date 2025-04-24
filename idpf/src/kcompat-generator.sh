@@ -372,6 +372,8 @@ function gen-ptp() {
 	gen HAVE_PTP_CLOCK_INFO_GETTIME64 if method gettime64 of ptp_clock_info in "$clockh"
 	gen HAVE_PTP_CLOCK_INFO_GETTIMEX64 if method gettimex64 of ptp_clock_info in "$clockh"
 	gen HAVE_PTP_FIND_PIN_UNLOCKED if fun ptp_find_pin_unlocked in "$clockh"
+	gen HAVE_PTP_SUPPORTED_EXTTS_FLAGS if struct ptp_clock_info matches supported_extts_flags in "$clockh"
+	gen HAVE_PTP_SUPPORTED_PEROUT_FLAGS if struct ptp_clock_info matches supported_perout_flags in "$clockh"
 	gen NEED_DIFF_BY_SCALED_PPM if fun diff_by_scaled_ppm absent in "$clockh"
 	gen NEED_PTP_SYSTEM_TIMESTAMP if fun ptp_read_system_prets absent in "$clockh"
 	gen HAVE_PTP_SYS_COUNTERVAL_CSID if struct system_counterval_t matches clocksource_ids in "$timekeepingh"
