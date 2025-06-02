@@ -372,6 +372,12 @@ static void idpf_get_ringparam(struct net_device *netdev,
 	ring->rx_pending = q_grp->rxq_desc_count;
 	ring->tx_pending = q_grp->txq_desc_count;
 
+#ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
+#if IS_ENABLED(CONFIG_ETHTOOL_NETLINK) && defined(HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT)
+	kring->tcp_data_split = idpf_vport_get_hsplit(vport);
+#endif /* CONFIG_ETHTOOL_NETLINK && HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT */
+#endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
+
 	idpf_vport_cfg_unlock(adapter);
 }
 
@@ -451,6 +457,18 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	if (new_tx_count == q_grp->txq_desc_count &&
 	    new_rx_count == q_grp->rxq_desc_count)
 		goto unlock_mutex;
+
+#ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
+#if IS_ENABLED(CONFIG_ETHTOOL_NETLINK) && defined(HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT)
+	if (!idpf_vport_set_hsplit(vport, kring->tcp_data_split)) {
+		NL_SET_ERR_MSG_MOD(ext_ack,
+				   "setting TCP data split is not supported");
+		err = -EOPNOTSUPP;
+
+		goto unlock_mutex;
+	}
+#endif /* CONFIG_ETHTOOL_NETLINK && HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT */
+#endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 
 	config_data = &vport->adapter->vport_config[idx]->user_config;
 	config_data->num_req_txq_desc = new_tx_count;
@@ -1725,6 +1743,9 @@ static const struct ethtool_ops idpf_ethtool_ops = {
 				     ETHTOOL_COALESCE_USE_ADAPTIVE,
 #endif /* ETHTOOL_COALESCE_USECS */
 	.get_drvinfo		= idpf_get_drvinfo,
+#ifdef HAVE_ETHTOOL_SUPPORTED_RING_PARAMS
+	.supported_ring_params	= ETHTOOL_RING_USE_TCP_DATA_SPLIT,
+#endif /* HAVE_ETHTOOL_SUPPORTED_RING_PARAMS */
 	.get_msglevel		= idpf_get_msglevel,
 	.set_msglevel		= idpf_set_msglevel,
 	.get_link		= ethtool_op_get_link,

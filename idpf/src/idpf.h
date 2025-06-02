@@ -26,6 +26,9 @@ struct idpf_rss_data;
 #include <linux/etherdevice.h>
 #include <linux/pci.h>
 #include <linux/sctp.h>
+#if IS_ENABLED(CONFIG_ETHTOOL_NETLINK)
+#include <linux/ethtool_netlink.h>
+#endif /* CONFIG_ETHTOOL_NETLINK */
 #include <linux/uio.h>
 #include <net/ip6_checksum.h>
 #ifdef HAVE_VXLAN_RX_OFFLOAD
@@ -558,12 +561,14 @@ struct idpf_vport {
 /**
  * enum idpf_user_flags
  * @__IDPF_PRIV_FLAGS_HDR_SPLIT: Private flag to toggle header split
+ * @__IDPF_USER_FLAG_HSPLIT: header split state
  * @__IDPF_PROMISC_UC: Unicast promiscuous mode
  * @__IDPF_PROMISC_MC: Multicast promiscuous mode
  * @__IDPF_USER_FLAGS_NBITS: Must be last
  */
 enum idpf_user_flags {
 	__IDPF_PRIV_FLAGS_HDR_SPLIT = 0,
+	__IDPF_USER_FLAG_HSPLIT = 0U,
 	__IDPF_PROMISC_UC = 32,
 	__IDPF_PROMISC_MC,
 	__IDPF_USER_FLAGS_NBITS,
@@ -1233,7 +1238,12 @@ int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
 void idpf_vport_dealloc_vec_indexes(struct idpf_vport *vport,
 				    struct idpf_vgrp *vgrp);
 void idpf_set_ethtool_ops(struct net_device *netdev);
+#if IS_ENABLED(CONFIG_ETHTOOL_NETLINK) && defined(HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT)
+u8 idpf_vport_get_hsplit(const struct idpf_vport *vport);
+bool idpf_vport_set_hsplit(const struct idpf_vport *vport, u8 val);
+#else
 void idpf_vport_set_hsplit(struct idpf_vport *vport, bool ena);
+#endif /* CONFIG_ETHTOOL_NETLINK && HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT */
 #ifdef DEVLINK_ENABLED
 void idpf_vport_dealloc(struct idpf_vport *vport);
 #endif /* DEVLINK_ENABLED */
