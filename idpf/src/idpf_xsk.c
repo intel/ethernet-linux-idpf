@@ -932,11 +932,10 @@ void idpf_rx_buf_hw_alloc_zc_all(struct idpf_vport *vport,
 		return;
 	}
 
-	for (i = 0; i < q_grp->bufq_per_rxq; i++) {
-		int offset = rxq->idx * q_grp->bufq_per_rxq + i;
+	for (i = 0; i < q_grp->num_bufqs_per_qgrp; i++) {
 		struct idpf_queue *rxbufq;
 
-		rxbufq = &q_grp->bufqs[offset];
+		rxbufq = &rxq->rxq_grp->splitq.bufq_sets[i].bufq;
 		rxbufq->xsk_pool = rxq->xsk_pool;
 		desc_cnt = rxbufq->desc_count - 1;
 		err = idpf_rx_splitq_buf_hw_alloc_zc_all(rxbufq, rxq,

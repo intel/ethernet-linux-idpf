@@ -47,7 +47,7 @@ LIBETH_SQE_CHECK_PRIV(u32);
  */
 #define IDPF_REQ_DESC_MULTIPLE			32
 #define IDPF_REQ_RXQ_DESC_MULTIPLE \
-	(IDPF_MAX_BUFQS_PER_RXQ * IDPF_REQ_DESC_MULTIPLE)
+	(IDPF_MAX_BUFQS_PER_RXQ_GRP * IDPF_REQ_DESC_MULTIPLE)
 #define IDPF_MIN_TX_DESC_NEEDED (MAX_SKB_FRAGS + 6)
 #define IDPF_TX_WAKE_THRESH ((u16)IDPF_MIN_TX_DESC_NEEDED * 2)
 
@@ -59,22 +59,22 @@ LIBETH_SQE_CHECK_PRIV(u32);
 	VIRTCHNL2_TXDID_FLEX_TSO_CTX)
 
 #define IDPF_DFLT_SINGLEQ_TX_Q_GROUPS		1
+#define IDPF_DFLT_SINGLEQ_RX_Q_GROUPS		1
 
 #define IDPF_COMPLQ_PER_GROUP			1
-#define IDPF_SINGLE_BUFQ_PER_RXQ		1
-/* Multiple buffer queues can be mapped to an RX queue to provide different
- * size buffers and features.
- */
-#define IDPF_MAX_BUFQS_PER_RXQ			2
+#define IDPF_SINGLE_BUFQ_PER_RXQ_GRP		1
+
 /* HW can map multiple RX queues to a set of buffer queues in an N:M
  * configuration with N RX queues and M buffer queues. For now there is only
  * the 1:M case accounted for until there is a benefit otherwise.
  */
 #define IDPF_DFLT_SPLITQ_RXQ_PER_BUFQ		1
 
+#define IDPF_MAX_BUFQS_PER_RXQ_GRP		2
 #define IDPF_NUMQ_PER_CHUNK			1
 
 #define IDPF_DFLT_SPLITQ_TXQ_PER_GROUP		1
+#define IDPF_DFLT_SPLITQ_RXQ_PER_GROUP		1
 
 /* Default vector sharing */
 #define IDPF_MBX_Q_VEC		1
@@ -729,7 +729,6 @@ struct idpf_sw_queue {
  * @rx.bufq_bufs: Array of buffer queue buffers mapped to the RX queue
  * @rx.bufq_hdr_bufs: Array of buffer queue header buffers mapped to the RX
  *		      queue
- * @rx.bufq_ids: Array of buffer queue ids mapped to the RX queue
  * @rx.skb: Used only in splitq model for the RX clean routine to store the skb
  *	    pointer of the partially processed packet because of the napi budget
  * @rx.refillqs: Array of refill queues
@@ -803,7 +802,10 @@ struct idpf_queue {
 	struct device *dev;
 	struct idpf_vport *vport;
 	struct net_device *netdev;
-	struct idpf_txq_group *txq_grp;
+	union {
+		struct idpf_txq_group *txq_grp;
+		struct idpf_rxq_group *rxq_grp;
+	};
 	union {
 		struct {
 			struct idpf_tx_buf *bufs;
@@ -824,7 +826,6 @@ struct idpf_queue {
 				struct {
 					struct idpf_rx_buf **bufq_bufs;
 					u64 **bufq_hdr_bufs;
-					u32 bufq_qids[IDPF_MAX_BUFQS_PER_RXQ];
 					struct sk_buff *skb;
 				};
 			};
@@ -883,6 +884,72 @@ struct idpf_queue {
 
 	struct xarray reinject_timers;
 } ____cacheline_internodealigned_in_smp;
+
+/**
+ * struct idpf_rxq_set
+ * @rxq: RX queue
+ * @refillq: pointers to refill queues
+ *
+ * Splitq only.  idpf_rxq_set associates an rxq with at an array of refillqs.
+ * Each rxq needs a refillq to return used buffers back to the respective bufq.
+ * Bufqs then clean these refillqs for buffers to give to hardware.
+ */
+struct idpf_rxq_set {
+	struct idpf_queue rxq;
+	struct idpf_sw_queue *refillq[IDPF_MAX_BUFQS_PER_RXQ_GRP];
+};
+
+/**
+ * struct idpf_bufq_set
+ * @bufq: Buffer queue
+ * @num_refillqs: Number of refill queues. This is always equal to num_rxq_sets
+ *               in idpf_rxq_group.
+ * @refillqs: Pointer to refill queues array.
+ *
+ * Splitq only. idpf_bufq_set associates a bufq to an array of refillqs.
+ * In this bufq_set, there will be one refillq for each rxq in this rxq_group.
+ * Used buffers received by rxqs will be put on refillqs which bufqs will
+ * clean to return new buffers back to hardware.
+ *
+ * Buffers needed by some number of rxqs associated in this rxq_group are
+ * managed by at most two bufqs (depending on performance configuration).
+ */
+struct idpf_bufq_set {
+	struct idpf_queue bufq;
+	int num_refillqs;
+	struct idpf_sw_queue *refillqs;
+};
+
+/**
+ * struct idpf_rxq_group
+ * @vport: Vport back pointer
+ * @singleq: Struct with single queue related members
+ * @singleq.num_rxq: Number of RX queues associated
+ * @singleq.rxqs: Array of RX queue pointers
+ * @splitq: Struct with split queue related members
+ * @splitq.num_rxq_sets: Number of RX queue sets
+ * @splitq.rxq_sets: Array of RX queue sets
+ * @splitq.bufq_sets: Buffer queue set pointer
+ *
+ * In singleq mode, an rxq_group is simply an array of rxqs.  In splitq, a
+ * rxq_group contains all the rxqs, bufqs and refillqs needed to
+ * manage buffers in splitq mode.
+ */
+struct idpf_rxq_group {
+	struct idpf_vport *vport;
+
+	union {
+		struct {
+			u16 num_rxq;
+			struct idpf_queue *rxqs[IDPF_LARGE_MAX_Q];
+		} singleq;
+		struct {
+			u16 num_rxq_sets;
+			struct idpf_rxq_set *rxq_sets[IDPF_LARGE_MAX_Q];
+			struct idpf_bufq_set *bufq_sets;
+		} splitq;
+	};
+};
 
 /**
  * struct idpf_txq_group
@@ -1072,6 +1139,7 @@ int idpf_vport_queue_alloc_all(struct idpf_vport *vport,
 void idpf_vport_queues_rel(struct idpf_vport *vport,
 			   struct idpf_q_grp *q_grp);
 void idpf_post_buf_refill(struct idpf_sw_queue *refillq, u16 buf_id);
+int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp);
 void idpf_vport_intr_rel(struct idpf_vgrp *vgrp);
 int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp);
 void idpf_vport_intr_update_itr_ena_irq(struct idpf_q_vector *q_vector);

@@ -419,9 +419,12 @@ struct idpf_port_stats {
  * @txq_desc_count: TX queue descriptor count
  * @complq_desc_count: Completion queue descriptor count
  * @txq_model: Split queue or single queue queuing model
- * @bufq_per_rxq: Number of buffer queues per RX queue
+ * @num_bufqs_per_qgrp: Buffer queues per RX queue in a given grouping
  * @num_bufq: Number of allocated buffer queues
  * @num_rxq: Number of allocated RX queues
+ * @num_rxq_grp: Number of allocated RX queue groups
+ * @rxq_grps: Total number of RX groups. Number of groups * number of RX per
+ *	      group will yield total number of RX queues.
  * @rxq_desc_count: RX queue descriptor count. *MUST* have enough descriptors
  *                  to complete all buffer descriptors for all buffer queues in
  *                  the worst case.
@@ -441,19 +444,18 @@ struct idpf_q_grp {
 	u32 txq_desc_count;
 	u32 complq_desc_count;
 	u16 txq_model;
-	u16 bufq_per_rxq;
+	u8 num_bufqs_per_qgrp;
 	u16 num_bufq;
 
 	u16 num_rxq;
+	u16 num_rxq_grp;
+	struct idpf_rxq_group *rxq_grps;
 	u32 rxq_desc_count;
-	u32 bufq_desc_count[IDPF_MAX_BUFQS_PER_RXQ];
-	u32 bufq_size[IDPF_MAX_BUFQS_PER_RXQ];
+	u32 bufq_desc_count[IDPF_MAX_BUFQS_PER_RXQ_GRP];
+	u32 bufq_size[IDPF_MAX_BUFQS_PER_RXQ_GRP];
 	u16 rxq_model;
 	bool base_rxd;
 
-	struct idpf_queue **rxqs;
-	struct idpf_queue *bufqs;
-	struct idpf_sw_queue *refillqs;
 };
 
 /**
@@ -1190,18 +1192,6 @@ static inline u16 idpf_get_max_tx_hdr_size(struct idpf_adapter *adapter)
 
 #endif /* HAVE_NDO_FEATURES_CHECK */
 /**
- * idpf_rx_bufq_offset - Translate an RX idx and bufq idx for true offset
- * @q_grp: Queue resources
- * @rx_idx: RX queue index
- * @bufq_idx: Buffer queue index
- */
-static inline int idpf_rx_bufq_offset(struct idpf_q_grp *q_grp, int rx_idx,
-				      int bufq_idx)
-{
-	return q_grp->bufq_per_rxq * rx_idx + bufq_idx;
-}
-
-/**
  * idpf_vport_init_lock -Acquire the init/deinit control lock. It
  * controls and protect initialization, re-initialization and
  * deinitialization code flow and its resources.
@@ -1328,6 +1318,13 @@ int idpf_idc_vc_receive(struct idpf_rdma_data *rdma_data, u32 f_id, const u8 *ms
 			u16 msg_size);
 void idpf_idc_event(struct idpf_rdma_data *rdma_data,
 		    enum iidc_event_type event_type);
+/**
+ * idpf_is_feature_ena - Determine if a particular feature is enabled
+ * @vport: Vport to check
+ * @feature: Netdev flag to check
+ *
+ * Returns true or false if a particular feature is enabled.
+ */
 static inline bool idpf_is_feature_ena(struct idpf_vport *vport,
 				       netdev_features_t feature)
 {

@@ -696,8 +696,13 @@ int idpf_ptp_request_ts(struct idpf_queue *tx_q, struct sk_buff *skb,
  */
 static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
 {
+	struct idpf_q_grp *q_grp = &vport->dflt_grp.q_grp;
 	bool enable = true;
-	u16 i;
+	bool is_split;
+	u16 num_rxq;
+	u16 i, j;
+
+	is_split = idpf_is_queue_model_split(q_grp->rxq_model);
 
 	if (rx_filter == HWTSTAMP_FILTER_NONE) {
 		enable = false;
@@ -706,8 +711,20 @@ static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
 		vport->tstamp_config.rx_filter = HWTSTAMP_FILTER_ALL;
 	}
 
-	for (i = 0; i < vport->dflt_grp.q_grp.num_rxq; i++)
-		vport->dflt_grp.q_grp.rxqs[i]->tstmp_en = enable;
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+
+		num_rxq = is_split ? rx_qgrp->splitq.num_rxq_sets :
+				     rx_qgrp->singleq.num_rxq;
+
+		for (j = 0; j < num_rxq; j++) {
+			struct idpf_queue *q;
+
+			q = is_split ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+				       rx_qgrp->singleq.rxqs[j];
+			q->tstmp_en = enable;
+		}
+	}
 }
 
 /**

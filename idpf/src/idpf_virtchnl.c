@@ -1015,8 +1015,8 @@ int idpf_vport_alloc_max_qs(struct idpf_adapter *adapter,
 	 */
 	if (max_bufq) {
 		max_q->max_rxq = min_t(u16, max_q->max_rxq,
-				       max_bufq / IDPF_MAX_BUFQS_PER_RXQ);
-		max_q->max_bufq = max_q->max_rxq * IDPF_MAX_BUFQS_PER_RXQ;
+				       max_bufq / IDPF_MAX_BUFQS_PER_RXQ_GRP);
+		max_q->max_bufq = max_q->max_rxq * IDPF_MAX_BUFQS_PER_RXQ_GRP;
 	}
 
 	if (max_complq) {
@@ -1177,6 +1177,7 @@ static void __idpf_queue_reg_init(struct idpf_vport *vport,
 				  int num_regs, u32 q_type)
 {
 	struct idpf_adapter *adapter = vport->adapter;
+	struct idpf_queue *q;
 	u16 i, j, k = 0;
 
 	switch (q_type) {
@@ -1189,12 +1190,28 @@ static void __idpf_queue_reg_init(struct idpf_vport *vport,
 		}
 		break;
 	case VIRTCHNL2_QUEUE_TYPE_RX:
-		for (i = 0; i < q_grp->num_rxq; i++)
-			q_grp->rxqs[i]->tail = idpf_get_reg_addr(adapter, reg_vals[i]);
+		for (i = 0; i < q_grp->num_rxq_grp; i++) {
+			struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+			u16 num_rxq = rx_qgrp->singleq.num_rxq;
+
+			for (j = 0; j < num_rxq && k < num_regs; j++, k++) {
+				q = rx_qgrp->singleq.rxqs[j];
+				q->tail = idpf_get_reg_addr(adapter,
+							    reg_vals[k]);
+			}
+		}
 		break;
 	case VIRTCHNL2_QUEUE_TYPE_RX_BUFFER:
-		for (i = 0; i < q_grp->num_bufq; i++)
-			q_grp->bufqs[i].tail = idpf_get_reg_addr(adapter, reg_vals[i]);
+		for (i = 0; i < q_grp->num_rxq_grp; i++) {
+			struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+			u8 num_bufqs = q_grp->num_bufqs_per_qgrp;
+
+			for (j = 0; j < num_bufqs && k < num_regs; j++, k++) {
+				q = &rx_qgrp->splitq.bufq_sets[j].bufq;
+				q->tail = idpf_get_reg_addr(adapter,
+							    reg_vals[k]);
+			}
+		}
 		break;
 	default:
 		break;
@@ -1693,6 +1710,8 @@ static void idpf_set_rxq_info(struct idpf_queue *rxq,
 			      struct virtchnl2_rxq_info *qi,
 			      u16 bufq_per_rxq, u16 rxq_model)
 {
+	struct idpf_bufq_set *bufq_sets;
+
 	__idpf_set_rxq_info(rxq, qi, rxq_model);
 
 	qi->qflags |= cpu_to_le16(VIRTCHNL2_RX_DESC_SIZE_32BYTE);
@@ -1701,10 +1720,11 @@ static void idpf_set_rxq_info(struct idpf_queue *rxq,
 	if (!idpf_is_queue_model_split(rxq_model))
 		return;
 
-	qi->rx_bufq1_id = cpu_to_le16(rxq->rx.bufq_qids[0]);
-	if (bufq_per_rxq > IDPF_SINGLE_BUFQ_PER_RXQ) {
+	bufq_sets = rxq->rxq_grp->splitq.bufq_sets;
+	qi->rx_bufq1_id = cpu_to_le16(bufq_sets[0].bufq.q_id);
+	if (bufq_per_rxq > IDPF_SINGLE_BUFQ_PER_RXQ_GRP) {
 		qi->bufq2_ena = true;
-		qi->rx_bufq2_id = cpu_to_le16(rxq->rx.bufq_qids[1]);
+		qi->rx_bufq2_id = cpu_to_le16(bufq_sets[1].bufq.q_id);
 	}
 }
 
@@ -1741,8 +1761,9 @@ static int idpf_send_config_rx_queues_msg(struct idpf_vport *vport,
 	u16 rxq_model = q_grp->rxq_model;
 	u32 config_sz, chunk_sz, buf_sz;
 	int totqs, num_msgs, num_chunks;
-	int err = 0, i, k = 0;
+	int err = 0, i, j, k = 0;
 	ssize_t reply_sz;
+	bool is_splitq;
 
 	totqs = q_grp->num_rxq + q_grp->num_bufq;
 	qi = kcalloc(totqs, sizeof(struct virtchnl2_rxq_info), GFP_KERNEL);
@@ -1755,13 +1776,32 @@ static int idpf_send_config_rx_queues_msg(struct idpf_vport *vport,
 	/* Buffer queues *MUST* come before RX queues because HW uses RX queues
 	 * to know the buffer size
 	 */
-	for (i = 0; i < q_grp->num_bufq; i++, qi++) {
-		idpf_set_bufq_info(&q_grp->bufqs[i], qi, rxq_model);
-	}
+	is_splitq = idpf_is_queue_model_split(rxq_model);
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+		u16 num_rxq;
 
-	for (i = 0; i < q_grp->num_rxq; i++, qi++) {
-		idpf_set_rxq_info(q_grp->rxqs[i], qi, q_grp->bufq_per_rxq,
-				  rxq_model);
+		if (!is_splitq)
+			goto setup_rxqs;
+
+		for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++, qi++) {
+			idpf_set_bufq_info(&rx_qgrp->splitq.bufq_sets[j].bufq,
+					   qi, rxq_model);
+		}
+
+setup_rxqs:
+		num_rxq = is_splitq ? rx_qgrp->splitq.num_rxq_sets :
+				      rx_qgrp->singleq.num_rxq;
+
+		for (j = 0; j < num_rxq; j++, qi++) {
+			struct idpf_queue *rxq;
+
+			rxq = is_splitq ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+					  rx_qgrp->singleq.rxqs[j];
+
+			idpf_set_rxq_info(rxq, qi, q_grp->num_bufqs_per_qgrp,
+					  rxq_model);
+		}
 	}
 
 	qi = qi_start;
@@ -1902,8 +1942,9 @@ int idpf_send_map_unmap_queue_vector_msg(struct idpf_vport *vport,
 	struct idpf_q_grp *q_grp = &vgrp->q_grp;
 	u32 config_sz, chunk_sz, buf_sz;
 	u32 num_msgs, num_chunks, num_q;
-	ssize_t reply_sz;
 	int i, j, err = 0;
+	ssize_t reply_sz;
+	bool is_splitq;
 
 	num_q = q_grp->num_txq + q_grp->num_rxq;
 
@@ -1932,13 +1973,23 @@ int idpf_send_map_unmap_queue_vector_msg(struct idpf_vport *vport,
 		}
 	}
 
-	for (i = 0; i < q_grp->num_rxq; i++, vqv++) {
-		struct idpf_queue *rxq = q_grp->rxqs[i];
+	is_splitq = idpf_is_queue_model_split(q_grp->rxq_model);
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+		u16 num_rxq;
 
-		vqv->queue_type = cpu_to_le32(rxq->q_type);
-		vqv->queue_id = cpu_to_le32(rxq->q_id);
-		vqv->vector_id = cpu_to_le16(rxq->q_vector->v_idx);
-		vqv->itr_idx = cpu_to_le32(rxq->q_vector->rx_itr_idx);
+		num_rxq = is_splitq ? rx_qgrp->splitq.num_rxq_sets :
+				      rx_qgrp->singleq.num_rxq;
+		for (j = 0; j < num_rxq; j++, vqv++) {
+			struct idpf_queue *rxq;
+
+			rxq = is_splitq ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+					  rx_qgrp->singleq.rxqs[j];
+			vqv->queue_type = cpu_to_le32(rxq->q_type);
+			vqv->queue_id = cpu_to_le32(rxq->q_id);
+			vqv->vector_id = cpu_to_le16(rxq->q_vector->v_idx);
+			vqv->itr_idx = cpu_to_le32(rxq->q_vector->rx_itr_idx);
+		}
 	}
 
 	vqv = vqv_start;
@@ -3549,31 +3600,6 @@ static int idpf_vport_get_queue_ids(u32 *qids, int num_qids, u16 q_type,
 }
 
 /**
- * idpf_rx_map_bufq_qids - Map buffer queue q_ids to RX queues
- * @q_grp: Queue resources
- *
- * RX queues may need to know what buffer queue they're actually assigned to in
- * HW. This relationship is determined by q_id. Returns 0 on success, negative
- * on failure.
- */
-static int idpf_rx_map_bufq_qids(struct idpf_q_grp *q_grp)
-{
-	int i, j;
-
-	for (i = 0; i < q_grp->num_rxq; i++) {
-		struct idpf_queue *rxq = q_grp->rxqs[i];
-
-		for (j = 0; j < q_grp->bufq_per_rxq; j++) {
-			int offset = idpf_rx_bufq_offset(q_grp, i, j);
-
-			rxq->rx.bufq_qids[j] = q_grp->bufqs[offset].q_id;
-		}
-	}
-
-	return 0;
-}
-
-/**
  * __idpf_vport_queue_ids_init - Initialize queue ids from Mailbox parameters
  * @q_grp: Queue resources
  * @qids: queue ids
@@ -3588,6 +3614,7 @@ static void __idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 					int num_qids,
 					u32 q_type)
 {
+	struct idpf_queue *q;
 	int i, j, k = 0;
 
 	switch (q_type) {
@@ -3602,9 +3629,23 @@ static void __idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 		}
 		break;
 	case VIRTCHNL2_QUEUE_TYPE_RX:
-		for (i = 0; i < q_grp->num_rxq && i < num_qids; i++) {
-			q_grp->rxqs[i]->q_id = qids[i];
-			q_grp->rxqs[i]->q_type = q_type;
+		for (i = 0; i < q_grp->num_rxq_grp; i++) {
+			struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+			u16 num_rxq;
+
+			if (idpf_is_queue_model_split(q_grp->rxq_model))
+				num_rxq = rx_qgrp->splitq.num_rxq_sets;
+			else
+				num_rxq = rx_qgrp->singleq.num_rxq;
+
+			for (j = 0; j < num_rxq && k < num_qids; j++, k++) {
+				if (idpf_is_queue_model_split(q_grp->rxq_model))
+					q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
+				else
+					q = rx_qgrp->singleq.rxqs[j];
+				q->q_id = qids[k];
+				q->q_type = q_type;
+			}
 		}
 		break;
 	case VIRTCHNL2_QUEUE_TYPE_TX_COMPLETION:
@@ -3616,9 +3657,15 @@ static void __idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 		}
 		break;
 	case VIRTCHNL2_QUEUE_TYPE_RX_BUFFER:
-		for (i = 0; i < q_grp->num_bufq && i < num_qids; i++) {
-			q_grp->bufqs[i].q_id = qids[i];
-			q_grp->bufqs[i].q_type = q_type;
+		for (i = 0; i < q_grp->num_rxq_grp; i++) {
+			struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+			u8 num_bufqs = q_grp->num_bufqs_per_qgrp;
+
+			for (j = 0; j < num_bufqs && k < num_qids; j++, k++) {
+				q = &rx_qgrp->splitq.bufq_sets[j].bufq;
+				q->q_id = qids[k];
+				q->q_type = q_type;
+			}
 		}
 		break;
 	default:
@@ -3689,9 +3736,6 @@ check_rx:
 	}
 
 	__idpf_vport_queue_ids_init(q_grp, qids, num_ids, q_type);
-
-	if (idpf_rx_map_bufq_qids(q_grp))
-		ret = -ENOMEM;
 
 out:
 	kfree(qids);
@@ -4041,12 +4085,23 @@ static int idpf_send_ena_dis_vlan_offload(struct idpf_adapter *adapter,
  */
 static void idpf_set_rxq_vlan_proto(struct idpf_q_grp *rsrc, __be16 vlan_proto)
 {
-	u16 i;
+	bool is_splitq = idpf_is_queue_model_split(rsrc->rxq_model);
+	u16 i, j;
 
-	for (i = 0; i < rsrc->num_rxq; i++) {
-		struct idpf_queue *q = rsrc->rxqs[i];
+	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rx_qgrp = &rsrc->rxq_grps[i];
+		u16 num_rxq;
 
-		q->rx.vlan_proto = vlan_proto;
+		num_rxq = is_splitq ? rx_qgrp->splitq.num_rxq_sets :
+				      rx_qgrp->singleq.num_rxq;
+
+		for (j = 0; j < num_rxq; j++) {
+			struct idpf_queue *q;
+
+			q = is_splitq ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+					rx_qgrp->singleq.rxqs[j];
+			q->rx.vlan_proto = vlan_proto;
+		}
 	}
 }
 

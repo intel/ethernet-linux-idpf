@@ -477,10 +477,10 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	/* Since we adjusted the RX completion queue count, the RX buffer queue
 	 * descriptor count needs to be adjusted as well
 	 */
-	for (i = 0; i < q_grp->bufq_per_rxq; i++)
+	for (i = 0; i < q_grp->num_bufqs_per_qgrp; i++)
 		q_grp->bufq_desc_count[i] =
 			IDPF_RX_BUFQ_DESC_COUNT(new_rx_count,
-						q_grp->bufq_per_rxq);
+						q_grp->num_bufqs_per_qgrp);
 
 	err = idpf_initiate_soft_reset(vport, IDPF_SR_Q_DESC_CHANGE);
 
@@ -1089,54 +1089,72 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 
 	u64_stats_update_end(&pstats->stats_sync);
 
-	for (i = 0; i < q_grp->num_rxq; i++) {
-		u64 hw_csum_err, hsplit, hsplit_hbo, bad_descs;
-		u64 rsc_pkts, rsc_bytes, rsc_segs_tot, k;
-		u64 page_recycles = 0, page_reallocs = 0;
-		u64 segs[IDPF_MAX_SEGS];
-		struct idpf_queue *rxq = q_grp->rxqs[i];
-		struct idpf_rx_queue_stats *stats;
-		unsigned int start;
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rxq_grp = &q_grp->rxq_grps[i];
+		u16 num_rxq;
 
-		do {
-			start = u64_stats_fetch_begin(&rxq->stats_sync);
+		if (idpf_is_queue_model_split(q_grp->rxq_model))
+			num_rxq = rxq_grp->splitq.num_rxq_sets;
+		else
+			num_rxq = rxq_grp->singleq.num_rxq;
 
-			stats = &rxq->q_stats.rx;
-			hw_csum_err = u64_stats_read(&stats->hw_csum_err);
-			hsplit = u64_stats_read(&stats->hsplit_pkts);
-			hsplit_hbo = u64_stats_read(&stats->hsplit_buf_ovf);
-			bad_descs = u64_stats_read(&stats->bad_descs);
+		for (j = 0; j < num_rxq; j++) {
+			u64 hw_csum_err, hsplit, hsplit_hbo, bad_descs;
+			u64 rsc_pkts, rsc_bytes, rsc_segs_tot, k;
+			u64 page_recycles = 0, page_reallocs = 0;
+			u64 segs[IDPF_MAX_SEGS];
+			struct idpf_rx_queue_stats *stats;
+			struct idpf_queue *rxq;
+			unsigned int start;
 
-			/* These counters will be 0 in splitq mode. The
-			 * page stats will be accumulated below for all
-			 * of the buffer queues.
-			 */
-			page_recycles = u64_stats_read(&stats->page_recycles);
-			page_reallocs = u64_stats_read(&stats->page_reallocs);
-			rsc_pkts = u64_stats_read(&stats->rsc_pkts);
-			rsc_bytes = u64_stats_read(&stats->rsc_bytes);
-			rsc_segs_tot = u64_stats_read(&stats->rsc_segs_tot);
+			if (idpf_is_queue_model_split(q_grp->rxq_model))
+				rxq = &rxq_grp->splitq.rxq_sets[j]->rxq;
+			else
+				rxq = rxq_grp->singleq.rxqs[j];
+
+			if (!rxq)
+				continue;
+
+			do {
+				start = u64_stats_fetch_begin(&rxq->stats_sync);
+
+				stats = &rxq->q_stats.rx;
+				hw_csum_err = u64_stats_read(&stats->hw_csum_err);
+				hsplit = u64_stats_read(&stats->hsplit_pkts);
+				hsplit_hbo = u64_stats_read(&stats->hsplit_buf_ovf);
+				bad_descs = u64_stats_read(&stats->bad_descs);
+
+				/* These counters will be 0 in splitq mode. The
+				 * page stats will be accumulated below for all
+				 * of the buffer queues.
+				 */
+				page_recycles = u64_stats_read(&stats->page_recycles);
+				page_reallocs = u64_stats_read(&stats->page_reallocs);
+				rsc_pkts = u64_stats_read(&stats->rsc_pkts);
+				rsc_bytes = u64_stats_read(&stats->rsc_bytes);
+				rsc_segs_tot = u64_stats_read(&stats->rsc_segs_tot);
+
+				for (k = 0; k < IDPF_MAX_SEGS; k++)
+					segs[k] = u64_stats_read(&stats->segs[k]);
+			} while (u64_stats_fetch_retry(&rxq->stats_sync, start));
+
+			u64_stats_update_begin(&pstats->stats_sync);
+			u64_stats_add(&pstats->rx_hw_csum_err, hw_csum_err);
+			u64_stats_add(&pstats->rx_hsplit, hsplit);
+			u64_stats_add(&pstats->rx_hsplit_hbo, hsplit_hbo);
+			u64_stats_add(&pstats->rx_bad_descs, bad_descs);
+
+			u64_stats_add(&pstats->rx_page_recycles, page_recycles);
+			u64_stats_add(&pstats->rx_page_reallocs, page_reallocs);
+			u64_stats_add(&pstats->rx_rsc_pkts, rsc_pkts);
+			u64_stats_add(&pstats->rx_rsc_bytes, rsc_bytes);
+			u64_stats_add(&pstats->rx_rsc_segs_tot, rsc_segs_tot);
 
 			for (k = 0; k < IDPF_MAX_SEGS; k++)
-				segs[k] = u64_stats_read(&stats->segs[k]);
-		} while (u64_stats_fetch_retry(&rxq->stats_sync, start));
+				u64_stats_add(&pstats->rsc_seg[k], segs[k]);
 
-		u64_stats_update_begin(&pstats->stats_sync);
-		u64_stats_add(&pstats->rx_hw_csum_err, hw_csum_err);
-		u64_stats_add(&pstats->rx_hsplit, hsplit);
-		u64_stats_add(&pstats->rx_hsplit_hbo, hsplit_hbo);
-		u64_stats_add(&pstats->rx_bad_descs, bad_descs);
-
-		u64_stats_add(&pstats->rx_page_recycles, page_recycles);
-		u64_stats_add(&pstats->rx_page_reallocs, page_reallocs);
-		u64_stats_add(&pstats->rx_rsc_pkts, rsc_pkts);
-		u64_stats_add(&pstats->rx_rsc_bytes, rsc_bytes);
-		u64_stats_add(&pstats->rx_rsc_segs_tot, rsc_segs_tot);
-
-		for (k = 0; k < IDPF_MAX_SEGS; k++)
-			u64_stats_add(&pstats->rsc_seg[k], segs[k]);
-
-		u64_stats_update_end(&pstats->stats_sync);
+			u64_stats_update_end(&pstats->stats_sync);
+		}
 	}
 
 	for (i = 0; i < q_grp->num_txq_grp; i++) {
@@ -1208,6 +1226,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	struct idpf_q_grp *q_grp;
 	unsigned int total = 0;
 	unsigned int i, j;
+	bool is_splitq;
 	u16 qtype;
 
 	idpf_vport_cfg_lock(adapter);
@@ -1254,14 +1273,31 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 		idpf_add_empty_queue_stats(&data, VIRTCHNL2_QUEUE_TYPE_TX);
 	total = 0;
 
-	qtype = VIRTCHNL2_QUEUE_TYPE_RX;
-	for (i = 0; i < q_grp->num_rxq; i++) {
-		struct idpf_queue *rxq = q_grp->rxqs[i];
+	is_splitq = idpf_is_queue_model_split(q_grp->rxq_model);
 
-		if (!rxq)
-			idpf_add_empty_queue_stats(&data, qtype);
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rxq_grp = &q_grp->rxq_grps[i];
+		u16 num_rxq;
+
+		qtype = VIRTCHNL2_QUEUE_TYPE_RX;
+
+		if (is_splitq)
+			num_rxq = rxq_grp->splitq.num_rxq_sets;
 		else
-			idpf_add_queue_stats(&data, rxq);
+			num_rxq = rxq_grp->singleq.num_rxq;
+
+		for (j = 0; j < num_rxq; j++, total++) {
+			struct idpf_queue *rxq;
+
+			if (is_splitq)
+				rxq = &rxq_grp->splitq.rxq_sets[j]->rxq;
+			else
+				rxq = rxq_grp->singleq.rxqs[j];
+			if (!rxq)
+				idpf_add_empty_queue_stats(&data, qtype);
+			else
+				idpf_add_queue_stats(&data, rxq);
+		}
 	}
 
 	for (; i < vport_config->max_q.max_rxq; i++)
@@ -1278,6 +1314,20 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	if (!idpf_is_resource_rel_in_prog(adapter))
 		mod_delayed_work(adapter->stats_wq, &adapter->stats_task,
 				 msecs_to_jiffies(300));
+}
+
+static struct idpf_queue *idpf_find_rxq(const struct idpf_q_grp *q_grp,
+					int q_num)
+{
+	int rxq_grp, rxq_idx;
+
+	if (!idpf_is_queue_model_split(q_grp->rxq_model))
+		return q_grp->rxq_grps->singleq.rxqs[q_num];
+
+	rxq_grp = q_num / IDPF_DFLT_SPLITQ_RXQ_PER_GROUP;
+	rxq_idx = q_num % IDPF_DFLT_SPLITQ_RXQ_PER_GROUP;
+
+	return &q_grp->rxq_grps[rxq_grp].splitq.rxq_sets[rxq_idx]->rxq;
 }
 
 /**
@@ -1330,7 +1380,7 @@ static int idpf_get_q_coalesce(struct net_device *netdev,
 	}
 
 	if (q_num < q_grp->num_rxq)
-		__idpf_get_q_coalesce(ec, q_grp->rxqs[q_num]);
+		__idpf_get_q_coalesce(ec, idpf_find_rxq(q_grp, q_num));
 
 	if (q_num < vport->num_txq) {
 		struct idpf_queue *q;
@@ -1490,12 +1540,13 @@ static int idpf_set_q_coalesce(struct idpf_vport *vport,
 	struct idpf_q_grp *q_grp = &vport->dflt_grp.q_grp;
 	struct idpf_queue *q;
 
-	if (is_rxq)
-		q = q_grp->rxqs[q_num];
-	else
+	if (is_rxq) {
+		q = idpf_find_rxq(q_grp, q_num);
+	} else {
 		q = idpf_is_queue_model_split(q_grp->txq_model) ?
 			vport->txqs[q_num]->txq_grp->complq :
 			vport->txqs[q_num];
+	}
 
 	if (q && __idpf_set_q_coalesce(ec, q_coal, q, is_rxq))
 		return -EINVAL;

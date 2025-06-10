@@ -1144,18 +1144,26 @@ static void idpf_del_user_cfg_data(struct idpf_vport *vport)
  */
 static void idpf_rx_init_buf_tail(struct idpf_q_grp *q_grp)
 {
-	bool is_splitq = idpf_is_queue_model_split(q_grp->rxq_model);
-	int i, numq;
+	int i, j;
 
-	numq = is_splitq ? q_grp->num_bufq : q_grp->num_rxq;
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *grp = &q_grp->rxq_grps[i];
 
-	for (i = 0; i < numq; i++) {
-		struct idpf_queue *q = is_splitq ?
-			&q_grp->bufqs[i] :
-			q_grp->rxqs[i];
-		u16 val = q->next_to_alloc;
+		if (idpf_is_queue_model_split(q_grp->rxq_model)) {
+			for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
+				struct idpf_queue *q =
+					&grp->splitq.bufq_sets[j].bufq;
 
-		writel(val, q->tail);
+				writel(q->next_to_alloc, q->tail);
+			}
+		} else {
+			for (j = 0; j < grp->singleq.num_rxq; j++) {
+				struct idpf_queue *q =
+					grp->singleq.rxqs[j];
+
+				writel(q->next_to_alloc, q->tail);
+			}
+		}
 	}
 }
 
@@ -1586,23 +1594,35 @@ static int idpf_vport_xdp_init(struct idpf_vport *vport,
 	struct idpf_vport_user_config_data *config_data;
 	struct idpf_adapter *adapter;
 	u16 idx = vport->idx;
-	int i, err;
+	bool is_splitq;
+	int i, j, err;
 
 	adapter = vport->adapter;
 	config_data = &adapter->vport_config[idx]->user_config;
 
-	for (i = 0; i < q_grp->num_rxq; i++) {
-		struct idpf_queue *rxq = q_grp->rxqs[i];
+	is_splitq = idpf_is_queue_model_split(q_grp->rxq_model);
 
-		WRITE_ONCE(rxq->xdp_prog, config_data->xdp_prog);
-		err = idpf_xdp_rxq_init(rxq);
-		if (err)
-			goto exit_xdp_init;
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
+		u32 num_rxq;
+
+		num_rxq = is_splitq ? rx_qgrp->splitq.num_rxq_sets :
+				      rx_qgrp->singleq.num_rxq;
+		for (j = 0; j < num_rxq; j++) {
+			struct idpf_queue *rxq;
+
+			rxq = is_splitq ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+					  rx_qgrp->singleq.rxqs[j];
+			WRITE_ONCE(rxq->xdp_prog, config_data->xdp_prog);
+			err = idpf_xdp_rxq_init(rxq);
+			if (err)
+				goto exit_xdp_init;
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
 
-		if (rxq->xsk_pool)
-			idpf_rx_buf_hw_alloc_zc_all(vport, q_grp, rxq);
+			if (rxq->xsk_pool)
+				idpf_rx_buf_hw_alloc_zc_all(vport, q_grp, rxq);
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
+		}
 	}
 
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
@@ -2973,10 +2993,25 @@ static void idpf_copy_xdp_prog_to_qs(struct idpf_vport *vport,
 				     struct bpf_prog *xdp_prog,
 				     struct idpf_q_grp *q_grp)
 {
-	int i;
+	struct idpf_rxq_group *rx_qgrp;
+	struct idpf_queue *q;
+	bool is_splitq;
+	u16 num_rxq;
+	int i, j;
 
-	for (i = 0; i < q_grp->num_rxq; i++)
-		WRITE_ONCE(q_grp->rxqs[i]->xdp_prog, xdp_prog);
+	is_splitq = idpf_is_queue_model_split(q_grp->rxq_model);
+
+	for (i = 0; i < q_grp->num_rxq_grp; i++) {
+		rx_qgrp = &q_grp->rxq_grps[i];
+		num_rxq = is_splitq ? rx_qgrp->splitq.num_rxq_sets :
+				      rx_qgrp->singleq.num_rxq;
+
+		for (j = 0; j < num_rxq; j++) {
+			q = is_splitq ? &rx_qgrp->splitq.rxq_sets[j]->rxq :
+					rx_qgrp->singleq.rxqs[j];
+			WRITE_ONCE(q->xdp_prog, xdp_prog);
+		}
+	}
 }
 
 /**
