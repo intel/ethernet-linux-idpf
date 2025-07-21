@@ -284,7 +284,7 @@ static void idpf_tx_buf_rel(struct idpf_queue *tx_q, struct idpf_tx_buf *tx_buf)
 					 dma_unmap_len(tx_buf, len),
 					 DMA_TO_DEVICE);
 #ifdef HAVE_XDP_SUPPORT
-		if (test_bit(__IDPF_Q_XDP, tx_q->flags))
+		if (idpf_queue_has(XDP, tx_q))
 #ifdef HAVE_XDP_FRAME_STRUCT
 			xdp_return_frame(tx_buf->xdpf);
 #else
@@ -320,7 +320,7 @@ static void idpf_tx_buf_rel_all(struct idpf_queue *txq)
 
 #ifdef HAVE_XDP_SUPPORT
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
-	if (test_bit(__IDPF_Q_XDP, txq->flags) && txq->xsk_pool) {
+	if (idpf_queue_has(XDP, txq) && txq->xsk_pool) {
 		idpf_xsk_cleanup_xdpq(txq);
 		return;
 	}
@@ -378,7 +378,7 @@ static void idpf_tx_desc_rel(struct idpf_queue *txq, bool bufq)
 		idpf_tx_buf_rel_all(txq);
 #ifdef HAVE_XDP_SUPPORT
 
-		if (!test_bit(__IDPF_Q_XDP, txq->flags))
+		if (!idpf_queue_has(XDP, txq))
 			netdev_tx_reset_queue(netdev_get_tx_queue(txq->vport->netdev,
 								  txq->idx));
 #elif
@@ -500,7 +500,7 @@ static int idpf_tx_desc_alloc(struct idpf_queue *tx_q, bool bufq)
 	tx_q->next_to_alloc = 0;
 	tx_q->next_to_use = 0;
 	tx_q->next_to_clean = 0;
-	set_bit(__IDPF_Q_GEN_CHK, tx_q->flags);
+	idpf_queue_set(GEN_CHK, tx_q);
 
 	return 0;
 
@@ -763,11 +763,11 @@ void idpf_rx_post_buf_refill(struct idpf_sw_queue *refillq, u16 buf_id)
 	refillq->ring[nta] =
 		FIELD_PREP(IDPF_RX_BI_BUFID_M, buf_id) |
 		FIELD_PREP(IDPF_RX_BI_GEN_M,
-			   test_bit(__IDPF_Q_GEN_CHK, refillq->flags));
+			   idpf_queue_has(GEN_CHK, refillq));
 
 	if (unlikely(++nta == refillq->desc_count)) {
 		nta = 0;
-		change_bit(__IDPF_Q_GEN_CHK, refillq->flags);
+		idpf_queue_change(GEN_CHK, refillq);
 	}
 	refillq->next_to_alloc = nta;
 }
@@ -1570,7 +1570,7 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 			}
 
 			if (flow_sch_en) {
-				set_bit(__IDPF_Q_FLOW_SCH_EN, q->flags);
+				idpf_queue_set(FLOW_SCH_EN, q);
 				q->stash = kzalloc(sizeof(*q->stash),
 						   GFP_KERNEL);
 				if (!q->stash)
@@ -1579,7 +1579,7 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 				hash_init(q->stash->sched_buf_hash);
 
 				if (miss_compl_tag_en)
-					set_bit(__IDPF_Q_MISS_TAG_EN, q->flags);
+					idpf_queue_set(MISS_TAG_EN, q);
 			}
 		}
 
@@ -1607,7 +1607,7 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 		tx_qgrp->complq->vport = vport;
 
 		if (flow_sch_en)
-			set_bit(__IDPF_Q_FLOW_SCH_EN, tx_qgrp->complq->flags);
+			idpf_queue_set(FLOW_SCH_EN, tx_qgrp->complq);
 	}
 
 	return 0;
@@ -1697,7 +1697,7 @@ static void __idpf_rxq_init(struct idpf_vport *vport, struct idpf_queue *q)
 		q->rx_hsplit_en = true;
 		q->rx_hbuf_size = IDPF_HDR_BUF_SIZE;
 	}
-	set_bit(__IDPF_Q_GEN_CHK, q->flags);
+	idpf_queue_set(GEN_CHK, q);
 }
 
 /**
@@ -1746,8 +1746,8 @@ static void idpf_refillq_init(struct idpf_vport *vport,
 		refillq->dev = idpf_adapter_to_dev(vport->adapter);
 		refillq->desc_count =
 			q_grp->bufq_desc_count[i % q_grp->bufq_per_rxq];
-		set_bit(__IDPF_Q_GEN_CHK, refillq->flags);
-		set_bit(__IDPF_RFLQ_GEN_CHK, refillq->flags);
+		idpf_queue_set(GEN_CHK, refillq);
+		idpf_queue_set(RFL_GEN_CHK, refillq);
 	}
 }
 
@@ -1995,8 +1995,8 @@ int idpf_vport_queue_alloc_all(struct idpf_vport *vport,
 	 */
 	for (i = 0; i < vport->num_txq; i++) {
 		if (test_bit(i, config_data->etf_qenable)) {
-			set_bit(__IDPF_Q_FLOW_SCH_EN, vport->txqs[i]->flags);
-			set_bit(__IDPF_Q_ETF_EN, vport->txqs[i]->flags);
+			idpf_queue_set(FLOW_SCH_EN, vport->txqs[i]);
+			idpf_queue_set(ETF_EN, vport->txqs[i]);
 		}
 	}
 
@@ -2006,7 +2006,7 @@ int idpf_vport_queue_alloc_all(struct idpf_vport *vport,
 		int j;
 
 		for (j = vport->xdp_txq_offset; j < vport->num_txq; j++)
-			set_bit(__IDPF_Q_XDP, vport->txqs[j]->flags);
+			idpf_queue_set(XDP, vport->txqs[j]);
 	}
 
 #endif /* HAVE_XDP_SUPPORT */
@@ -2027,7 +2027,7 @@ static void idpf_tx_handle_sw_marker(struct idpf_queue *tx_q)
 	struct idpf_vport *vport = tx_q->vport;
 	int i;
 
-	clear_bit(__IDPF_Q_SW_MARKER, tx_q->flags);
+	idpf_queue_clear(SW_MARKER, tx_q);
 	/* Hardware must write marker packets to all queues associated with
 	 * completion queues. So check if all queues received marker packets
 	 */
@@ -2035,7 +2035,7 @@ static void idpf_tx_handle_sw_marker(struct idpf_queue *tx_q)
 		/* If we're still waiting on any other TXQ marker completions,
 		 * just return now since we cannot wake up the marker_wq yet.
 		 */
-		if (test_bit(__IDPF_Q_SW_MARKER, vport->txqs[i]->flags))
+		if (idpf_queue_has(SW_MARKER, vport->txqs[i]))
 			return;
 	}
 
@@ -2075,7 +2075,7 @@ static void idpf_tx_splitq_clean_hdr(struct idpf_queue *tx_q,
 				     int napi_budget)
 {
 #ifdef HAVE_XDP_SUPPORT
-	if (test_bit(__IDPF_Q_XDP, tx_q->flags))
+	if (idpf_queue_has(XDP, tx_q))
 #ifdef HAVE_XDP_FRAME_STRUCT
 		xdp_return_frame(tx_buf->xdpf);
 #else
@@ -2720,7 +2720,7 @@ idpf_tx_handle_rs_completion(struct idpf_queue *txq,
 {
 	u16 compl_tag;
 
-	if (!test_bit(__IDPF_Q_FLOW_SCH_EN, txq->flags)) {
+	if (!idpf_queue_has(FLOW_SCH_EN, txq)) {
 		u16 head = le16_to_cpu(desc->q_head_compl_tag.q_head);
 
 		idpf_tx_splitq_clean(txq, head, budget, cleaned, false,
@@ -2731,7 +2731,7 @@ idpf_tx_handle_rs_completion(struct idpf_queue *txq,
 
 	compl_tag = le16_to_cpu(desc->q_head_compl_tag.compl_tag);
 	/* Check for miss completion in tag if enabled */
-	if (unlikely(test_bit(__IDPF_Q_MISS_TAG_EN, txq->flags) &&
+	if (unlikely(idpf_queue_has(MISS_TAG_EN, txq) &&
 		     compl_tag & IDPF_TX_SPLITQ_MISS_COMPL_TAG)) {
 		compl_tag &= ~IDPF_TX_SPLITQ_MISS_COMPL_TAG;
 
@@ -2867,7 +2867,7 @@ static bool idpf_tx_clean_complq(struct idpf_queue *complq, int budget,
 		/* if the descriptor isn't done, no work yet to do */
 		gen = le16_get_bits(tx_desc->qid_comptype_gen,
 				    IDPF_TXD_COMPLQ_GEN_M);
-		if (test_bit(__IDPF_Q_GEN_CHK, complq->flags) != gen)
+		if (idpf_queue_has(GEN_CHK, complq) != gen)
 			break;
 
 		/* Find necessary info of TX queue to clean buffers */
@@ -2933,7 +2933,7 @@ fetch_next_desc:
 		if (unlikely(!ntc)) {
 			ntc -= complq->desc_count;
 			tx_desc = IDPF_SPLITQ_TX_COMPLQ_DESC(complq, 0);
-			change_bit(__IDPF_Q_GEN_CHK, complq->flags);
+			idpf_queue_change(GEN_CHK, complq);
 		}
 
 		prefetch(tx_desc);
@@ -2964,7 +2964,7 @@ fetch_next_desc:
 		tx_q = complq->txq_grp->txqs[i];
 
 #ifdef HAVE_XDP_SUPPORT
-		if (test_bit(__IDPF_Q_XDP, tx_q->flags)) {
+		if (idpf_queue_has(XDP, tx_q)) {
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
 			/* In splitq implementation we do not track Tx
 			 * descriptors.  Instead, we know the Tx completion
@@ -3871,8 +3871,8 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 	idpf_tx_extra_counters(tx_q, first, &tx_params.offload);
 
 #endif /* IDPF_ADD_PROBES */
-	if (test_bit(__IDPF_Q_FLOW_SCH_EN, tx_q->flags)) {
-		if (unlikely(test_bit(__IDPF_Q_ETF_EN, tx_q->flags)))
+	if (idpf_queue_has(FLOW_SCH_EN, tx_q)) {
+		if (unlikely(idpf_queue_has(ETF_EN, tx_q)))
 			idpf_get_flow_sche_tstamp(skb, tx_q, &tx_params.offload);
 
 		tx_params.dtype = IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE;
@@ -4695,7 +4695,7 @@ void idpf_prepare_xdp_tx_splitq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
 	tx_params.compl_tag =
 		(xdpq->compl_tag_cur_gen << xdpq->compl_tag_gen_s) | idx;
 
-	if (unlikely(test_bit(__IDPF_Q_FLOW_SCH_EN, xdpq->flags))) {
+	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
 		tx_params.dtype = IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE;
 		tx_params.eop_cmd = IDPF_TXD_FLEX_FLOW_CMD_EOP;
 	} else {
@@ -5013,7 +5013,7 @@ static int idpf_rx_splitq_clean(struct idpf_queue *rxq, int budget)
 		gen_id = le16_get_bits(rx_desc->pktlen_gen_bufq_id,
 				       VIRTCHNL2_RX_FLEX_DESC_ADV_GEN_M);
 
-		if (test_bit(__IDPF_Q_GEN_CHK, rxq->flags) != gen_id)
+		if (idpf_queue_has(GEN_CHK, rxq) != gen_id)
 			break;
 
 		rxdid = FIELD_GET(VIRTCHNL2_RX_FLEX_DESC_ADV_RXDID_M,
@@ -5239,7 +5239,7 @@ static void idpf_rx_clean_refillq(struct idpf_queue *bufq,
 		bool failure;
 
 		gen = FIELD_GET(IDPF_RX_BI_GEN_M, refill_desc);
-		if (test_bit(__IDPF_RFLQ_GEN_CHK, refillq->flags) != gen)
+		if (idpf_queue_has(RFL_GEN_CHK, refillq) != gen)
 			break;
 
 		failure = idpf_rx_update_bufq_desc(bufq, refill_desc,
@@ -5248,7 +5248,7 @@ static void idpf_rx_clean_refillq(struct idpf_queue *bufq,
 			break;
 
 		if (unlikely(++ntc == refillq->desc_count)) {
-			change_bit(__IDPF_RFLQ_GEN_CHK, refillq->flags);
+			idpf_queue_change(RFL_GEN_CHK, refillq);
 			ntc = 0;
 		}
 
@@ -5932,8 +5932,8 @@ static int idpf_vport_splitq_napi_poll(struct napi_struct *napi, int budget)
 	 * queues virtchnl message, as the interrupts will be disabled after
 	 * that
 	 */
-	if (unlikely(q_vector->num_txq && test_bit(__IDPF_Q_POLL_MODE,
-						   q_vector->tx[0]->flags)))
+	if (unlikely(q_vector->num_txq && idpf_queue_has(POLL_MODE,
+							 q_vector->tx[0])))
 		return budget;
 
 	work_done = min_t(int, work_done, budget - 1);

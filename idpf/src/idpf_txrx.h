@@ -554,7 +554,7 @@ struct idpf_rx_ptype_decoded {
  *		      to 1 and knows that reading a gen bit of 1 in any
  *		      descriptor on the initial pass of the ring indicates a
  *		      writeback. It also flips on every ring wrap.
- * @__IDPF_RFLQ_GEN_CHK: Refill queues are SW only, so Q_GEN acts as the HW bit
+ * @__IDPF_Q_RFL_GEN_CHK: Refill queues are SW only, so Q_GEN acts as the HW bit
  *			 and RFLGQ_GEN is the SW bit.
  * @__IDPF_Q_FLOW_SCH_EN: Enable flow scheduling
  * @__IDPF_Q_ETF_EN: Enable ETF
@@ -568,7 +568,7 @@ struct idpf_rx_ptype_decoded {
  */
 enum idpf_queue_flags_t {
 	__IDPF_Q_GEN_CHK,
-	__IDPF_RFLQ_GEN_CHK,
+	__IDPF_Q_RFL_GEN_CHK,
 	__IDPF_Q_FLOW_SCH_EN,
 	__IDPF_Q_ETF_EN,
 	__IDPF_Q_SW_MARKER,
@@ -579,6 +579,16 @@ enum idpf_queue_flags_t {
 	__IDPF_Q_MISS_TAG_EN,
 	__IDPF_Q_FLAGS_NBITS,
 };
+
+#define idpf_queue_set(f, q)            __set_bit(__IDPF_Q_##f, (q)->flags)
+#define idpf_queue_clear(f, q)          __clear_bit(__IDPF_Q_##f, (q)->flags)
+#define idpf_queue_change(f, q)         __change_bit(__IDPF_Q_##f, (q)->flags)
+#define idpf_queue_has(f, q)            test_bit(__IDPF_Q_##f, (q)->flags)
+
+#define idpf_queue_has_clear(f, q)                      \
+	test_and_clear_bit(__IDPF_Q_##f, (q)->flags)
+#define idpf_queue_assign(f, q, v)                      \
+	__assign_bit(__IDPF_Q_##f, (q)->flags, v)
 
 /**
  * struct idpf_vec_regs
