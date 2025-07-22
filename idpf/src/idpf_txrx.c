@@ -497,6 +497,8 @@ static int idpf_tx_desc_alloc(struct idpf_queue *tx_q, bool bufq)
 	 */
 	idpf_queue_change(GEN_CHK, refillq);
 
+	tx_q->tx.last_re = tx_q->desc_count - IDPF_TX_SPLITQ_RE_MIN_GAP;
+
 	return 0;
 
 err_alloc:
@@ -3875,8 +3877,8 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		 */
 		if (idpf_tx_splitq_need_re(tx_q)) {
 			tx_params.eop_cmd |= IDPF_TXD_FLEX_FLOW_CMD_RE;
-			tx_q->tx.last_re = tx_q->next_to_use;
 			tx_q->txq_grp->num_completions_pending++;
+			tx_q->tx.last_re = tx_q->next_to_use;
 		}
 
 		if (skb->ip_summed == CHECKSUM_PARTIAL)
