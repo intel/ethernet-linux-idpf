@@ -825,7 +825,7 @@ static bool idpf_rx_splitq_buf_hw_alloc_zc_all(struct idpf_queue *rx_bufq,
 			 * idpf_rx_clean_refillq, will have to retry: same as
 			 * non-xsk path.
 			 */
-			idpf_rx_post_buf_refill(&rxq->rx.refillqs[0], nta);
+			idpf_post_buf_refill(&rxq->rx.refillqs[0], nta);
 			nta++;
 		}
 	}
@@ -1102,7 +1102,7 @@ int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget)
 			total_rx_bytes += pkt_len;
 			total_rx_pkts++;
 			failure |= idpf_rx_buf_hw_alloc_zc(rx_buf, rxq->xsk_pool);
-			idpf_rx_post_buf_refill(refillq, buf_id);
+			idpf_post_buf_refill(refillq, buf_id);
 			ntc = idpf_rx_bump_ntc(rxq, ntc);
 			continue;
 		}
@@ -1121,7 +1121,7 @@ int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget)
 			break;
 		}
 		failure |= idpf_rx_buf_hw_alloc_zc(rx_buf, rxq->xsk_pool);
-		idpf_rx_post_buf_refill(refillq, buf_id);
+		idpf_post_buf_refill(refillq, buf_id);
 		ntc = idpf_rx_bump_ntc(rxq, ntc);
 
 		/* pad skb if needed (to make valid ethernet frame) */

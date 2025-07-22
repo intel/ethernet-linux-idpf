@@ -139,10 +139,9 @@ LIBETH_SQE_CHECK_PRIV(u32);
  */
 #define IDPF_TX_SPLITQ_RE_MIN_GAP	64
 
-#define IDPF_RX_BI_BUFID_S		0
-#define IDPF_RX_BI_BUFID_M		GENMASK(14, 0)
-#define IDPF_RX_BI_GEN_S		15
-#define IDPF_RX_BI_GEN_M		BIT(IDPF_RX_BI_GEN_S)
+#define IDPF_RFL_BI_GEN_M		BIT(16)
+#define IDPF_RFL_BI_BUFID_M		GENMASK(15, 0)
+
 #define IDPF_RXD_EOF_SPLITQ		VIRTCHNL2_RX_FLEX_DESC_ADV_STATUS0_EOF_M
 #define IDPF_RXD_EOF_SINGLEQ		VIRTCHNL2_RX_BASE_DESC_STATUS_EOF_M
 
@@ -294,7 +293,7 @@ struct idpf_tx_splitq_params {
 	enum idpf_tx_desc_dtype_value dtype;
 	u16 eop_cmd;
 	union {
-		u16 compl_tag;
+		u32 compl_tag;
 		u16 td_tag;
 	};
 	struct idpf_tx_offload_params offload;
@@ -703,24 +702,24 @@ union idpf_queue_stats {
 
 /**
  * struct idpf_sw_queue
- * @next_to_clean: Next descriptor to clean
- * @next_to_alloc: Buffer to allocate at
- * @flags: See enum idpf_queue_flags_t
  * @ring: Pointer to the ring
+ * @flags: See enum idpf_queue_flags_t
  * @desc_count: Descriptor count
- * @dev: Device back pointer for DMA mapping
+ * @next_to_use: Buffer to allocate at
+ * @next_to_clean: Next descriptor to clean
  *
  * Software queues are used in splitq mode to manage buffers between rxq
  * producer and the bufq consumer. These are required in order to maintain a
  * lockless buffer management system and are strictly software only constructs.
  */
 struct idpf_sw_queue {
-	u16 next_to_clean;
-	u16 next_to_alloc;
+	u32 *ring;
+
 	DECLARE_BITMAP(flags, __IDPF_Q_FLAGS_NBITS);
-	u16 *ring;
-	u16 desc_count;
-	struct device *dev;
+	u32 desc_count;
+
+	u32 next_to_use;
+	u32 next_to_clean;
 } ____cacheline_internodealigned_in_smp;
 
 /**
@@ -740,11 +739,12 @@ struct idpf_txq_stash {
  * @vport: Back pointer to associated vport
  * @netdev: &net_device corresponding to this queue
  * @tx: Structure with TX descriptor and TX completion queue related members
+ * @tx.refillq: Pointer to refill queue
+ * @tx.bufs: See struct idpf_tx_buf
  * @tx.num_completions: Only relevant for TX completion queue. It tracks the
  *			number of completions received to compare against the
  *			number of completions pending, as accumulated by the
  *			TX queues.
- * @tx.bufs: See struct idpf_tx_buf
  * @tx.rel_qid: Relative completion queue id
  * @tx.num_txq: Number of TX queues mapped to the completion queue
  * @rx: Structure with RX completion and RX buffer queue related members
@@ -855,8 +855,9 @@ struct idpf_queue {
 	struct idpf_txq_group *txq_grp;
 	union {
 		struct {
-			u32 num_completions;
 			struct idpf_tx_buf *bufs;
+			struct idpf_sw_queue *refillq;
+			u32 num_completions;
 			u32 rel_qid;
 			u16 num_txq;
 			u16 last_re;
@@ -1082,7 +1083,7 @@ int idpf_vport_queue_alloc_all(struct idpf_vport *vport,
 			       struct idpf_q_grp *q_grp);
 void idpf_vport_queues_rel(struct idpf_vport *vport,
 			   struct idpf_q_grp *q_grp);
-void idpf_rx_post_buf_refill(struct idpf_sw_queue *refillq, u16 buf_id);
+void idpf_post_buf_refill(struct idpf_sw_queue *refillq, u16 buf_id);
 void idpf_vport_intr_rel(struct idpf_vgrp *vgrp);
 int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp);
 void idpf_vport_intr_update_itr_ena_irq(struct idpf_q_vector *q_vector);
