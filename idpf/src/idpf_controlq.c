@@ -307,6 +307,10 @@ int idpf_ctlq_send(struct idpf_hw *hw, struct idpf_ctlq_info *cq,
 					  IDPF_CTLQ_FLAG_HOST_ID_S);
 		if (msg->data_len) {
 			struct idpf_dma_mem *buff = msg->ctx.indirect.payload;
+			if (!buff) {
+				err = -EBADMSG;
+				goto err_unlock;
+			}
 
 			desc->datalen |= cpu_to_le16(msg->data_len);
 			desc->flags |= cpu_to_le16(IDPF_CTLQ_FLAG_BUF);
