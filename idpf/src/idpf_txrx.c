@@ -270,51 +270,17 @@ void idpf_tx_timeout(struct net_device *netdev)
 }
 
 /**
- * idpf_tx_buf_rel - Release a Tx buffer
- * @tx_q: the queue that owns the buffer
- * @tx_buf: the buffer to free
- */
-static void idpf_tx_buf_rel(struct idpf_queue *tx_q, struct idpf_tx_buf *tx_buf)
-{
-	if (tx_buf->type == LIBETH_SQE_SKB ||
-	    tx_buf->type == LIBETH_SQE_XDP_TX) {
-		if (dma_unmap_len(tx_buf, len))
-			dma_unmap_single(tx_q->dev,
-					 dma_unmap_addr(tx_buf, dma),
-					 dma_unmap_len(tx_buf, len),
-					 DMA_TO_DEVICE);
-#ifdef HAVE_XDP_SUPPORT
-		if (idpf_queue_has(XDP, tx_q))
-#ifdef HAVE_XDP_FRAME_STRUCT
-			xdp_return_frame(tx_buf->xdpf);
-#else
-			page_frag_free(tx_buf->raw);
-#endif /* HAVE_XDP_FRAME_STRUCT */
-		else
-			dev_kfree_skb_any(tx_buf->skb);
-#else
-		dev_kfree_skb_any(tx_buf->skb);
-#endif /* HAVE_XDP_SUPPORT */
-	} else if (tx_buf->type == LIBETH_SQE_FRAG) {
-		dma_unmap_page(tx_q->dev,
-			       dma_unmap_addr(tx_buf, dma),
-			       dma_unmap_len(tx_buf, len),
-			       DMA_TO_DEVICE);
-	}
-
-	tx_buf->skb = NULL;
-	tx_buf->nr_frags = 0;
-	tx_buf->type = LIBETH_SQE_EMPTY;
-	dma_unmap_len_set(tx_buf, len, 0);
-}
-
-/**
  * idpf_tx_buf_rel_all - Free any empty Tx buffers
  * @txq: queue to be cleaned
  */
 static void idpf_tx_buf_rel_all(struct idpf_queue *txq)
 {
+	struct libeth_sq_napi_stats ss = { };
 	struct idpf_tx_stash *stash;
+	struct libeth_cq_pp cp = {
+		.dev	= txq->dev,
+		.ss	= &ss,
+	};
 	struct hlist_node *tmp;
 	u16 i, tag;
 
@@ -333,23 +299,25 @@ static void idpf_tx_buf_rel_all(struct idpf_queue *txq)
 
 	/* Free all the Tx buffer sk_buffs */
 	for (i = 0; i < txq->desc_count; i++)
-		idpf_tx_buf_rel(txq, &txq->tx.bufs[i]);
+		libeth_tx_complete(&txq->tx.bufs[i], &cp);
 
 	kfree(txq->tx.bufs);
 	txq->tx.bufs = NULL;
 
-	if (!txq->stash->buf_stack.bufs)
+	if (!idpf_queue_has(FLOW_SCH_EN, txq))
 		return;
 
 	/* If a TX timeout occurred, there are potentially still bufs in the
 	 * hash table, free them here.
 	 */
-	hash_for_each_safe(txq->stash->sched_buf_hash, tag, tmp, stash, hlist) {
-		if (stash) {
-			idpf_tx_buf_rel(txq, &stash->buf);
-			hash_del(&stash->hlist);
-			idpf_buf_lifo_push(&txq->stash->buf_stack, stash);
-		}
+	hash_for_each_safe(txq->stash->sched_buf_hash, tag, tmp, stash,
+			   hlist) {
+		if (!stash)
+			continue;
+
+		libeth_tx_complete(&stash->buf, &cp);
+		hash_del(&stash->hlist);
+		idpf_buf_lifo_push(&txq->stash->buf_stack, stash);
 	}
 
 	for (i = 0; i < txq->stash->buf_stack.size; i++)
@@ -2061,43 +2029,6 @@ static void idpf_tx_splitq_unmap_hdr(struct idpf_queue *tx_q,
 	dma_unmap_len_set(tx_buf, len, 0);
 }
 
-/**
- * idpf_tx_splitq_clean_hdr - Clean TX buffer resources for header portion of
- * packet
- * @tx_q: tx queue to clean buffer from
- * @tx_buf: buffer to be cleaned
- * @cleaned: pointer to stats struct to track cleaned packets/bytes
- * @napi_budget: Used to determine if we are in netpoll
- */
-static void idpf_tx_splitq_clean_hdr(struct idpf_queue *tx_q,
-				     struct idpf_tx_buf *tx_buf,
-				     struct libeth_sq_napi_stats *cleaned,
-				     int napi_budget)
-{
-#ifdef HAVE_XDP_SUPPORT
-	if (idpf_queue_has(XDP, tx_q))
-#ifdef HAVE_XDP_FRAME_STRUCT
-		xdp_return_frame(tx_buf->xdpf);
-#else
-		page_frag_free(tx_buf->raw);
-#endif
-	else
-		/* free the skb */
-		napi_consume_skb(tx_buf->skb, napi_budget);
-#else
-	napi_consume_skb(tx_buf->skb, napi_budget);
-#endif /* HAVE_XDP_SUPPORT */
-
-	if (dma_unmap_len(tx_buf, len))
-		idpf_tx_splitq_unmap_hdr(tx_q, tx_buf);
-
-	/* clear tx_buf data */
-	tx_buf->type = LIBETH_SQE_EMPTY;
-	tx_buf->nr_frags = 0;
-	cleaned->bytes += tx_buf->bytes;
-	cleaned->packets += tx_buf->packets;
-}
-
 #if IS_ENABLED(CONFIG_PTP_1588_CLOCK)
 /**
  * idpf_tx_hw_tstamp - report hw timestamp from completion desc to stack
@@ -2181,6 +2112,11 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 {
 	struct idpf_tx_stash *stash;
 	struct hlist_node *tmp_buf;
+	struct libeth_cq_pp cp = {
+		.dev	= txq->dev,
+		.ss	= cleaned,
+		.napi	= !!budget,
+	};
 
 	/* Buffer completion */
 	hash_for_each_possible_safe(txq->stash->sched_buf_hash, stash, tmp_buf,
@@ -2191,12 +2127,8 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 		hash_del(&stash->hlist);
 
 		if (stash->buf.type == (enum libeth_sqe_type)LIBETH_SQE_SKB_TSTAMP &&
-		    (skb_shinfo(stash->buf.skb)->tx_flags & SKBTX_IN_PROGRESS)) {
+		    (skb_shinfo(stash->buf.skb)->tx_flags & SKBTX_IN_PROGRESS))
 			idpf_tx_read_tstamp(txq, stash->buf.skb);
-
-			idpf_tx_splitq_clean_hdr(txq, &stash->buf, cleaned,
-						 budget);
-		}
 
 		switch (stash->buf.type) {
 		case LIBETH_SQE_SKB:
@@ -2212,24 +2144,16 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 		case LIBETH_SQE_XDP_TX:
 #endif /* HAVE_XDP_SUPPORT */
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
+
 			u64_stats_update_begin(&txq->stats_sync);
 			u64_stats_inc(&txq->q_stats.tx.hash_tbl_pkt_cleans);
 			u64_stats_update_end(&txq->stats_sync);
-
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
-			idpf_tx_splitq_clean_hdr(txq, &stash->buf, cleaned,
-						 budget);
-			break;
-		case LIBETH_SQE_FRAG:
-			dma_unmap_page(txq->dev,
-				       dma_unmap_addr(&stash->buf, dma),
-				       dma_unmap_len(&stash->buf, len),
-				       DMA_TO_DEVICE);
-			dma_unmap_len_set(&stash->buf, len, 0);
-			break;
 		default:
 			break;
 		}
+
+		libeth_tx_complete(&stash->buf, &cp);
 
 		/* Push shadow buf back onto stack */
 		idpf_buf_lifo_push(&txq->stash->buf_stack, stash);
@@ -2394,6 +2318,11 @@ idpf_tx_splitq_clean(struct idpf_queue *tx_q, u16 end, int napi_budget,
 	union idpf_tx_flex_desc *next_pending_desc = NULL;
 	union idpf_tx_flex_desc *tx_desc;
 	u16 ntc = tx_q->next_to_clean;
+	struct libeth_cq_pp cp = {
+		.dev	= tx_q->dev,
+		.ss	= cleaned,
+		.napi	= !!napi_budget,
+	};
 	struct idpf_tx_buf *tx_buf;
 	bool clean_complete = true;
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
@@ -2460,7 +2389,7 @@ idpf_tx_splitq_clean(struct idpf_queue *tx_q, u16 end, int napi_budget,
 				idpf_stash_flow_sch_buf(tx_q, tx_buf, compl_type);
 			}
 		} else {
-			idpf_tx_splitq_clean_hdr(tx_q, tx_buf, cleaned, napi_budget);
+			libeth_tx_complete(tx_buf, &cp);
 
 			/* unmap remaining buffers */
 			while (ntc != rs_idx) {
@@ -2468,13 +2397,7 @@ idpf_tx_splitq_clean(struct idpf_queue *tx_q, u16 end, int napi_budget,
 							      tx_desc, tx_buf);
 
 				/* unmap any remaining paged data */
-				if (tx_buf->type == LIBETH_SQE_FRAG) {
-					dma_unmap_page(tx_q->dev,
-						       dma_unmap_addr(tx_buf, dma),
-						       dma_unmap_len(tx_buf, len),
-						       DMA_TO_DEVICE);
-					dma_unmap_len_set(tx_buf, len, 0);
-				}
+				libeth_tx_complete(tx_buf, &cp);
 			}
 
 		}
@@ -2520,10 +2443,16 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 	u16 idx = compl_tag & txq->compl_tag_bufid_m;
 	u16 ntc, rs_idx, orig_idx = idx;
 	struct idpf_tx_buf *tx_buf;
+	struct libeth_cq_pp cp = {
+		.dev	= txq->dev,
+		.ss	= cleaned,
+		.napi	= !!budget,
+	};
 
 	tx_buf = &txq->tx.bufs[idx];
 
-	if (unlikely(idpf_tx_buf_compl_tag(tx_buf) != compl_tag))
+	if (unlikely(tx_buf->type <= LIBETH_SQE_CTX ||
+		     idpf_tx_buf_compl_tag(tx_buf) != compl_tag))
 		return false;
 
 	if (tx_buf->type == LIBETH_SQE_SKB) {
@@ -2534,6 +2463,8 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 	} else if (tx_buf->type == (enum libeth_sqe_type)LIBETH_SQE_SKB_TSTAMP) {
 		if (skb_shinfo(tx_buf->skb)->tx_flags & SKBTX_IN_PROGRESS)
 			idpf_tx_read_tstamp(txq, tx_buf->skb);
+
+		tx_buf->type = LIBETH_SQE_SKB;
 	} else if (tx_buf->type != LIBETH_SQE_XDP_TX) {
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 		u64_stats_update_begin(&txq->stats_sync);
@@ -2544,7 +2475,7 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 	}
 
 	rs_idx = tx_buf->rs_idx;
-	idpf_tx_splitq_clean_hdr(txq, tx_buf, cleaned, budget);
+	libeth_tx_complete(tx_buf, &cp);
 
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 	u64_stats_update_begin(&txq->stats_sync);
@@ -2553,16 +2484,7 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 	while (idx != rs_idx) {
 		idpf_tx_clean_buf_ring_bump_ntc(txq, idx, tx_buf);
-
-		if (tx_buf->type == LIBETH_SQE_FRAG) {
-			dma_unmap_page(txq->dev,
-				       dma_unmap_addr(tx_buf, dma),
-				       dma_unmap_len(tx_buf, len),
-				       DMA_TO_DEVICE);
-			dma_unmap_len_set(tx_buf, len, 0);
-		}
-
-		tx_buf->type = LIBETH_SQE_EMPTY;
+		libeth_tx_complete(tx_buf, &cp);
 	}
 
 	/* It's possible the packet we just cleaned was an out of order
@@ -2594,7 +2516,7 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 	 */
 	if (unlikely(!idpf_tx_splitq_clean(txq, orig_idx, budget, cleaned,
 					   true, IDPF_TXD_COMPLT_RS)))
-		goto clean_buf_ring_out;
+		return true;
 
 	/* Otherwise, bump idx to point to the start of the next packet and
 	 * update next_to_clean to reflect the cleaning that was done above.
@@ -2603,7 +2525,6 @@ update_ntc_out:
 	idpf_tx_clean_buf_ring_bump_ntc(txq, idx, tx_buf);
 	txq->next_to_clean = idx;
 
-clean_buf_ring_out:
 	return true;
 }
 
@@ -3208,6 +3129,12 @@ unsigned int idpf_tx_desc_count_required(struct idpf_queue *txq,
 void idpf_tx_dma_map_error(struct idpf_queue *txq, struct sk_buff *skb,
 			   struct idpf_tx_buf *first, u16 idx)
 {
+	struct libeth_sq_napi_stats ss = { };
+	struct libeth_cq_pp cp = {
+		.dev	= txq->dev,
+		.ss	= &ss,
+	};
+
 	u64_stats_update_begin(&txq->stats_sync);
 	u64_stats_inc(&txq->q_stats.tx.dma_map_errs);
 	u64_stats_update_end(&txq->stats_sync);
@@ -3216,7 +3143,7 @@ void idpf_tx_dma_map_error(struct idpf_queue *txq, struct sk_buff *skb,
 		struct idpf_tx_buf *tx_buf;
 
 		tx_buf = &txq->tx.bufs[idx];
-		idpf_tx_buf_rel(txq, tx_buf);
+		libeth_tx_complete(tx_buf, &cp);
 		if (tx_buf == first)
 			break;
 		if (idx == 0)
@@ -3296,6 +3223,7 @@ static void idpf_tx_splitq_map(struct idpf_queue *tx_q,
 	dma = dma_map_single(tx_q->dev, skb->data, size, DMA_TO_DEVICE);
 
 	tx_buf = first;
+	first->nr_frags = 0;
 
 	params->compl_tag =
 		(tx_q->compl_tag_cur_gen << tx_q->compl_tag_gen_s) | i;
@@ -3384,6 +3312,7 @@ static void idpf_tx_splitq_map(struct idpf_queue *tx_q,
 			 * rest of the packet.
 			 */
 			tx_buf->type = LIBETH_SQE_EMPTY;
+			idpf_tx_buf_compl_tag(tx_buf) = params->compl_tag;
 
 			/* Adjust the DMA offset and the remaining size of the
 			 * fragment.  On the first iteration of this loop,
