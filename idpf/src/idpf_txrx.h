@@ -22,6 +22,8 @@
 #include "idpf_lan_txrx.h"
 #include "virtchnl2_lan_desc.h"
 
+#define idpf_tx_buf_compl_tag(buf)      (*(u32 *)&(buf)->priv)
+
 #define IDPF_LARGE_MAX_Q			256
 #define IDPF_MAX_TXQ				IDPF_LARGE_MAX_Q
 #define IDPF_MAX_RXQ				64
@@ -279,7 +281,7 @@ struct idpf_tx_buf {
 	u16 nr_frags:8;
 
 	u16 type:8;
-	u16 compl_tag;
+	u32 priv;
 	DEFINE_DMA_UNMAP_LEN(len);
 	DEFINE_DMA_UNMAP_ADDR(dma);
 };

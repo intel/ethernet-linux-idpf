@@ -253,7 +253,7 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 			xdpq->compl_tag_cur_gen = IDPF_TX_ADJ_COMPL_TAG_GEN(xdpq);
 		}
 
-		tx_buf->compl_tag = tx_parms.compl_tag;
+		idpf_tx_buf_compl_tag(tx_buf) = tx_parms.compl_tag;
 	}
 
 	if (likely(tx_desc)) {

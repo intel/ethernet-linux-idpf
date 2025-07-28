@@ -162,8 +162,8 @@ static void idpf_dump_tx_state(struct idpf_vport *vport, struct idpf_queue *txq)
 			    tx_buf->bytecount, tx_buf->gso_segs,
 			    dma_unmap_len(tx_buf, len),
 			    dma_unmap_addr(tx_buf, dma),
-			    tx_buf->eop_idx, tx_buf->compl_tag,
-			    tx_buf->compl_tag & txq->compl_tag_bufid_m);
+			    tx_buf->eop_idx, idpf_tx_buf_compl_tag(tx_buf),
+			    idpf_tx_buf_compl_tag(tx_buf) & txq->compl_tag_bufid_m);
 	}
 
 	if (!idpf_is_queue_model_split(q_grp->txq_model))
@@ -189,7 +189,7 @@ static void idpf_dump_tx_state(struct idpf_vport *vport, struct idpf_queue *txq)
 		if (stash)
 			netdev_err(netdev,
 				   "\tuncleaned tx_buf with compl_tag = %u, type = %u, dma_len = %u still in hash table\n",
-				   stash->buf.compl_tag, stash->buf.type,
+				   idpf_tx_buf_compl_tag(&stash->buf), stash->buf.type,
 				   dma_unmap_len(&stash->buf, len));
 	}
 
@@ -2185,7 +2185,7 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 	/* Buffer completion */
 	hash_for_each_possible_safe(txq->stash->sched_buf_hash, stash, tmp_buf,
 				    hlist, compl_tag) {
-		if (unlikely(stash->buf.compl_tag != compl_tag))
+		if (unlikely(idpf_tx_buf_compl_tag(&stash->buf) != compl_tag))
 			continue;
 
 		hash_del(&stash->hlist);
@@ -2251,7 +2251,7 @@ static struct idpf_tx_stash *idpf_tx_find_stashed_bufs(struct idpf_queue *txq,
 
 	/* Buffer completion */
 	hash_for_each_possible(txq->stash->sched_buf_hash, stash, hlist, compl_tag) {
-		if (unlikely(stash->buf.compl_tag != (int)compl_tag))
+		if (unlikely(idpf_tx_buf_compl_tag(&stash->buf) != compl_tag))
 			continue;
 
 		if (stash->buf.skb)
@@ -2272,7 +2272,8 @@ static void idpf_tx_handle_reinject_expire(struct timer_list *timer)
 	struct idpf_queue *txq = stash->txq;
 	struct netdev_queue *nq;
 
-	idpf_tx_clean_stashed_bufs(txq, stash->buf.compl_tag, NULL, &cleaned, 0);
+	idpf_tx_clean_stashed_bufs(txq, idpf_tx_buf_compl_tag(&stash->buf),
+				   NULL, &cleaned, 0);
 
 	/* Update BQL */
 	nq = netdev_get_tx_queue(txq->vport->netdev, txq->idx);
@@ -2334,7 +2335,7 @@ static int idpf_stash_flow_sch_buf(struct idpf_queue *txq,
 	stash->buf.nr_frags = tx_buf->nr_frags;
 	dma_unmap_addr_set(&stash->buf, dma, dma_unmap_addr(tx_buf, dma));
 	dma_unmap_len_set(&stash->buf, len, dma_unmap_len(tx_buf, len));
-	stash->buf.compl_tag = tx_buf->compl_tag;
+	idpf_tx_buf_compl_tag(&stash->buf) = idpf_tx_buf_compl_tag(tx_buf);
 
 	if (unlikely(compl_type == IDPF_TXD_COMPLT_RULE_MISS))
 		idpf_tx_start_reinject_timer(txq, stash);
@@ -2344,7 +2345,8 @@ static int idpf_stash_flow_sch_buf(struct idpf_queue *txq,
 		stash->miss_pkt = false;
 
 	/* Add buffer to buf_hash table to be freed later */
-	hash_add(txq->stash->sched_buf_hash, &stash->hlist, stash->buf.compl_tag);
+	hash_add(txq->stash->sched_buf_hash, &stash->hlist,
+		 idpf_tx_buf_compl_tag(&stash->buf));
 
 	tx_buf->type = IDPF_TX_BUF_EMPTY;
 	tx_buf->nr_frags = 0;
@@ -2523,7 +2525,7 @@ static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
 
 	tx_buf = &txq->tx.bufs[idx];
 
-	if (unlikely(tx_buf->compl_tag != compl_tag))
+	if (unlikely(idpf_tx_buf_compl_tag(tx_buf) != compl_tag))
 		return false;
 
 	switch (tx_buf->type) {
@@ -3319,7 +3321,7 @@ static void idpf_tx_splitq_map(struct idpf_queue *tx_q,
 			return idpf_tx_dma_map_error(tx_q, skb, first, i);
 
 		first->nr_frags++;
-		tx_buf->compl_tag = params->compl_tag;
+		idpf_tx_buf_compl_tag(tx_buf) = params->compl_tag;
 		tx_buf->type = IDPF_TX_BUF_FRAG;
 
 		/* record length, and DMA address */
@@ -4707,7 +4709,7 @@ void idpf_prepare_xdp_tx_splitq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
 				  tx_params.eop_cmd | tx_params.offload.td_cmd,
 				  size);
 
-	xdpq->tx.bufs[idx].compl_tag = tx_params.compl_tag;
+	idpf_tx_buf_compl_tag(&xdpq->tx.bufs[idx]) = tx_params.compl_tag;
 }
 
 /**
