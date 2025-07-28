@@ -2071,7 +2071,7 @@ static void idpf_tx_splitq_unmap_hdr(struct idpf_queue *tx_q,
  */
 static void idpf_tx_splitq_clean_hdr(struct idpf_queue *tx_q,
 				     struct idpf_tx_buf *tx_buf,
-				     struct idpf_cleaned_stats *cleaned,
+				     struct libeth_sq_napi_stats *cleaned,
 				     int napi_budget)
 {
 #ifdef HAVE_XDP_SUPPORT
@@ -2177,7 +2177,7 @@ static void idpf_tx_read_tstamp(struct idpf_queue *txq, struct sk_buff *skb)
  */
 static void
 idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
-			   struct idpf_cleaned_stats *cleaned, int budget)
+			   struct libeth_sq_napi_stats *cleaned, int budget)
 {
 	struct idpf_tx_stash *stash;
 	struct hlist_node *tmp_buf;
@@ -2266,7 +2266,7 @@ static struct idpf_tx_stash *idpf_tx_find_stashed_bufs(struct idpf_queue *txq,
 static void idpf_tx_handle_reinject_expire(struct timer_list *timer)
 {
 	struct idpf_tx_stash *stash = timer_container_of(stash, timer, reinject_timer);
-	struct idpf_cleaned_stats cleaned = { };
+	struct libeth_sq_napi_stats cleaned = { };
 	struct idpf_queue *txq = stash->txq;
 	struct netdev_queue *nq;
 
@@ -2388,7 +2388,7 @@ do {								\
  */
 static bool
 idpf_tx_splitq_clean(struct idpf_queue *tx_q, u16 end, int napi_budget,
-		     struct idpf_cleaned_stats *cleaned, bool descs_only,
+		     struct libeth_sq_napi_stats *cleaned, bool descs_only,
 		     u8 compl_type)
 {
 	union idpf_tx_flex_desc *next_pending_desc = NULL;
@@ -2514,7 +2514,7 @@ do {							\
  * associated this completion tag.
  */
 static bool idpf_tx_clean_buf_ring(struct idpf_queue *txq, u16 compl_tag,
-				   struct idpf_cleaned_stats *cleaned,
+				   struct libeth_sq_napi_stats *cleaned,
 				   u8 *desc_ts, int budget)
 {
 	u16 idx = compl_tag & txq->compl_tag_bufid_m;
@@ -2630,7 +2630,7 @@ clean_buf_ring_out:
 static void
 idpf_tx_handle_miss_completion(struct idpf_queue *txq,
 			       struct idpf_splitq_tx_compl_desc *desc,
-			       struct idpf_cleaned_stats *cleaned,
+			       struct libeth_sq_napi_stats *cleaned,
 			       u16 compl_tag, int budget)
 {
 	struct idpf_tx_stash *stash;
@@ -2703,7 +2703,7 @@ idpf_tx_handle_miss_completion(struct idpf_queue *txq,
 static void
 idpf_tx_handle_rs_completion(struct idpf_queue *txq,
 			     struct idpf_splitq_tx_compl_desc *desc,
-			     struct idpf_cleaned_stats *cleaned,
+			     struct libeth_sq_napi_stats *cleaned,
 			     int budget)
 {
 	u16 compl_tag;
@@ -2753,7 +2753,7 @@ idpf_tx_handle_rs_completion(struct idpf_queue *txq,
 static void
 idpf_tx_handle_reinject_completion(struct idpf_queue *txq,
 				   struct idpf_splitq_tx_compl_desc *desc,
-				   struct idpf_cleaned_stats *cleaned,
+				   struct libeth_sq_napi_stats *cleaned,
 				   int budget)
 {
 	u16 compl_tag = le16_to_cpu(desc->q_head_compl_tag.compl_tag);
@@ -2846,7 +2846,7 @@ static bool idpf_tx_clean_complq(struct idpf_queue *complq, int budget,
 	ntc -= complq->desc_count;
 
 	do {
-		struct idpf_cleaned_stats cleaned_stats = { };
+		struct libeth_sq_napi_stats cleaned_stats = { };
 		u16 hw_head, compl_tag;
 		int rel_tx_qid;
 		u8 ctype;	/* completion type */

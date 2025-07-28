@@ -355,7 +355,7 @@ idpf_clean_xdp_tx_buf(struct idpf_queue *xdpq, struct idpf_tx_buf *tx_buf)
  */
 static void
 idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
-		 struct idpf_cleaned_stats *cleaned)
+		 struct libeth_sq_napi_stats *cleaned)
 {
 	struct idpf_tx_buf *tx_buf;
 	u32 xsk_frames = 0;
@@ -441,7 +441,7 @@ idpf_prepare_for_xmit_zc(struct idpf_queue *xdpq)
  */
 void
 idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
-			struct idpf_cleaned_stats *cleaned)
+			struct libeth_sq_napi_stats *cleaned)
 {
 	u16 end = (compl_tag & xdpq->compl_tag_bufid_m) + 1;
 	u16 ntc = xdpq->next_to_clean;
@@ -467,7 +467,7 @@ idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
 bool
 idpf_tx_singleq_clean_zc(struct idpf_queue *xdpq, int *cleaned)
 {
-	struct idpf_cleaned_stats cleaned_stats = { };
+	struct libeth_sq_napi_stats cleaned_stats = { };
 	u16 next_rs_idx = xdpq->xdp_next_rs_idx;
 	struct idpf_base_tx_desc *next_rs_desc;
 	u16 send_budget, frames_ready = 0;

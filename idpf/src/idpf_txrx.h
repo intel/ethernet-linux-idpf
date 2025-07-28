@@ -681,11 +681,6 @@ struct idpf_tx_queue_stats {
 	u64_stats_t segs[IDPF_MAX_SEGS];
 };
 
-struct idpf_cleaned_stats {
-	u32 packets;
-	u32 bytes;
-};
-
 union idpf_queue_stats {
 	struct idpf_rx_queue_stats rx;
 	struct idpf_tx_queue_stats tx;

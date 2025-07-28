@@ -23,7 +23,7 @@ int idpf_rx_update_bufq_desc_zc(struct idpf_rx_buf *buf,
 				u16 buf_id);
 void idpf_rx_buf_rel_zc(struct idpf_rx_buf *buf);
 void idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
-			     struct idpf_cleaned_stats *cleaned);
+			     struct libeth_sq_napi_stats *cleaned);
 bool idpf_tx_singleq_clean_zc(struct idpf_queue *xdpq, int *cleaned);
 bool idpf_tx_splitq_xmit_zc(struct idpf_queue *xdpq);
 void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq);
