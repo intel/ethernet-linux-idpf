@@ -3747,18 +3747,14 @@ bool idpf_is_capability_ena(struct idpf_adapter *adapter, bool all,
 		return !!(*cap_field & flag);
 }
 
-/**
- * idpf_set_mac_type: Set the mac address type
- * @vport: virtual port structure
- * @mac_addr: mac address pointer
- */
 static void idpf_set_mac_type(struct idpf_vport *vport,
 			      struct virtchnl2_mac_addr *mac_addr)
 {
-	if (ether_addr_equal(vport->default_mac_addr, mac_addr->addr))
-		mac_addr->type = VIRTCHNL2_MAC_ADDR_PRIMARY;
-	else
-		mac_addr->type = VIRTCHNL2_MAC_ADDR_EXTRA;
+	bool is_primary;
+
+	is_primary = ether_addr_equal(vport->default_mac_addr, mac_addr->addr);
+	mac_addr->type = is_primary ? VIRTCHNL2_MAC_ADDR_PRIMARY :
+				      VIRTCHNL2_MAC_ADDR_EXTRA;
 }
 
 /**
