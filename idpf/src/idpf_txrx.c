@@ -4659,32 +4659,28 @@ static void idpf_rx_splitq_recycle_buf(struct idpf_queue *rxq,
  * @dma:       Address of DMA buffer used for XDP TX.
  * @idx:       Index of the TX buffer in the queue.
  * @size:      Size of data to be transmitted.
+ * @tx_params:  Pointer to TX parameters structure.
  */
 void idpf_prepare_xdp_tx_splitq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
-				     u16 idx, u32 size)
+				     u16 idx, u32 size,
+				     struct idpf_tx_splitq_params *tx_params)
 {
-	struct idpf_tx_splitq_params tx_params = { };
 	union idpf_tx_flex_desc *tx_desc;
 
 	tx_desc = IDPF_FLEX_TX_DESC(xdpq, idx);
 	tx_desc->q.buf_addr = cpu_to_le64(dma);
 
-	tx_params.compl_tag =
-		(xdpq->compl_tag_cur_gen << xdpq->compl_tag_gen_s) | idx;
-
 	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
-		tx_params.dtype = IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE;
-		tx_params.eop_cmd = IDPF_TXD_FLEX_FLOW_CMD_EOP;
+		tx_params->dtype = IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE;
+		tx_params->eop_cmd = IDPF_TXD_FLEX_FLOW_CMD_EOP;
 	} else {
-		tx_params.dtype = IDPF_TX_DESC_DTYPE_FLEX_L2TAG1_L2TAG2;
-		tx_params.eop_cmd = IDPF_TXD_LAST_DESC_CMD;
+		tx_params->dtype = IDPF_TX_DESC_DTYPE_FLEX_L2TAG1_L2TAG2;
+		tx_params->eop_cmd = IDPF_TXD_LAST_DESC_CMD;
 	}
 
-	idpf_tx_splitq_build_desc(tx_desc, &tx_params,
-				  tx_params.eop_cmd | tx_params.offload.td_cmd,
+	idpf_tx_splitq_build_desc(tx_desc, tx_params,
+				  tx_params->eop_cmd | tx_params->offload.td_cmd,
 				  size);
-
-	idpf_tx_buf_compl_tag(&xdpq->tx.bufs[idx]) = tx_params.compl_tag;
 }
 
 /**
@@ -4698,10 +4694,12 @@ int idpf_xmit_xdpq(struct xdp_frame *xdp, struct idpf_queue *xdpq)
 int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 #endif
 {
+	struct idpf_tx_splitq_params tx_params = { };
 	u16 ntu = xdpq->next_to_use;
 	struct idpf_tx_buf *tx_buf;
 	dma_addr_t dma;
 	void *data;
+	u32 buf_id;
 	u32 size;
 
 	if (unlikely(!xdp))
@@ -4721,7 +4719,20 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 	if (dma_mapping_error(xdpq->dev, dma))
 		return IDPF_XDP_CONSUMED;
 
-	tx_buf = &xdpq->tx.bufs[ntu];
+	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
+		/* Xdp only uses a single buffer. No need to save refillq state
+		 * for rollback like we do in the standard data path.
+		 */
+		if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
+						      &buf_id)))
+			return IDPF_XDP_CONSUMED;
+
+		tx_params.compl_tag = buf_id;
+	} else {
+		buf_id = ntu;
+	}
+
+	tx_buf = &xdpq->tx.bufs[buf_id];
 	tx_buf->bytes = size;
 	tx_buf->packets = 1;
 #ifdef HAVE_XDP_FRAME_STRUCT
@@ -4729,6 +4740,7 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 #else
 	tx_buf->raw = data;
 #endif
+	idpf_tx_buf_compl_tag(&xdpq->tx.bufs[buf_id]) = tx_params.compl_tag;
 
 	/* record length, and DMA address */
 	dma_unmap_len_set(tx_buf, len, size);
@@ -4738,9 +4750,9 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 	INDIRECT_CALL_2(xdpq->vport->xdp_prepare_tx_desc,
 			idpf_prepare_xdp_tx_splitq_desc,
 			idpf_prepare_xdp_tx_singleq_desc,
-			xdpq, dma, ntu, size);
+			xdpq, dma, ntu, size, &tx_params);
 #else
-	xdpq->vport->xdp_prepare_tx_desc(xdpq, dma, ntu, size);
+	xdpq->vport->xdp_prepare_tx_desc(xdpq, dma, ntu, size, &tx_params);
 #endif /* HAVE_INDIRECT_CALL_WRAPPER_HEADER */
 
 	/* Make certain all of the status bits have been updated

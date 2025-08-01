@@ -1158,15 +1158,19 @@ int idpf_rx_xdp(struct idpf_queue *rxq, struct idpf_queue *xdpq,
 		struct idpf_rx_buf *rx_buf, unsigned int size);
 INDIRECT_CALLABLE_DECLARE(void idpf_prepare_xdp_tx_splitq_desc(struct idpf_queue *xdpq,
 							       dma_addr_t dma, u16 idx,
-							       u32 size));
+							       u32 size,
+							       struct idpf_tx_splitq_params *params));
 void idpf_prepare_xdp_tx_splitq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
-				     u16 idx, u32 size);
+				     u16 idx, u32 size,
+				     struct idpf_tx_splitq_params *params);
 
 INDIRECT_CALLABLE_DECLARE(void idpf_prepare_xdp_tx_singleq_desc(struct idpf_queue *xdpq,
 								dma_addr_t dma, u16 idx,
-								u32 size));
+								u32 size,
+								struct idpf_tx_splitq_params *params));
 void idpf_prepare_xdp_tx_singleq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
-				      u16 idx, u32 size);
+				      u16 idx, u32 size,
+				      struct idpf_tx_splitq_params *params);
 int idpf_xdp_rxq_init(struct idpf_queue *q);
 #endif /* HAVE_XDP_SUPPORT */
 int idpf_tso(struct sk_buff *skb, struct idpf_tx_offload_params *off);

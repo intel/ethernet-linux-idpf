@@ -1315,9 +1315,11 @@ int idpf_vport_singleq_napi_poll(struct napi_struct *napi, int budget)
  * @dma:  Address of DMA buffer used for XDP TX.
  * @idx:  Index of the TX buffer in the queue.
  * @size: Size of data to be transmitted.
-  */
+ * @params: not used in single queue mode, only for function ptr compatibility.
+ */
 void idpf_prepare_xdp_tx_singleq_desc(struct idpf_queue *xdpq, dma_addr_t dma,
-				      u16 idx, u32 size)
+				      u16 idx, u32 size,
+				      __always_unused struct idpf_tx_splitq_params *params)
 {
 	struct idpf_base_tx_desc *tx_desc;
 	u64 td_cmd;

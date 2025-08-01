@@ -542,7 +542,8 @@ struct idpf_vport {
 	bool xsk_enable_req;
 #endif
 	void (*xdp_prepare_tx_desc)(struct idpf_queue *xdpq, dma_addr_t dma,
-				    u16 idx, u32 size);
+				    u16 idx, u32 size,
+				    struct idpf_tx_splitq_params *params);
 #endif /* HAVE_XDP_SUPPORT */
 	struct idpf_rx_ptype_decoded rx_ptype_lkup[IDPF_RX_MAX_PTYPE];
 #ifdef IDPF_ADD_PROBES
