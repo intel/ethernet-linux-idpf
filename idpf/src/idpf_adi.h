@@ -29,7 +29,7 @@ int idpf_adi_core_init(struct idpf_adapter *adapter);
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
 
 struct idpf_adi_info {
-	struct idpf_adi_priv **priv_info;
+	struct xarray priv_info;
 	u16 max_adi_cnt;
 	u16 curr_adi_cnt;
 	bool vdcm_init_ok;

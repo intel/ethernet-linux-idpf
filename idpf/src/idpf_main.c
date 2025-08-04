@@ -121,8 +121,6 @@ static void idpf_remove(struct pci_dev *pdev)
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
 	if (adapter->dev_ops.vdcm_deinit)
 		adapter->dev_ops.vdcm_deinit(pdev);
-	kfree(adapter->adi_info.priv_info);
-	adapter->adi_info.priv_info = NULL;
 
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
 #ifdef DEVLINK_ENABLED
@@ -138,6 +136,10 @@ static void idpf_remove(struct pci_dev *pdev)
 	/* Shut down the per-adapter virtchnl transactions */
 	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 
+#if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
+	xa_destroy(&adapter->adi_info.priv_info);
+
+#endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
 	/* Be a good citizen and leave the device clean on exit */
 	adapter->dev_ops.reg_ops.trigger_reset(adapter, IDPF_HR_FUNC_RESET);
 	idpf_deinit_dflt_mbx(adapter);
@@ -423,6 +425,10 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	idpf_vc_xn_init(adapter->vcxn_mngr);
 	init_completion(&adapter->corer_done);
 
+#if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
+	xa_init(&adapter->adi_info.priv_info);
+
+#endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
 	adapter->init_wq = alloc_workqueue("%s-%s-init",
 					   WQ_UNBOUND | WQ_MEM_RECLAIM, 0,
 					   dev_driver_string(dev),

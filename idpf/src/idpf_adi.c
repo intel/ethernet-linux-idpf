@@ -49,12 +49,7 @@ void idpf_notify_adi_reset(struct idpf_adapter *adapter, u16 adi_id,
 	struct device *dev = idpf_adapter_to_dev(adapter);
 	struct idpf_adi_priv *priv;
 
-	if (adi_id >= adapter->adi_info.max_adi_cnt) {
-		dev_err(dev, "Invalid ADI id (%d) received\n", adi_id);
-		return;
-	}
-
-	priv = adapter->adi_info.priv_info[adi_id];
+	priv = xa_load(&adapter->adi_info.priv_info, adi_id);
 	if (reset)
 		priv->reset_state = IDPF_ADI_RESET_COMPLETED;
 	else
@@ -364,13 +359,7 @@ static int idpf_adi_create(struct idpf_adi *adi, u32 pasid)
 
 	priv->mbx_id = le16_to_cpu(vchnl_adi->mbx_id);
 	priv->adi_id = le16_to_cpu(vchnl_adi->adi_id);
-	if (priv->adi_id >= adapter->adi_info.max_adi_cnt) {
-		dev_err(dev,
-			"Invalid ADI id (%d) received in Create ADI message\n",
-			priv->adi_id);
-		err = -ENODEV;
-		goto destroy_adi;
-	}
+
 	err = idpf_adi_qid_reg_init(adi, vchnl_adi);
 	if (err) {
 		dev_err(dev, "Failed to allocate Queue IDs for ADI %d\n",
@@ -378,14 +367,18 @@ static int idpf_adi_create(struct idpf_adi *adi, u32 pasid)
 		goto destroy_adi;
 	}
 
-	if (adapter->adi_info.priv_info[priv->adi_id]) {
+	if (xa_load(&adapter->adi_info.priv_info, priv->adi_id)) {
 		dev_err(dev, "Duplicate ADI id (%d) received in Create ADI message\n",
 			priv->adi_id);
 		err = -EINVAL;
 		goto destroy_adi;
 	}
 
-	adapter->adi_info.priv_info[priv->adi_id] = priv;
+	err = xa_store(&adapter->adi_info.priv_info, priv->adi_id, priv,
+		       GFP_KERNEL);
+	if (err)
+		goto destroy_adi;
+
 	priv->reset_state = IDPF_ADI_RESET_COMPLETED;
 
 	kfree(vchnl_adi);
@@ -417,7 +410,7 @@ static int idpf_adi_destroy(struct idpf_adi *adi)
 	priv->reset_state = IDPF_ADI_RESET_INPROGRESS;
 
 	idpf_adi_dealloc_vectors(priv);
-	adapter->adi_info.priv_info[priv->adi_id] = NULL;
+	xa_erase(&adapter->adi_info.priv_info, priv->adi_id);
 
 	vchnl_adi.adi_id = cpu_to_le16(priv->adi_id);
 
@@ -930,22 +923,9 @@ int idpf_adi_core_init(struct idpf_adapter *adapter)
 {
 	u16 max_adi_cnt;
 
-	/*
-	 * If capability indicates 0 ADIs or the VDCM init itself had failed
-	 * or the data structure is already initialized, we need not allocate.
-	 * The data structure can be already populated here in case of hard
-	 * reset path for instance.
-	 */
 	max_adi_cnt = le16_to_cpu(adapter->caps.max_adis);
-	if (!adapter->adi_info.vdcm_init_ok || !max_adi_cnt ||
-	    adapter->adi_info.priv_info)
+	if (!adapter->adi_info.vdcm_init_ok || !max_adi_cnt)
 		return 0;
-
-	adapter->adi_info.priv_info = kcalloc(max_adi_cnt,
-					      sizeof(struct idpf_adi_priv *),
-					      GFP_KERNEL);
-	if (!adapter->adi_info.priv_info)
-		return -ENOMEM;
 
 	adapter->adi_info.max_adi_cnt = max_adi_cnt;
 	dev_info(idpf_adapter_to_dev(adapter), "Up to %d ADIs are permitted\n",
