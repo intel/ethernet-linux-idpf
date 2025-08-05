@@ -508,6 +508,12 @@ struct idpf_vgrp {
 	struct idpf_intr_grp intr_grp;
 };
 
+struct idpf_fsteer_fltr {
+	struct list_head list;
+	u32 loc;
+	u32 q_index;
+};
+
 /**
  * struct idpf_vport - Handle for netdevices and queue resources
  * @dflt_grp: Queue and interrupt resource group
@@ -671,6 +677,8 @@ struct idpf_q_coalesce {
  *                    ethtool
  * @user_flags: User toggled config flags
  * @mac_filter_list: List of MAC filters
+ * @num_fsteer_fltrs: number of flow steering filters
+ * @flow_steer_list: list of flow steering filters
  *
  * Used to restore configuration after a reset as the vport will get wiped.
  */
@@ -693,6 +701,8 @@ struct idpf_vport_user_config_data {
 	DECLARE_BITMAP(etf_qenable, IDPF_LARGE_MAX_Q);
 #endif /* HAVE_ETF_SUPPORT */
 	struct list_head mac_filter_list;
+	u32 num_fsteer_fltrs;
+	struct list_head flow_steer_list;
 };
 
 /**
