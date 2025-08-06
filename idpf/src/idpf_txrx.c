@@ -3176,37 +3176,6 @@ static inline unsigned int idpf_tx_splitq_bump_ntu(struct idpf_queue *txq,
 }
 
 /**
- * idpf_tx_get_free_buf_id - get a free buffer ID from the refill queue
- * @refillq: refill queue to get buffer ID from
- * @buf_id: return buffer ID
- *
- * Return: true if a buffer ID was found, false if not
- */
-static bool idpf_tx_get_free_buf_id(struct idpf_sw_queue *refillq,
-				    u32 *buf_id)
-{
-	u32 ntc = refillq->next_to_clean;
-	u32 refill_desc;
-
-	refill_desc = refillq->ring[ntc];
-
-	if (unlikely(idpf_queue_has(RFL_GEN_CHK, refillq) !=
-		     !!(refill_desc & IDPF_RFL_BI_GEN_M)))
-		return false;
-
-	*buf_id = FIELD_GET(IDPF_RFL_BI_BUFID_M, refill_desc);
-
-	if (unlikely(++ntc == refillq->desc_count)) {
-		idpf_queue_change(RFL_GEN_CHK, refillq);
-		ntc = 0;
-	}
-
-	refillq->next_to_clean = ntc;
-
-	return true;
-}
-
-/**
  * idpf_tx_splitq_pkt_err_unmap - Unmap buffers and bump tail in case of error
  * @txq: Tx queue to unwind
  * @params: pointer to splitq params struct

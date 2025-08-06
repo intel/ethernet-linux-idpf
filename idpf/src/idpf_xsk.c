@@ -224,8 +224,7 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 
 	while (likely(budget-- > 0)) {
 		struct idpf_tx_buf *tx_buf;
-
-		tx_buf = &xdpq->tx.bufs[ntu];
+		u32 buf_id;
 
 		if (!xsk_tx_peek_desc(xdpq->xsk_pool, &desc))
 			break;
@@ -233,10 +232,22 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
 		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
 						 desc.len);
-		tx_buf->bytes = desc.len;
 
-		tx_parms.compl_tag =
-			(xdpq->compl_tag_cur_gen << xdpq->compl_tag_gen_s) | ntu;
+		if (idpf_queue_has(FLOW_SCH_EN, xdpq)) {
+			/* Xdp only uses a single buffer. No need to save refillq state
+			 * for rollback like we do in the standard data path.
+			 */
+			if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
+							      &buf_id)))
+				return IDPF_XDP_CONSUMED;
+
+			tx_parms.compl_tag = buf_id;
+		} else {
+			buf_id = ntu;
+		}
+
+		tx_buf = &xdpq->tx.bufs[buf_id];
+		tx_buf->bytes = desc.len;
 
 		tx_desc = IDPF_FLEX_TX_DESC(xdpq, ntu);
 		tx_desc->q.buf_addr = cpu_to_le64(dma);
@@ -350,12 +361,15 @@ idpf_clean_xdp_tx_buf(struct idpf_queue *xdpq, struct idpf_tx_buf *tx_buf)
  * @ntc: Index of the next Tx buffer that shall be cleaned.
  * @clean_count: number of ready Tx frames that should be cleaned.
  * @cleaned: pointer to stats struct to track cleaned packets/bytes
+ * @buf_id: completion tag of the packet that should be cleaned (only relevant
+ *	    for flow scheduling)
  *
  * Returns the structure containing the number of bytes and packets cleaned.
  */
 static void
 idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
-		 struct libeth_sq_napi_stats *cleaned)
+		 struct libeth_sq_napi_stats *cleaned,
+		 u16 buf_id)
 {
 	struct idpf_tx_buf *tx_buf;
 	u32 xsk_frames = 0;
@@ -369,8 +383,14 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		goto skip;
 	}
 
-	for (i = 0; i < clean_count; i++) {
+	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
+		clean_count = 1;
+		tx_buf = &xdpq->tx.bufs[buf_id];
+	} else {
 		tx_buf = &xdpq->tx.bufs[ntc];
+	}
+
+	for (i = 0; i < clean_count; i++) {
 
 #ifdef HAVE_XDP_FRAME_STRUCT
 		if (tx_buf->xdpf) {
@@ -391,6 +411,8 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		++ntc;
 		if (unlikely(ntc >= xdpq->desc_count))
 			ntc = 0;
+
+		tx_buf = &xdpq->tx.bufs[ntc];
 	}
 skip:
 	xdpq->next_to_clean += clean_count;
@@ -443,8 +465,9 @@ void
 idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
 			struct libeth_sq_napi_stats *cleaned)
 {
-	u16 end = (compl_tag & xdpq->compl_tag_bufid_m) + 1;
+	struct idpf_tx_buf *tx_buf = &xdpq->tx.bufs[compl_tag];
 	u16 ntc = xdpq->next_to_clean;
+	u16 end = tx_buf->rs_idx + 1;
 	u16 frames_ready = 0;
 
 	if (end >= ntc)
@@ -452,7 +475,8 @@ idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
 	else
 		frames_ready = end + xdpq->desc_count - ntc;
 
-	return idpf_tx_clean_zc(xdpq, ntc, frames_ready, cleaned);
+	return idpf_tx_clean_zc(xdpq, ntc, frames_ready, cleaned,
+				compl_tag);
 }
 
 /**
@@ -482,7 +506,7 @@ idpf_tx_singleq_clean_zc(struct idpf_queue *xdpq, int *cleaned)
 			frames_ready = next_rs_idx + xdpq->desc_count - ntc;
 	}
 
-	idpf_tx_clean_zc(xdpq, ntc, frames_ready, &cleaned_stats);
+	idpf_tx_clean_zc(xdpq, ntc, frames_ready, &cleaned_stats, 0);
 	*cleaned = cleaned_stats.packets;
 
 	send_budget = idpf_prepare_for_xmit_zc(xdpq);
