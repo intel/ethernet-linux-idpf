@@ -99,7 +99,7 @@ struct idpf_ctlq_info {
 
 	enum idpf_ctlq_type cq_type;
 	int q_id;
-	struct mutex cq_lock;		/* queue lock
+	spinlock_t cq_lock;		/* queue lock
 					 * idpf_lock is defined in OSdep.h
 					 */
 	/* used for interrupt processing */
