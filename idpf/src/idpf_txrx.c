@@ -396,10 +396,19 @@ static int idpf_tx_buf_alloc_all(struct idpf_queue *tx_q)
 	/* Allocate book keeping buffers only. Buffers to be supplied to HW
 	 * are allocated by kernel network stack and received as part of skb
 	 */
-	if (idpf_queue_has(FLOW_SCH_EN, tx_q))
+	if (idpf_queue_has(FLOW_SCH_EN, tx_q)) {
 		tx_q->buf_pool_size = U16_MAX;
-	else
+		if (idpf_is_cap_ena(tx_q->vport->adapter, IDPF_OTHER_CAPS,
+				    VIRTCHNL2_CAP_MISS_COMPL_TAG))
+			/* We lose the upper bit of the completion tag when
+			 * MISS bit is enabled, thus reducing our pool size.
+			 */
+			tx_q->buf_pool_size = U16_MAX >> 1;
+		else
+			tx_q->buf_pool_size = U16_MAX;
+	} else {
 		tx_q->buf_pool_size = tx_q->desc_count;
+	}
 	tx_q->tx.bufs = kcalloc(tx_q->buf_pool_size, sizeof(*tx_q->tx.bufs),
 				GFP_KERNEL);
 	if (!tx_q->tx.bufs)
@@ -1129,6 +1138,8 @@ static void idpf_txq_group_rel(struct idpf_q_grp *q_grp)
 				txq_grp->txqs[j]->tx.refillq = NULL;
 			}
 
+			xa_destroy(&txq_grp->txqs[j]->reinject_timers);
+
 			kfree(txq_grp->txqs[j]);
 			txq_grp->txqs[j] = NULL;
 		}
@@ -1586,6 +1597,7 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 				idpf_queue_set(GEN_CHK, q->tx.refillq);
 				idpf_queue_set(RFL_GEN_CHK, q->tx.refillq);
 
+				xa_init(&q->reinject_timers);
 			}
 		}
 
@@ -2042,23 +2054,6 @@ static void idpf_tx_handle_sw_marker(struct idpf_queue *tx_q)
 	wake_up(&vport->sw_marker_wq);
 }
 
-/**
- * idpf_tx_splitq_unmap_hdr - unmap DMA buffer for header
- * @tx_q: tx queue to clean buffer from
- * @tx_buf: buffer to be cleaned
- */
-static void idpf_tx_splitq_unmap_hdr(struct idpf_queue *tx_q,
-				     struct idpf_tx_buf *tx_buf)
-{
-	/* unmap skb header data */
-	dma_unmap_single(tx_q->dev,
-			 dma_unmap_addr(tx_buf, dma),
-			 dma_unmap_len(tx_buf, len),
-			 DMA_TO_DEVICE);
-
-	dma_unmap_len_set(tx_buf, len, 0);
-}
-
 #if IS_ENABLED(CONFIG_PTP_1588_CLOCK)
 /**
  * idpf_tx_hw_tstamp - report hw timestamp from completion desc to stack
@@ -2191,66 +2186,61 @@ idpf_tx_clean_stashed_bufs(struct idpf_queue *txq, u16 compl_tag, u8 *desc_ts,
 }
 
 /**
- * idpf_tx_find_stashed_bufs - fetch "first" buffer for a packet with the given
- * completion tag
- * @txq: queue to clean
- * @compl_tag: completion tag of packet to clean (from completion descriptor)
- */
-static struct idpf_tx_stash *idpf_tx_find_stashed_bufs(struct idpf_queue *txq,
-						       u16 compl_tag)
-{
-	struct idpf_tx_stash *stash;
-
-	/* Buffer completion */
-	hash_for_each_possible(txq->stash->sched_buf_hash, stash, hlist, compl_tag) {
-		if (unlikely(idpf_tx_buf_compl_tag(&stash->buf) != compl_tag))
-			continue;
-
-		if (stash->buf.skb)
-			return stash;
-	}
-
-	return NULL;
-}
-
-/**
  * idpf_tx_handle_reinject_expire - handler for miss completion timer
  * @timer: pointer to timer that expired
  */
 static void idpf_tx_handle_reinject_expire(struct timer_list *timer)
 {
-	struct idpf_tx_stash *stash = timer_container_of(stash, timer, reinject_timer);
-	struct libeth_sq_napi_stats cleaned = { };
-	struct idpf_queue *txq = stash->txq;
+	struct idpf_reinject_timer *timer_info = timer_container_of(timer_info, timer, timer);
+	struct idpf_queue *txq = timer_info->txq;
 	struct netdev_queue *nq;
 
-	idpf_tx_clean_stashed_bufs(txq, idpf_tx_buf_compl_tag(&stash->buf),
-				   NULL, &cleaned, 0);
+	dev_consume_skb_any(timer_info->skb);
 
 	/* Update BQL */
 	nq = netdev_get_tx_queue(txq->vport->netdev, txq->idx);
-	netdev_tx_completed_queue(nq, cleaned.packets, cleaned.bytes);
+	netdev_tx_completed_queue(nq, timer_info->gso_segs, timer_info->bytes);
 
 	u64_stats_update_begin(&txq->stats_sync);
 	u64_stats_inc(&txq->vport->port_stats.tx_reinjection_timeouts);
 	u64_stats_update_end(&txq->stats_sync);
+
+	kfree(timer_info);
 }
 
 /**
  * idpf_tx_start_reinject_timer - start timer to wait for reinject completion
  * @txq: pointer to queue struct
- * @stash: stash of packet to start timer for
+ * @tx_buf: first buffer of the packet being reinjected
+ * @compl_tag: completion tag of the packet being reinjected
+ *
+ * Return: 0 on success, negative on failure
  */
-static void idpf_tx_start_reinject_timer(struct idpf_queue *txq,
-					 struct idpf_tx_stash *stash)
+static int idpf_tx_start_reinject_timer(struct idpf_queue *txq,
+					struct idpf_tx_buf *tx_buf,
+					u32 compl_tag)
 {
-	/* Back pointer to txq so timer expire handler knows what to
-	 * clean if timer expires.
-	 */
-	stash->txq = txq;
-	stash->miss_pkt = true;
-	timer_setup(&stash->reinject_timer, idpf_tx_handle_reinject_expire, 0);
-	mod_timer(&stash->reinject_timer, jiffies + msecs_to_jiffies(4 * HZ));
+	struct idpf_reinject_timer *reinject_timer;
+	int err = 0;
+
+	reinject_timer = kzalloc(sizeof(*reinject_timer), GFP_ATOMIC);
+	if (!reinject_timer)
+		return -ENOMEM;
+
+	reinject_timer->txq = txq;
+	reinject_timer->skb = tx_buf->skb;
+	reinject_timer->bytes = tx_buf->bytes;
+	reinject_timer->gso_segs = tx_buf->packets;
+
+	timer_setup(&reinject_timer->timer, idpf_tx_handle_reinject_expire, 0);
+	mod_timer(&reinject_timer->timer, jiffies + msecs_to_jiffies(4 * HZ));
+
+	err = xa_err(xa_store(&txq->reinject_timers, compl_tag,
+			      reinject_timer, GFP_ATOMIC));
+	if (err)
+		kfree(reinject_timer);
+
+	return err;
 }
 
 /**
@@ -2290,7 +2280,8 @@ static int idpf_stash_flow_sch_buf(struct idpf_queue *txq,
 	idpf_tx_buf_compl_tag(&stash->buf) = idpf_tx_buf_compl_tag(tx_buf);
 
 	if (unlikely(compl_type == IDPF_TXD_COMPLT_RULE_MISS))
-		idpf_tx_start_reinject_timer(txq, stash);
+		idpf_tx_start_reinject_timer(txq, tx_buf,
+					     idpf_tx_buf_compl_tag(tx_buf));
 	else if (unlikely(compl_type == IDPF_TXD_COMPLT_REINJECTED))
 		stash->miss_pkt = true;
 	else
@@ -2515,24 +2506,33 @@ static bool idpf_tx_clean_bufs(struct idpf_queue *txq, u16 buf_id,
 }
 
 /**
- * idpf_tx_handle_miss_completion
+ * idpf_tx_handle_miss_completion - handle packet on the exception path
  * @txq: Tx ring to clean
  * @desc: pointer to completion queue descriptor to extract completion
  * information from
  * @cleaned: pointer to stats struct to track cleaned packets/bytes
- * @budget: Used to determine if we are in netpoll
  * @compl_tag: unique completion tag of packet
+ * @budget: Used to determine if we are in netpoll
  *
- * Determines where the packet is located, the hash table or the ring. If the
- * packet is on the ring, the ring cleaning function will take care of freeing
- * the DMA buffers and stash the SKB. The stashing function, called inside the
- * ring cleaning function, will take care of starting the timer.
+ * Handle a miss completion which signals the packet is taking the execption
+ * path. In the usual flow, the miss completion signals the start of expection
+ * path processing. Upon receiving a miss completion, we can unmap all buffers
+ * associated with the packet, but hold on to the skb. We expect a reinject
+ * completion, but it is not guaranteed, so we will start a timer to make sure
+ * the skb is freed in a reasonable amount of time (before a Tx timeout is
+ * triggered by the stack).
  *
- * If packet is already in the hashtable, determine if we need to finish up the
- * reinject completion or start the timer to wait for the reinject completion.
+ * If the timer cannot be started, we will clean this packet as if it were an
+ * RS completion and the reinject completion will be ignored.
  *
- * Returns cleaned bytes/packets only if we're finishing up the reinject
- * completion and freeing the skb. Otherwise, the stats are 0 / irrelevant
+ * In the rare case the reinject completion is processed first (due to a rare
+ * timing situation with an LSO packet primarily), the miss completion is the
+ * end of the exception path handling and we finish cleaning the packet
+ * normally. Note: we set it to the skb type to include DMA unmapping as part
+ * of the cleaning.
+ *
+ * Cleaned bytes/packets are only relevant if we're finishing up the reinject
+ * completion and freeing the skb. Otherwise, the stats are 0 / irrelevant.
  */
 static void
 idpf_tx_handle_miss_completion(struct idpf_queue *txq,
@@ -2540,60 +2540,26 @@ idpf_tx_handle_miss_completion(struct idpf_queue *txq,
 			       struct libeth_sq_napi_stats *cleaned,
 			       u16 compl_tag, int budget)
 {
-	struct idpf_tx_stash *stash;
+	struct idpf_tx_buf *tx_buf = &txq->tx.bufs[compl_tag];
 
-	/* First determine if this packet was already stashed */
-	stash = idpf_tx_find_stashed_bufs(txq, compl_tag);
-	if (!stash) {
-		u16 idx = compl_tag & txq->compl_tag_bufid_m;
-		struct idpf_tx_buf *tx_buf;
-
-		tx_buf = &txq->tx.bufs[idx];
-
-		if (unlikely(tx_buf->type == (enum libeth_sqe_type)LIBETH_SQE_MISS)) {
-			/* In the unlikely event we received the reinject
-			 * completion first AND it failed to be stashed to the
-			 * hash table, the packet is still be on the ring.  No
-			 * other completion is expected for this packet, so
-			 * clean it normally. Reset the buf type field to SKB
-			 * to trigger the full cleaning in the call to
-			 * idpf_tx_clean_buf_ring below.
-			 */
-			tx_buf->type = LIBETH_SQE_SKB;
-		} else {
-			/* Otherwise, since we received a miss completion
-			 * first, we free all of the buffers, but cannot free
-			 * the skb or update the stack BQL yet. Stash the skb
-			 * and start the timer to wait for the reinject
-			 * completion.
-			 */
-			idpf_tx_splitq_unmap_hdr(txq, tx_buf);
-			idpf_stash_flow_sch_buf(txq, tx_buf,
-						IDPF_TXD_COMPLT_RULE_MISS);
-			/* Reset buf type to use clean_buf_ring routine to clean
-			 * remaining buffers. It will be set to empty there.
-			 */
-			tx_buf->type = (enum libeth_sqe_type)LIBETH_SQE_MISS;
-		}
-
-		idpf_tx_clean_bufs(txq, compl_tag, cleaned, desc->ts,
-				   budget);
-	} else {
-		if (stash->miss_pkt)
-			/* If it was previously stashed because
-			 * of a reinject completion, we can go
-			 * ahead and clean everything up
-			 */
-			idpf_tx_clean_stashed_bufs(txq, compl_tag, desc->ts,
-						   cleaned, budget);
-		else
-			/* If it was previously stashed because
-			 * of an RE completion, we just need to
-			 * start the timer while we wait for
-			 * the reinject completion
-			 */
-			idpf_tx_start_reinject_timer(txq, stash);
+	if (unlikely(tx_buf->type == (enum libeth_sqe_type)LIBETH_SQE_REINJECT)) {
+		/* Reinject completion was received first. No other completion
+		 * is expected for this packet, clean it normally.
+		 */
+		tx_buf->type = LIBETH_SQE_SKB;
+		goto clean_pkt;
 	}
+
+	if (idpf_tx_start_reinject_timer(txq, tx_buf, compl_tag)) {
+		netdev_err(txq->netdev,
+			   "Failed to start reinject timer, BQL may be inaccurate.\n");
+		goto clean_pkt;
+	}
+
+	tx_buf->type = (enum libeth_sqe_type)LIBETH_SQE_MISS;
+
+clean_pkt:
+	idpf_tx_clean_bufs(txq, compl_tag, cleaned, desc->ts, budget);
 }
 
 /**
@@ -2664,59 +2630,54 @@ idpf_tx_handle_reinject_completion(struct idpf_queue *txq,
 				   int budget)
 {
 	u16 compl_tag = le16_to_cpu(desc->q_head_compl_tag.compl_tag);
-	struct idpf_tx_stash *stash;
+	struct idpf_tx_buf *tx_buf = &txq->tx.bufs[compl_tag];
+	struct idpf_reinject_timer *reinject_timer;
+	struct libeth_cq_pp cp = {
+		.dev	= txq->dev,
+		.ss	= cleaned,
+		.napi	= !!budget,
+	};
 
-	/* First check if the packet has already been stashed because of a miss
-	 * completion
-	 */
-	stash = idpf_tx_find_stashed_bufs(txq, compl_tag);
-	if (stash) {
-		if (stash->miss_pkt)
-			/* If it was previously stashed because of a miss
-			 * completion, we can go ahead and clean everything up
+	if (tx_buf->type == (enum libeth_sqe_type)LIBETH_SQE_MISS) {
+		reinject_timer = xa_erase(&txq->reinject_timers, compl_tag);
+		if (unlikely(!reinject_timer))
+			/* Either timer expired or we failed to create the
+			 * timer.  In either case, nothing more to do since SKB
+			 * has already been consumed.
 			 */
-			idpf_tx_clean_stashed_bufs(txq, compl_tag, desc->ts,
-						   cleaned, budget);
-		else
-			/* If it was previously stashed because of a RE or out
-			 * of order RS completion, it means we received the
-			 * reinject completion before the miss completion.
-			 * However, since the packet did take the miss path, it
-			 * is guaranteed to get a miss completion. Therefore,
-			 * mark it as a miss path packet in the hash table so
-			 * it will be cleaned upon receiving the miss
-			 * completion.
-			 */
-			stash->miss_pkt = true;
-	} else {
-		u16 idx = compl_tag & txq->compl_tag_bufid_m;
-		struct idpf_tx_buf *tx_buf;
+			return;
+
+		timer_delete(&reinject_timer->timer);
+		kfree(reinject_timer);
+
+		/* Reset type to REINJECT to consume skb and update stats. */
+		tx_buf->type = (enum libeth_sqe_type)LIBETH_SQE_REINJECT;
+		libeth_tx_complete(tx_buf, &cp);
+	} else if (tx_buf->type == LIBETH_SQE_SKB) {
 		u16 next_pkt_idx;
 
-		/* If it was not in the hash table, the packet is still on the
-		 * ring.  This is another scenario in which the reinject
-		 * completion arrives before the miss completion.  We can
-		 * simply stash all of the buffers associated with this packet
-		 * and any buffers on the ring prior to it.  We will clean the
-		 * packet and all of its buffers associated with this
-		 * completion tag upon receiving the miss completion, and clean
-		 * the others upon receiving their respective RS completions.
+		/* This is a scenario in which the reinject completion arrives
+		 * before the miss completion.  We can simply move the
+		 * descriptor ring next_to_clean to after this packet since we
+		 * know all descriptors up to this point have been read by HW.
+		 * We will clean the packet and all of its buffers associated
+		 * with this completion tag upon receiving the miss completion,
+		 * and clean the others upon receiving their respective RS
+		 * completions.
 		 */
-		tx_buf = &txq->tx.bufs[idx];
-		tx_buf->type = (enum libeth_sqe_type)LIBETH_SQE_MISS;
+		tx_buf->type = (enum libeth_sqe_type)LIBETH_SQE_REINJECT;
 
 		next_pkt_idx = tx_buf->rs_idx + 1;
 		if (unlikely(next_pkt_idx >= txq->desc_count))
 			next_pkt_idx = 0;
 
-		idpf_tx_splitq_clean(txq, next_pkt_idx, budget, cleaned, true,
-				     IDPF_TXD_COMPLT_REINJECTED);
+		txq->next_to_clean = next_pkt_idx;
 	}
 
-	/* If the packet is not in the ring or hash table, it means we either
-	 * received a regular completion already or the timer expired on the
-	 * miss completion.  In either case, everything should already be
-	 * cleaned up and we should ignore this completion.
+	/* If we get here with this tag, it means we either received a regular
+	 * completion already or the timer expired on the miss completion.  In
+	 * either case, everything should already be cleaned up and we should
+	 * ignore this completion.
 	 */
 }
 

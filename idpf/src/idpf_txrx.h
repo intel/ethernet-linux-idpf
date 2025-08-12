@@ -225,11 +225,13 @@ union idpf_tx_flex_desc {
 /**
  * enum libeth_sqe_type_ext - extended SQE types
  * @LIBETH_SQE_TSTAMP_SKB: SQE type for PTP SKBs
- * @LIBETH_SQE_MISS: SQE type for packets taking the exception path
+ * @LIBETH_SQE_MISS: SQE exception path packet, only unmap DMA
+ * @LIBETH_SQE_REINJECT: exception path packet, napi_consume_skb(), update stats
  */
 enum libeth_sqe_type_ext {
 	LIBETH_SQE_SKB_TSTAMP = 1000,
 	LIBETH_SQE_MISS,
+	LIBETH_SQE_REINJECT,
 };
 
 #define idpf_tx_buf libeth_sqe
@@ -307,6 +309,22 @@ struct idpf_tx_splitq_params {
 	u16 prev_ntu;
 	u16 prev_refill_ntc;
 	bool prev_refill_gen;
+};
+
+/**
+ * struct idpf_reinject_timer
+ * @timer: Timer to bound how long a pkt can be on the exception path
+ * @txq: Pointer to the TX queue that this packet belongs to
+ * @skb: Pointer to the skb that is being reinjected
+ * @bytes: Number of bytes in the skb
+ * @gso_segs: Number of segments in the skb
+ */
+struct idpf_reinject_timer {
+	struct timer_list timer;
+	struct idpf_queue *txq;
+	struct sk_buff *skb;
+	u32 bytes;
+	u16 gso_segs;
 };
 
 enum idpf_tx_ctx_desc_eipt_offload {
@@ -948,6 +966,7 @@ struct idpf_queue {
 	u16 compl_tag_gen_max;
 
 	struct idpf_txq_stash *stash;
+	struct xarray reinject_timers;
 } ____cacheline_internodealigned_in_smp;
 
 /**
