@@ -166,7 +166,10 @@ function gen-dpll() {
 
 function gen-ethtool() {
 	eth='include/linux/ethtool.h'
+	nleth='include/linux/ethtool_netlink.h'
 	ueth='include/uapi/linux/ethtool.h'
+	unleth='include/uapi/linux/ethtool_netlink.h'
+	unlgeth='include/uapi/linux/ethtool_netlink_generated.h'
 	gen HAVE_ETHTOOL_COALESCE_EXTACK if method get_coalesce of ethtool_ops matches 'struct kernel_ethtool_coalesce \\*' in "$eth"
 	gen HAVE_ETHTOOL_EXTENDED_RINGPARAMS if method get_ringparam of ethtool_ops matches 'struct kernel_ethtool_ringparam \\*' in "$eth"
 	gen HAVE_ETHTOOL_GET_FEC_STATS_OPS if struct ethtool_ops matches '\\*get_fec_stats' in "$eth"
@@ -181,6 +184,13 @@ function gen-ethtool() {
 	gen HAVE_ETHTOOL_FLOW_RSS if macro FLOW_RSS in "$ueth"
 	gen HAVE_ETHTOOL_LINK_MODE_FEC_NONE_BIT if enum ethtool_link_mode_bit_indices matches ETHTOOL_LINK_MODE_FEC_NONE_BIT in "$ueth"
 	gen NEED_ETHTOOL_LINK_MODE_BIT_INDICES if enum ethtool_link_mode_bit_indices absent in "$ueth"
+
+	ETHTOOL_TCP_DATA_SPLIT=0
+	if check anonymous enum matches ETHTOOL_TCP_DATA_SPLIT_UNKNOWN in "$unleth" ||
+		check enum ethtool_tcp_data_split matches ETHTOOL_TCP_DATA_SPLIT_UNKNOWN in "$unlgeth"; then
+		ETHTOOL_TCP_DATA_SPLIT=1
+	fi
+	gen HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT if string "$ETHTOOL_TCP_DATA_SPLIT" equals 1
 }
 
 function gen-exported-symbols() {
