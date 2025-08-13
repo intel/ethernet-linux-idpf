@@ -540,16 +540,7 @@ static const struct idpf_stats idpf_gstrings_tx_queue_stats[] = {
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 	IDPF_QUEUE_STAT("busy_q_restarts", q_stats.tx.busy_q_restarts),
 	IDPF_QUEUE_STAT("busy_low_txq_descs", q_stats.tx.busy_low_txq_descs),
-	IDPF_QUEUE_STAT("busy_low_rsv_bufs", q_stats.tx.busy_low_rsv_bufs),
 	IDPF_QUEUE_STAT("busy_too_many_pend_compl", q_stats.tx.busy_too_many_pend_compl),
-	IDPF_QUEUE_STAT("hash_tbl_pkt_cleans", q_stats.tx.hash_tbl_pkt_cleans),
-	IDPF_QUEUE_STAT("ring_pkt_cleans", q_stats.tx.ring_pkt_cleans),
-	IDPF_QUEUE_STAT("re_pkt_stash", q_stats.tx.re_pkt_stash),
-	IDPF_QUEUE_STAT("re_pkt_stash_fail", q_stats.tx.re_pkt_stash_fail),
-	IDPF_QUEUE_STAT("ooo_compl_stash", q_stats.tx.ooo_compl_stash),
-	IDPF_QUEUE_STAT("ooo_compl_stash_fail", q_stats.tx.ooo_compl_stash_fail),
-	IDPF_QUEUE_STAT("re_invalid_first_buf", q_stats.tx.re_invalid_first_buf),
-	IDPF_QUEUE_STAT("rs_invalid_first_buf", q_stats.tx.rs_invalid_first_buf),
 	IDPF_QUEUE_STAT("complq_clean_incomplete", q_stats.tx.complq_clean_incomplete),
 	IDPF_QUEUE_STAT("sharedrxq_clean_incomplete", q_stats.tx.sharedrxq_clean_incomplete),
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */

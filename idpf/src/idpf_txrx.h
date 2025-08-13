@@ -169,10 +169,6 @@ LIBETH_SQE_CHECK_PRIV(u32);
 	0 : (txq)->desc_count) + \
 	(txq)->next_to_clean - (txq)->next_to_use - 1)
 
-#define IDPF_TX_BUF_RSV_UNUSED(txq)	((txq)->stash->buf_stack.top)
-#define IDPF_TX_BUF_RSV_LOW(txq)	(IDPF_TX_BUF_RSV_UNUSED(txq) < \
-					 (txq)->desc_count >> 2)
-
 #define IDPF_TX_COMPLQ_OVERFLOW_THRESH(txcq)	((txcq)->desc_count >> 1)
 /* Determine the absolute number of completions pending, i.e. the number of
  * completions that are expected to arrive on the TX completion queue.  This
@@ -185,12 +181,7 @@ LIBETH_SQE_CHECK_PRIV(u32);
 #define IDPF_TX_COMPLQ_PENDING(txq)	\
 	((txq)->num_completions_pending - (txq)->complq->tx.num_completions)
 
-#define IDPF_TX_SPLITQ_COMPL_TAG_WIDTH	16
-#define IDPF_TX_SPLITQ_MISS_COMPL_TAG	BIT(15)
-/* Adjust the generation for the completion tag and wrap if necessary */
-#define IDPF_TX_ADJ_COMPL_TAG_GEN(txq) \
-	((++(txq)->compl_tag_cur_gen) >= (txq)->compl_tag_gen_max ? \
-	0 : (txq)->compl_tag_cur_gen)
+#define IDPF_TX_SPLITQ_MISS_COMPL_TAG  BIT(15)
 
 #define IDPF_TXBUF_NULL			U32_MAX
 
@@ -235,31 +226,6 @@ enum libeth_sqe_type_ext {
 };
 
 #define idpf_tx_buf libeth_sqe
-
-struct idpf_tx_stash {
-	struct hlist_node hlist;
-	struct timer_list reinject_timer;
-	struct idpf_tx_buf buf;
-	struct idpf_queue *txq;
-	/* Keep track of whether this packet was sent on the exception path
-	 * either because the driver received a miss completion and is waiting
-	 * on a reinject completion or because the driver received a reinject
-	 * completion and is waiting on a follow up completion.
-	 */
-	bool miss_pkt;
-};
-
-/**
- * struct idpf_buf_lifo - LIFO for managing OOO completions
- * @top: Used to know how many buffers are left
- * @size: Total size of LIFO
- * @bufs: Backing array
- */
-struct idpf_buf_lifo {
-	u16 top;
-	u16 size;
-	struct idpf_tx_stash **bufs;
-};
 
 /**
  * struct idpf_tx_offload_params - Offload parameters for a given packet
@@ -690,16 +656,7 @@ struct idpf_tx_queue_stats {
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 	u64_stats_t busy_q_restarts;
 	u64_stats_t busy_low_txq_descs;
-	u64_stats_t busy_low_rsv_bufs;
 	u64_stats_t busy_too_many_pend_compl;
-	u64_stats_t hash_tbl_pkt_cleans;
-	u64_stats_t ring_pkt_cleans;
-	u64_stats_t rs_invalid_first_buf;
-	u64_stats_t re_invalid_first_buf;
-	u64_stats_t re_pkt_stash;
-	u64_stats_t re_pkt_stash_fail;
-	u64_stats_t ooo_compl_stash;
-	u64_stats_t ooo_compl_stash_fail;
 	u64_stats_t complq_clean_incomplete;
 	u64_stats_t sharedrxq_clean_incomplete;
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
@@ -749,17 +706,6 @@ struct idpf_sw_queue {
 	u32 next_to_use;
 	u32 next_to_clean;
 } ____cacheline_internodealigned_in_smp;
-
-/**
- * struct idpf_txq_stash
- * @buf_stack: Stack of empty buffers to store buffer info for out of order
- *	       buffer completions. See struct idpf_buf_lifo.
- * @sched_buf_hash: Hash table to stores buffers
- */
-struct idpf_txq_stash {
-	struct idpf_buf_lifo buf_stack;
-	DECLARE_HASHTABLE(sched_buf_hash, 12);
-};
 
 /**
  * struct idpf_queue
@@ -852,30 +798,6 @@ struct idpf_txq_stash {
  * @tx_max_bufs: Max buffers that can be transmitted with scatter-gather
  * @crc_enable: Enable CRC insertion offload
  * @tx_min_pkt_len: Min supported packet length
- * @compl_tag_bufid_m: Completion tag buffer id mask
- * @compl_tag_gen_s: Completion tag generation bit
- *	The format of the completion tag will change based on the TXQ
- *	descriptor ring size so that we can maintain roughly the same level
- *	of "uniqueness" across all descriptor sizes. For example, if the
- *	TXQ descriptor ring size is 64 (the minimum size supported), the
- *	completion tag will be formatted as below:
- *	15                 6 5         0
- *	--------------------------------
- *	|    GEN=0-1023     |IDX = 0-63|
- *	--------------------------------
- *
- *	This gives us 64*1024 = 65536 possible unique values. Similarly, if
- *	the TXQ descriptor ring size is 8160 (the maximum size supported),
- *	the completion tag will be formatted as below:
- *	15 13 12                       0
- *	--------------------------------
- *	|GEN |       IDX = 0-8159      |
- *	--------------------------------
- *
- *	This gives us 8*8160 = 65280 possible unique values.
- * @compl_tag_cur_gen: Used to keep track of current completion tag generation
- * @compl_tag_gen_max: To determine when compl_tag_cur_gen should be reset
- * @stash: pointer to stashing structures
  */
 struct idpf_queue {
 	struct device *dev;
@@ -959,13 +881,6 @@ struct idpf_queue {
 	bool crc_enable;
 	u8 tx_min_pkt_len;
 
-	u16 compl_tag_bufid_m;
-	u16 compl_tag_gen_s;
-
-	u16 compl_tag_cur_gen;
-	u16 compl_tag_gen_max;
-
-	struct idpf_txq_stash *stash;
 	struct xarray reinject_timers;
 } ____cacheline_internodealigned_in_smp;
 

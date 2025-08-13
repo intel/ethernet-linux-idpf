@@ -259,10 +259,8 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 					  tx_parms.offload.td_cmd, desc.len);
 
 		ntu++;
-		if (ntu == xdpq->desc_count) {
+		if (ntu == xdpq->desc_count)
 			ntu = 0;
-			xdpq->compl_tag_cur_gen = IDPF_TX_ADJ_COMPL_TAG_GEN(xdpq);
-		}
 
 		idpf_tx_buf_compl_tag(tx_buf) = tx_parms.compl_tag;
 	}
