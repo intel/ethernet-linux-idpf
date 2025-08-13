@@ -374,8 +374,8 @@ static int idpf_adi_create(struct idpf_adi *adi, u32 pasid)
 		goto destroy_adi;
 	}
 
-	err = xa_store(&adapter->adi_info.priv_info, priv->adi_id, priv,
-		       GFP_KERNEL);
+	err = xa_err(xa_store(&adapter->adi_info.priv_info, priv->adi_id, priv,
+			      GFP_KERNEL));
 	if (err)
 		goto destroy_adi;
 
