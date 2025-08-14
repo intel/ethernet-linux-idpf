@@ -135,6 +135,7 @@ enum virtchnl2_op {
 	VIRTCHNL2_OP_DISABLE_VLAN_INSERTION		= 558,
 	VIRTCHNL2_OP_GET_OEM_CAPS			= 4999,
 	VIRTCHNL2_OP_OEM_RCA                            = 5000,
+	VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT		= 5001,
 };
 
 #define VIRTCHNL2_RDMA_INVALID_QUEUE_IDX	0xFFFF
@@ -336,6 +337,7 @@ enum virtchnl2_flow_types {
  */
 #define VIRTCHNL2_CAP_OEM_P2P			BIT(0)
 #define VIRTCHNL2_CAP_OEM_RCA			BIT(1)
+#define VIRTCHNL2_CAP_OEM_CONFIG_RXQ_EXT	BIT(2)
 /* Other OEM specific caps */
 
 /* underlying device type */
@@ -659,6 +661,71 @@ struct virtchnl2_oem_caps {
 	__le64 oem_caps;
 };
 VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_oem_caps);
+
+/**
+ * enum virtchnl2_oem_rxq_flags - OEM Receive Queue Feature flags.
+ * @VIRTCHNL2_OEM_RXQ_STRIP_CRC: Strip CRC from Rx packets.
+ * @VIRTCHNL2_OEM_RXQ_NO_EXPIRE: Do not expire Rx packets.
+ * @VIRTCHNL2_OEM_RXQ_RXDID_OVERRIDE: Override Rx DID with a recipe index.
+ *					Used for Rx DID override.
+ *					When set, the rxdid_override_recipe_index
+ *					field in virtchnl2_oem_config_rx_queues_ext
+ *					structure is used to override the Rx DID.
+ */
+enum virtchnl2_oem_rxq_flags {
+	VIRTCHNL2_OEM_RXQ_STRIP_CRC		= BIT(0),
+	VIRTCHNL2_OEM_RXQ_NO_EXPIRE		= BIT(1),
+	VIRTCHNL2_OEM_RXQ_RXDID_OVERRIDE	= BIT(2),
+};
+
+/**
+ * struct virtchnl2_oem_rxq_ext_info - OEM Rx queues ext config.
+ * @type: See enum virtchnl2_queue_type.
+ * @queue_id: Queue id.
+ * @qflags: see enum virtchnl2_oem_rxq_flags.
+ * @flex_field1_decode: Flex field 1 decode.
+ * @flex_field2_decode: Flex field 2 decode.
+ * @flex_field3_decode: Flex field 3 decode.
+ * @flex_field4_decode: Flex field 4 decode.
+ * @rxdid_override_recipe_index: Recipe index for Rx DID override.
+ * @pad: Padding.
+ *
+ */
+struct virtchnl2_oem_rxq_ext_info {
+	__le32 type;
+	__le32 queue_id;
+	__le16 qflags;
+	u8 flex_field1_decode;
+	u8 flex_field2_decode;
+	u8 flex_field3_decode;
+	u8 flex_field4_decode;
+	u8 rxdid_override_recipe_index;
+	u8 pad[41];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(56, virtchnl2_oem_rxq_ext_info);
+
+/**
+ * struct virtchnl2_oem_config_rx_queues_ext - OEM Rx queues extended config.
+ * @vport_id: Vport id.
+ * @num_qinfo: Number of instances.
+ * @pad: Padding.
+ * @qinfo: Array of virtchnl2_oem_rxq_ext_info structures.
+ *
+ * PF sends this message to set up parameters for one or more receive queues.
+ * This message contains an array of num_qinfo instances of virtchnl2_oem_rxq_ext_info
+ * structures. CP configures requested queues and returns a status code.
+ * If the number of queues specified is greater than the number of queues
+ * associated with the vport, an error is returned and no queues are configured.
+ *
+ * Associated with VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT.
+ */
+struct virtchnl2_oem_config_rx_queues_ext {
+	__le32 vport_id;
+	__le16 num_qinfo;
+	u8 pad[18];
+	struct virtchnl2_oem_rxq_ext_info qinfo[];
+};
+VIRTCHNL2_CHECK_STRUCT_VAR_LEN(80, virtchnl2_oem_config_rx_queues_ext, qinfo);
 
 /**
  * struct virtchnl2_version_info - Version information.
@@ -2283,6 +2350,8 @@ static inline const char *virtchnl2_op_str(__le32 v_opcode)
 		return "VIRTCHNL2_OP_CONFIG_TX_QUEUES";
 	case VIRTCHNL2_OP_CONFIG_RX_QUEUES:
 		return "VIRTCHNL2_OP_CONFIG_RX_QUEUES";
+	case VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT:
+		return "VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT";
 	case VIRTCHNL2_OP_ENABLE_QUEUES:
 		return "VIRTCHNL2_OP_ENABLE_QUEUES";
 	case VIRTCHNL2_OP_DISABLE_QUEUES:
@@ -2484,6 +2553,19 @@ virtchnl2_vc_validate_vf_msg(struct virtchnl2_version_info *ver, u32 v_opcode,
 					  qinfo, num_chunks);
 		if (!is_flex_array)
 			valid_len -= sizeof(struct virtchnl2_rxq_info);
+
+		break;
+	case VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT:
+		num_chunks = ((struct virtchnl2_oem_config_rx_queues_ext *)msg)->num_qinfo;
+		if (!num_chunks) {
+			err_msg_format = true;
+			break;
+		}
+
+		valid_len = struct_size_t(struct virtchnl2_oem_config_rx_queues_ext,
+					  qinfo, num_chunks);
+		if (!is_flex_array)
+			valid_len -= sizeof(struct virtchnl2_oem_rxq_ext_info);
 
 		break;
 	case VIRTCHNL2_OP_ADD_QUEUES:
