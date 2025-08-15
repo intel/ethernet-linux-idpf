@@ -3954,7 +3954,7 @@ error:
 	if (err)
 		dev_err(idpf_adapter_to_dev(adapter), "Failed to add or del mac filters %d", err);
 
-	return 0;
+	return err;
 }
 
 /**
