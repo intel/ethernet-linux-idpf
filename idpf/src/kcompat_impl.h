@@ -1467,6 +1467,7 @@ cpu_latency_qos_remove_request(struct pm_qos_request *req)
 #define static_branch_likely(x)		likely(static_key_enabled(x))
 #define static_branch_unlikely(x)	unlikely(static_key_enabled(x))
 
+#define static_branch_enable(x)		static_key_enable(x)
 #define static_branch_inc(x)		static_key_slow_inc(x)
 #define static_branch_dec(x)		static_key_slow_dec(x)
 
