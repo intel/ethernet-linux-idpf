@@ -504,9 +504,8 @@ int idpf_ctlq_post_rx_buffs(struct idpf_hw *hw, struct idpf_ctlq_info *cq,
 			    u16 *buff_count, struct idpf_dma_mem **buffs)
 {
 	struct idpf_ctlq_desc *desc;
-	u16 ntp = cq->next_to_post;
 	bool buffs_avail = false;
-	u16 tbp = ntp + 1;
+	u16 ntp, tbp;
 	int i = 0;
 
 	if (*buff_count > cq->ring_size)
@@ -516,6 +515,9 @@ int idpf_ctlq_post_rx_buffs(struct idpf_hw *hw, struct idpf_ctlq_info *cq,
 		buffs_avail = true;
 
 	spin_lock(&cq->cq_lock);
+
+	ntp = cq->next_to_post;
+	tbp = ntp + 1;
 
 	if (tbp >= cq->ring_size)
 		tbp = 0;
