@@ -127,6 +127,7 @@ function gen-devlink() {
 	gen NEED_DEVLINK_TO_DEV if fun devlink_to_dev absent in "$dh"
 	gen NEED_DEVLINK_UNLOCKED_RESOURCE if fun devl_resource_size_get absent in "$dh"
 	gen NEED_DEVL_HEALTH_REPORTER_CREATE if fun devl_health_reporter_create absent in "$dh"
+	gen NEED_DEVL_HEALTH_REPORTER_CREATE_REMOVE_GRACEFUL_PERIOD if fun devl_health_reporter_create matches graceful_period in "$dh"
 	gen NEED_DEVL_LOCK if fun devl_lock absent in "$dh"
 	gen NEED_DEVL_PARAMS_REGISTER if fun devl_params_register absent in "$dh"
 	gen NEED_DEVL_PORT_REGISTER if fun devl_port_register absent in "$dh"

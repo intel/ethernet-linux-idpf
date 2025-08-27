@@ -869,17 +869,16 @@ struct kc_devlink_health_reporter {
 static inline struct devlink_health_reporter *
 devl_health_reporter_create(struct devlink *devlink,
 			    const struct devlink_health_reporter_ops *ops,
-			    u64 graceful_period, void *priv)
+			    void *priv)
 {
 	struct devlink_health_reporter *reporter;
 
 	devl_unlock(devlink);
 #ifdef NEED_DEVLINK_HEALTH_DEFAULT_AUTO_RECOVER
-	reporter = devlink_health_reporter_create(devlink, ops, graceful_period,
+	reporter = devlink_health_reporter_create(devlink, ops, 0,
 						  !!ops->recover, priv);
 #else
-	reporter = devlink_health_reporter_create(devlink, ops, graceful_period,
-						  priv);
+	reporter = devlink_health_reporter_create(devlink, ops, 0, priv);
 #endif /* NEED_DEVLINK_HEALTH_DEFAULT_AUTO_RECOVER */
 	devl_lock(devlink);
 
@@ -894,6 +893,23 @@ devl_health_reporter_destroy(struct devlink_health_reporter *reporter)
 	devl_lock(((struct kc_devlink_health_reporter *)(reporter))->devlink);
 }
 #endif /* NEED_DEVL_HEALTH_REPORTER_CREATE */
+
+#ifdef NEED_DEVL_HEALTH_REPORTER_CREATE_REMOVE_GRACEFUL_PERIOD
+/* NEED_DEVL_HEALTH_REPORTER_CREATE_REMOVE_GRACEFUL_PERIOD
+ *
+ * Since upstream commit d2b007374551 ("devlink: Move graceful period
+ * parameter to reporter ops"), the graceful period is defined in the ops
+ * structure instead of as a parameter to the health reporter. Currently, all
+ * Intel drivers use a fixed value of zero for the graceful period. Provide
+ * a wrapper implementation that always passes 0 to the graceful period. If
+ * a driver should ever need to support a non-zero graceful period, an
+ * appropriate HAVE_ flag must be implemented and the driver must be careful
+ * to check and pass the non-zero graceful period on older kernels.
+ */
+#define devl_health_reporter_create(devlink, ops, priv) \
+	devl_health_reporter_create((devlink), (ops), 0, (priv))
+
+#endif /* NEED_DEVL_HEALTH_REPORTER_CREATE_REMOVE_GRACEFUL_PERIOD */
 
 #ifdef NEED_DEVLINK_FMSG_DUMP_SKB
 /**
