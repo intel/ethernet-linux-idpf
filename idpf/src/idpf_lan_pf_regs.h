@@ -7,8 +7,9 @@
 /* Receive queues */
 #define PF_QRX_BASE			0x00000000
 #define PF_QRX_TAIL(_QRX)		(PF_QRX_BASE + (((_QRX) * 0x1000)))
-#define PF_QRX_BUFFQ_BASE		0x03000000
-#define PF_QRX_BUFFQ_TAIL(_QRX)		(PF_QRX_BUFFQ_BASE + (((_QRX) * 0x1000)))
+#define PF_QRX_BUFFQ_BASE(_QRX)         ((_QRX) < 8192 ? 0x03000000 : 0x10000000)
+#define PF_QRX_BUFFQ_OFFSET(_QRX)       ((_QRX) < 8192 ? ((_QRX) * 0x1000) : (((_QRX) - 8192) * 0x1000))
+#define PF_QRX_BUFFQ_TAIL(_QRX)         (PF_QRX_BUFFQ_BASE(_QRX) + PF_QRX_BUFFQ_OFFSET(_QRX))
 
 /* Transmit queues */
 #define PF_QTX_BASE			0x05000000
