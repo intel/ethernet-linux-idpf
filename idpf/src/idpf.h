@@ -215,6 +215,7 @@ enum idpf_vport_state {
  * @max_tx_hdr_size: Max header length hardware can support
 #endif
  * @state: See enum idpf_vport_state
+ * @tx_max_bufs: Max buffers that can be transmitted with scatter-gather
  * @stats_lock: Lock to protect stats update
  * @netstats: Packet and byte stats
  */
@@ -228,6 +229,7 @@ struct idpf_netdev_priv {
 	u16 max_tx_hdr_size;
 #endif /* HAVE_NDO_FEATURES_CHECK */
 	DECLARE_BITMAP(state, IDPF_VPORT_STATE_NBITS);
+	u16 tx_max_bufs;
 	spinlock_t stats_lock;
 	struct rtnl_link_stats64 netstats;
 };

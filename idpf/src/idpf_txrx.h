@@ -1190,8 +1190,6 @@ void idpf_tx_dma_map_error(struct idpf_queue *txq, struct sk_buff *skb,
 			   struct idpf_tx_buf *first, u16 ring_idx);
 unsigned int idpf_tx_desc_count_required(struct idpf_queue *txq,
 					 struct sk_buff *skb);
-bool idpf_chk_linearize(struct sk_buff *skb, unsigned int max_bufs,
-			unsigned int count);
 #ifdef HAVE_TX_TIMEOUT_TXQUEUE
 void idpf_tx_timeout(struct net_device *netdev, unsigned int txqueue);
 #else
