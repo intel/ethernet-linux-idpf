@@ -726,16 +726,6 @@ struct idpf_tx_queue_stats {
 struct idpf_cleaned_stats {
 	u32 packets;
 	u32 bytes;
-#ifdef CONFIG_TX_TIMEOUT_VERBOSE
-	u16 hash_tbl_pkt_cleans;
-	u16 ring_pkt_cleans;
-	u16 rs_invalid_first_buf;
-	u16 re_invalid_first_buf;
-	u16 re_pkt_stash;
-	u16 re_pkt_stash_fail;
-	u16 ooo_compl_stash;
-	u16 ooo_compl_stash_fail;
-#endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 };
 
 union idpf_queue_stats {

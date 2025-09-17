@@ -2214,7 +2214,10 @@ skip_tx_tstamp:
 		case IDPF_TX_BUF_XDP:
 #endif /* HAVE_XDP_SUPPORT */
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
-			cleaned->hash_tbl_pkt_cleans++;
+			u64_stats_update_begin(&txq->stats_sync);
+			u64_stats_inc(&txq->q_stats.tx.hash_tbl_pkt_cleans);
+			u64_stats_update_end(&txq->stats_sync);
+
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 			idpf_tx_splitq_clean_hdr(txq, &stash->buf, cleaned,
 						 budget);
@@ -2421,23 +2424,30 @@ idpf_tx_splitq_clean(struct idpf_queue *tx_q, u16 end, int napi_budget,
 		if (descs_only) {
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 			if (unlikely(tx_buf->type != IDPF_TX_BUF_SKB &&
-				     tx_buf->type != IDPF_TX_BUF_XDP))
-				cleaned->re_invalid_first_buf++;
+				     tx_buf->type != IDPF_TX_BUF_XDP)) {
+				u64_stats_update_begin(&tx_q->stats_sync);
+				u64_stats_inc(&tx_q->q_stats.tx.re_invalid_first_buf);
+				u64_stats_update_end(&tx_q->stats_sync);
+			}
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 
 			if (IDPF_TX_BUF_RSV_UNUSED(tx_q) < tx_buf->nr_frags) {
 				clean_complete = false;
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
-				cleaned->ooo_compl_stash_fail += rs_compl;
-				cleaned->re_pkt_stash_fail += re_compl;
+				u64_stats_update_begin(&tx_q->stats_sync);
+				u64_stats_add(&tx_q->q_stats.tx.ooo_compl_stash_fail, rs_compl);
+				u64_stats_add(&tx_q->q_stats.tx.re_pkt_stash_fail, re_compl);
+				u64_stats_update_end(&tx_q->stats_sync);
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 				goto tx_splitq_clean_out;
 			}
 
 			idpf_stash_flow_sch_buf(tx_q, tx_buf, compl_type);
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
-			cleaned->ooo_compl_stash += rs_compl;
-			cleaned->re_pkt_stash += re_compl;
+			u64_stats_update_begin(&tx_q->stats_sync);
+			u64_stats_add(&tx_q->q_stats.tx.ooo_compl_stash, rs_compl);
+			u64_stats_add(&tx_q->q_stats.tx.re_pkt_stash, re_compl);
+			u64_stats_update_end(&tx_q->stats_sync);
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 
 			while (ntc != eop_idx) {
@@ -2541,13 +2551,17 @@ skip_tx_tstamp:
 		break;
 	default:
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
-		cleaned->rs_invalid_first_buf++;
+		u64_stats_update_begin(&txq->stats_sync);
+		u64_stats_inc(&txq->q_stats.tx.rs_invalid_first_buf);
+		u64_stats_update_end(&txq->stats_sync);
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 		return false;
 	}
 
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
-	cleaned->ring_pkt_cleans++;
+	u64_stats_update_begin(&txq->stats_sync);
+	u64_stats_inc(&txq->q_stats.tx.ring_pkt_cleans);
+	u64_stats_update_end(&txq->stats_sync);
 #endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 	while (idx != eop_idx) {
 		idpf_tx_clean_buf_ring_bump_ntc(txq, idx, tx_buf);
@@ -2908,24 +2922,6 @@ static bool idpf_tx_clean_complq(struct idpf_queue *complq, int budget,
 		u64_stats_update_begin(&tx_q->stats_sync);
 		u64_stats_add(&tx_q->q_stats.tx.packets, cleaned_stats.packets);
 		u64_stats_add(&tx_q->q_stats.tx.bytes, cleaned_stats.bytes);
-#ifdef CONFIG_TX_TIMEOUT_VERBOSE
-		u64_stats_add(&tx_q->q_stats.tx.hash_tbl_pkt_cleans,
-			      cleaned_stats.hash_tbl_pkt_cleans);
-		u64_stats_add(&tx_q->q_stats.tx.ring_pkt_cleans,
-			      cleaned_stats.ring_pkt_cleans);
-		u64_stats_add(&tx_q->q_stats.tx.re_pkt_stash,
-			      cleaned_stats.re_pkt_stash);
-		u64_stats_add(&tx_q->q_stats.tx.re_pkt_stash_fail,
-			      cleaned_stats.re_pkt_stash_fail);
-		u64_stats_add(&tx_q->q_stats.tx.ooo_compl_stash,
-			      cleaned_stats.ooo_compl_stash);
-		u64_stats_add(&tx_q->q_stats.tx.ooo_compl_stash_fail,
-			      cleaned_stats.ooo_compl_stash_fail);
-		u64_stats_add(&tx_q->q_stats.tx.re_invalid_first_buf,
-			      cleaned_stats.re_invalid_first_buf);
-		u64_stats_add(&tx_q->q_stats.tx.rs_invalid_first_buf,
-			      cleaned_stats.rs_invalid_first_buf);
-#endif /* CONFIG_TX_TIMEOUT_VERBOSE */
 		tx_q->cleaned_pkts += cleaned_stats.packets;
 		tx_q->cleaned_bytes += cleaned_stats.bytes;
 		complq->tx.num_completions++;
