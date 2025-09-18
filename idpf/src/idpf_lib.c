@@ -1012,7 +1012,7 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
 	struct idpf_vgrp *vgrp = &vport->dflt_grp;
 
-	if (!test_bit(IDPF_VPORT_UP, np->state))
+	if (!test_and_clear_bit(IDPF_VPORT_UP, np->state))
 		return;
 
 	/* Make sure soft reset has finished */
@@ -1038,7 +1038,6 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	idpf_vport_intr_deinit(vport, &vgrp->intr_grp);
 	idpf_vport_queues_rel(vport, &vgrp->q_grp);
 	idpf_vport_intr_rel(vgrp);
-	clear_bit(IDPF_VPORT_UP, np->state);
 }
 
 /**

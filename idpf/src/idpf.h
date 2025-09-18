@@ -214,7 +214,7 @@ enum idpf_vport_state {
 #ifdef HAVE_NDO_FEATURES_CHECK
  * @max_tx_hdr_size: Max header length hardware can support
 #endif
- * @state: See enum idpf_vport_state_flags
+ * @state: See enum idpf_vport_state
  * @stats_lock: Lock to protect stats update
  * @netstats: Packet and byte stats
  */
