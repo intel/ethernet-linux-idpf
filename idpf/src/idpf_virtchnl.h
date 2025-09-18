@@ -116,7 +116,6 @@ int idpf_vc_core_init(struct idpf_adapter *adapter);
 void idpf_vc_core_deinit(struct idpf_adapter *adapter);
 void idpf_init_vc_xn_completion(struct idpf_vc_xn_manager *vcxn_mngr);
 void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr);
-void idpf_vc_xn_shutdown(struct idpf_vc_xn_manager *vcxn_mngr);
 int idpf_get_reg_intr_vecs(struct idpf_vport *vport,
 			   struct idpf_vec_regs *reg_vals);
 int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
@@ -177,6 +176,7 @@ int idpf_send_get_set_rss_key_msg(struct idpf_vport *vport,
 int idpf_send_get_set_rss_lut_msg(struct idpf_vport *vport,
 				  struct idpf_rss_data *rss_data,
 				  bool get);
+void idpf_vc_xn_shutdown(struct idpf_vc_xn_manager *vcxn_mngr);
 int idpf_send_get_set_rss_hash_msg(struct idpf_vport *vport, bool get);
 int idpf_set_vlan_features(struct idpf_vport *vport, netdev_features_t features);
 int idpf_send_create_adi_msg(struct idpf_adapter *adapter,

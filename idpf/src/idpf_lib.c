@@ -2180,6 +2180,7 @@ void idpf_vc_event_task(struct work_struct *work)
 
 	if (test_bit(IDPF_HR_FUNC_RESET, adapter->flags))
 		goto func_reset;
+
 	if (test_bit(IDPF_HR_DRV_LOAD, adapter->flags))
 		goto drv_load;
 
