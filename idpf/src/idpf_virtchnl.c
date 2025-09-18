@@ -57,7 +57,7 @@ static int idpf_handle_event_link(struct idpf_adapter *adapter,
 
 	vport->link_up = v2e->link_status;
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		return 0;
 
 	if (vport->link_up) {
@@ -2326,7 +2326,7 @@ int idpf_send_get_stats_msg(struct idpf_vport *vport)
 	struct virtchnl2_vport_stats *stats;
 	ssize_t reply_sz;
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		return 0;
 
 	stats_msg.vport_id = cpu_to_le32(np->vport_id);

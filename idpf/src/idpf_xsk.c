@@ -535,7 +535,7 @@ idpf_xsk_check_xmit_params(struct idpf_vport *vport, u32 xdpq_idx)
 	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
 	struct idpf_vport_user_config_data *cfg_data;
 
-	if (unlikely(!np->active))
+	if (unlikely(!test_bit(IDPF_VPORT_UP, np->state)))
 		return -ENETDOWN;
 
 	if (unlikely(!idpf_xdp_is_prog_ena(vport)))

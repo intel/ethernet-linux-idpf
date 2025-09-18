@@ -134,7 +134,7 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 	}
 
 	rss_data = &adapter->vport_config[np->vport_idx]->user_config.rss_data;
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		goto unlock_mutex;
 #if defined(HAVE_ETHTOOL_RXFH_PARAM)
 	rxfh->hfunc = ETH_RSS_HASH_TOP;
@@ -199,7 +199,7 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 	}
 
 	rss_data = &adapter->vport_config[vport->idx]->user_config.rss_data;
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		goto unlock_mutex;
 
 #if defined(HAVE_ETHTOOL_RXFH_PARAM) || defined(HAVE_RXFH_HASHFUNC)
@@ -1222,7 +1222,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
-	if (!np->active) {
+	if (!test_bit(IDPF_VPORT_UP, np->state)) {
 		idpf_vport_cfg_unlock(adapter);
 		return;
 	}
@@ -1329,7 +1329,7 @@ static int idpf_get_q_coalesce(struct net_device *netdev,
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		goto unlock_mutex;
 
 	q_grp = &vport->dflt_grp.q_grp;
@@ -1531,7 +1531,7 @@ static int idpf_set_coalesce(struct net_device *netdev,
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		goto unlock_mutex;
 
 	for (i = 0; i < vport->num_txq; i++) {

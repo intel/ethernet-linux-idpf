@@ -4898,7 +4898,7 @@ int idpf_xdp_xmit(struct net_device *dev, struct xdp_buff *xdp)
 	int err;
 #endif /* HAVE_XDP_FRAME_STRUCT */
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		return -ENETDOWN;
 	if (unlikely(!netif_carrier_ok(dev) || !vport->link_up))
 		return -ENETDOWN;
@@ -4945,7 +4945,7 @@ void idpf_xdp_flush(struct net_device *dev)
 	unsigned int queue_index = smp_processor_id();
 	struct idpf_vport *vport = np->vport;
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		return;
 
 	if (!idpf_xdp_is_prog_ena(vport) || queue_index >= vport->num_xdp_txq)

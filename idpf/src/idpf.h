@@ -195,6 +195,16 @@ enum idpf_cap_field {
 };
 
 /**
+ * enum idpf_vport_state - Current vport state
+ * @IDPF_VPORT_UP: Vport is up
+ * @IDPF_VPORT_STATE_NBITS: Must be last, number of states
+ */
+enum idpf_vport_state {
+	IDPF_VPORT_UP,
+	IDPF_VPORT_STATE_NBITS
+ };
+
+/**
  * struct idpf_netdev_priv - Struct to store vport back pointer
  * @adapter: Adapter back pointer
  * @vport: Vport back pointer
@@ -204,7 +214,7 @@ enum idpf_cap_field {
 #ifdef HAVE_NDO_FEATURES_CHECK
  * @max_tx_hdr_size: Max header length hardware can support
 #endif
- * @active: vport is open or stopped
+ * @state: See enum idpf_vport_state_flags
  * @stats_lock: Lock to protect stats update
  * @netstats: Packet and byte stats
  */
@@ -217,7 +227,7 @@ struct idpf_netdev_priv {
 #ifdef HAVE_NDO_FEATURES_CHECK
 	u16 max_tx_hdr_size;
 #endif /* HAVE_NDO_FEATURES_CHECK */
-	bool active;
+	DECLARE_BITMAP(state, IDPF_VPORT_STATE_NBITS);
 	spinlock_t stats_lock;
 	struct rtnl_link_stats64 netstats;
 };

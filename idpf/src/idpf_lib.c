@@ -536,7 +536,7 @@ static int idpf_del_mac_filter(struct idpf_vport *vport,
 	}
 	spin_unlock_bh(&vport_config->mac_filter_list_lock);
 
-	if (np->active) {
+	if (test_bit(IDPF_VPORT_UP, np->state)) {
 		int err;
 
 		err = idpf_add_del_mac_filters(vport, np, false, async);
@@ -607,7 +607,7 @@ static int idpf_add_mac_filter(struct idpf_vport *vport,
 	if (err)
 		return err;
 
-	if (np->active)
+	if (test_bit(IDPF_VPORT_UP, np->state))
 		err = idpf_add_del_mac_filters(vport, np, true, async);
 
 	return err;
@@ -1012,7 +1012,7 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
 	struct idpf_vgrp *vgrp = &vport->dflt_grp;
 
-	if (!np->active)
+	if (!test_bit(IDPF_VPORT_UP, np->state))
 		return;
 
 	/* Make sure soft reset has finished */
@@ -1038,7 +1038,7 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	idpf_vport_intr_deinit(vport, &vgrp->intr_grp);
 	idpf_vport_queues_rel(vport, &vgrp->q_grp);
 	idpf_vport_intr_rel(vgrp);
-	np->active = false;
+	clear_bit(IDPF_VPORT_UP, np->state);
 }
 
 /**
@@ -1415,7 +1415,8 @@ static struct rtnl_link_stats64 *idpf_get_stats64(struct net_device *netdev,
 	if (IS_SIMICS_DEVICE(adapter->hw.subsystem_device_id))
 		goto out;
 
-	if (!idpf_is_resource_rel_in_prog(adapter) && np->active)
+	if (!idpf_is_resource_rel_in_prog(adapter) &&
+	    test_bit(IDPF_VPORT_UP, np->state))
 		mod_delayed_work(adapter->stats_wq, &adapter->stats_task,
 				 msecs_to_jiffies(300));
 out:
@@ -1549,7 +1550,7 @@ static int idpf_up_complete(struct idpf_vport *vport)
 		netif_tx_start_all_queues(vport->netdev);
 	}
 
-	np->active = true;
+	set_bit(IDPF_VPORT_UP, np->state);
 	return 0;
 }
 
@@ -1623,7 +1624,7 @@ static int idpf_vport_open(struct idpf_vport *vport)
 	struct idpf_rss_data *rss_data;
 	int err;
 
-	if (np->active)
+	if (test_bit(IDPF_VPORT_UP, np->state))
 		return -EBUSY;
 
 	/* we do not allow interface up just yet */
@@ -2065,7 +2066,7 @@ void idpf_set_vport_state(struct idpf_adapter *adapter)
 			continue;
 
 		np = netdev_priv(adapter->netdevs[i]);
-		if (np->active)
+		if (test_bit(IDPF_VPORT_UP, np->state))
 			set_bit(IDPF_VPORT_UP_REQUESTED,
 				adapter->vport_config[i]->flags);
 	}
@@ -2223,16 +2224,14 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 			     enum idpf_vport_reset_cause reset_cause)
 {
 	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
+	bool vport_is_up = test_bit(IDPF_VPORT_UP, np->state);
 	struct idpf_adapter *adapter = vport->adapter;
 	struct idpf_vport_config *vport_config;
 	struct idpf_rss_data *rss_data;
 	struct idpf_vport *new_vport;
 	struct idpf_q_grp *new_q_grp;
 	struct idpf_q_grp *q_grp;
-	bool vport_is_up;
 	int err;
-
-	vport_is_up = np->active;
 
 	/* If the system is low on memory, we can end up in bad state if we
 	 * free all the memory for queue resources and try to allocate them
@@ -2909,7 +2908,7 @@ idpf_xdp_setup_prog(struct idpf_netdev_priv *np, struct bpf_prog *prog,
 	if (prog && test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags))
 		return -EBUSY;
 
-	vport_is_up = np->active;
+	vport_is_up = test_bit(IDPF_VPORT_UP, np->state);
 
 	vport_config = adapter->vport_config[np->vport_idx];
 	current_prog = &vport_config->user_config.xdp_prog;
@@ -3124,7 +3123,8 @@ static int idpf_eth_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	vport = idpf_netdev_to_vport(netdev);
 
 	if ((!idpf_ptp_is_vport_tx_tstamp_ena(vport) &&
-	     !idpf_ptp_is_vport_rx_tstamp_ena(vport)) || !np->active) {
+	     !idpf_ptp_is_vport_rx_tstamp_ena(vport)) ||
+	     !test_bit(IDPF_VPORT_UP, np->state)) {
 		err = -EOPNOTSUPP;
 		goto free_vport;
 	}
