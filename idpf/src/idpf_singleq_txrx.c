@@ -146,7 +146,7 @@ static void idpf_tx_singleq_map(struct idpf_queue *tx_q,
 		/* record length, and DMA address */
 		dma_unmap_len_set(tx_buf, len, size);
 		dma_unmap_addr_set(tx_buf, dma, dma);
-		tx_buf->type = IDPF_TX_BUF_FRAG;
+		tx_buf->type = LIBETH_SQE_FRAG;
 
 		/* align size to end of page */
 		max_data += -dma & (IDPF_TX_MAX_READ_REQ_SIZE - 1);
@@ -169,7 +169,7 @@ static void idpf_tx_singleq_map(struct idpf_queue *tx_q,
 				tx_desc++;
 			}
 
-			tx_buf->type = IDPF_TX_BUF_EMPTY;
+			tx_buf->type = LIBETH_SQE_EMPTY;
 
 			dma += max_data;
 			size -= max_data;
@@ -206,13 +206,13 @@ static void idpf_tx_singleq_map(struct idpf_queue *tx_q,
 	tx_desc->qw1 = idpf_tx_singleq_build_ctob(td_cmd, offsets,
 						  size, td_tag);
 
-	first->type = IDPF_TX_BUF_SKB;
-	first->eop_idx = i;
+	first->type = LIBETH_SQE_SKB;
+	first->rs_idx = i;
 
 	i = idpf_singleq_bump_desc_idx(tx_q, i);
 
 	nq = netdev_get_tx_queue(tx_q->vport->netdev, tx_q->idx);
-	netdev_tx_sent_queue(nq, first->bytecount);
+	netdev_tx_sent_queue(nq, first->bytes);
 
 	idpf_tx_buf_hw_update(tx_q, i, netdev_xmit_more());
 }
@@ -230,7 +230,7 @@ idpf_tx_singleq_get_ctx_desc(struct idpf_queue *txq)
 	struct idpf_base_tx_ctx_desc *ctx_desc;
 	int ntu = txq->next_to_use;
 
-	txq->tx.bufs[ntu].type = IDPF_TX_BUF_RSVD;
+	txq->tx.bufs[ntu].type = LIBETH_SQE_CTX;
 
 	ctx_desc = IDPF_BASE_TX_CTX_DESC(txq, ntu);
 
@@ -325,11 +325,11 @@ static netdev_tx_t idpf_tx_singleq_frame(struct sk_buff *skb,
 	first->skb = skb;
 
 	if (tso) {
-		first->gso_segs = offload.tso_segs;
-		first->bytecount = skb->len + ((first->gso_segs - 1) * offload.tso_hdr_len);
+		first->packets = offload.tso_segs;
+		first->bytes = skb->len + ((first->packets - 1) * offload.tso_hdr_len);
 	} else {
-		first->bytecount = max_t(unsigned int, skb->len, ETH_ZLEN);
-		first->gso_segs = 1;
+		first->bytes = max_t(unsigned int, skb->len, ETH_ZLEN);
+		first->packets = 1;
 	}
 #ifdef IDPF_ADD_PROBES
 	idpf_tx_extra_counters(tx_q, first, &offload);
@@ -399,15 +399,15 @@ static bool idpf_tx_singleq_clean(struct idpf_queue *tx_q, int napi_budget,
 		 * such. We can skip this descriptor since there is no buffer
 		 * to clean.
 		 */
-		if (unlikely(tx_buf->type == IDPF_TX_BUF_RSVD)) {
-			tx_buf->type = IDPF_TX_BUF_EMPTY;
+		if (unlikely(tx_buf->type == LIBETH_SQE_CTX)) {
+			tx_buf->type = LIBETH_SQE_EMPTY;
 			goto fetch_next_txq_desc;
 		}
 
-		if (unlikely(tx_buf->type != IDPF_TX_BUF_SKB))
+		if (unlikely(tx_buf->type != LIBETH_SQE_SKB))
 			break;
 
-		eop_desc = IDPF_BASE_TX_DESC(tx_q, tx_buf->eop_idx);
+		eop_desc = IDPF_BASE_TX_DESC(tx_q, tx_buf->rs_idx);
 		/* prevent any other reads prior to eop_desc */
 		smp_rmb();
 
@@ -417,15 +417,15 @@ static bool idpf_tx_singleq_clean(struct idpf_queue *tx_q, int napi_budget,
 			break;
 
 		/* update the statistics for this packet */
-		total_bytes += tx_buf->bytecount;
-		total_pkts += tx_buf->gso_segs;
+		total_bytes += tx_buf->bytes;
+		total_pkts += tx_buf->packets;
 
 #ifdef HAVE_XDP_SUPPORT
 		if (test_bit(__IDPF_Q_XDP, tx_q->flags))
 #ifdef HAVE_XDP_FRAME_STRUCT
 			xdp_return_frame(tx_buf->xdpf);
 #else
-			page_frag_free(tx_buf->raw_buf);
+			page_frag_free(tx_buf->raw);
 #endif /* HAVE_XDP_FRAME_STRUCT */
 		else
 			/* free the skb */
@@ -441,7 +441,7 @@ static bool idpf_tx_singleq_clean(struct idpf_queue *tx_q, int napi_budget,
 				 DMA_TO_DEVICE);
 
 		/* clear tx_buf data */
-		tx_buf->type = IDPF_TX_BUF_EMPTY;
+		tx_buf->type = LIBETH_SQE_EMPTY;
 		tx_buf->nr_frags = 0;
 
 		/* unmap remaining buffers */
@@ -463,7 +463,7 @@ static bool idpf_tx_singleq_clean(struct idpf_queue *tx_q, int napi_budget,
 					       DMA_TO_DEVICE);
 				dma_unmap_len_set(tx_buf, len, 0);
 			}
-			tx_buf->type = IDPF_TX_BUF_EMPTY;
+			tx_buf->type = LIBETH_SQE_EMPTY;
 		}
 
 		/* update budget only if we did something */

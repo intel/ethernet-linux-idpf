@@ -19,10 +19,12 @@
 #ifdef HAVE_XDP_SUPPORT
 #include <net/xdp.h>
 #endif /* HAVE_XDP_SUPPORT */
+#include "libeth_tx.h"
 #include "idpf_lan_txrx.h"
 #include "virtchnl2_lan_desc.h"
 
 #define idpf_tx_buf_compl_tag(buf)      (*(u32 *)&(buf)->priv)
+LIBETH_SQE_CHECK_PRIV(u32);
 
 #define IDPF_LARGE_MAX_Q			256
 #define IDPF_MAX_TXQ				IDPF_LARGE_MAX_Q
@@ -216,75 +218,19 @@ union idpf_tx_flex_desc {
 	struct idpf_flex_tx_sched_desc flow;
 };
 
-/**
- * enum idpf_tx_buf_type - Type of &idpf_tx_buf to act on Tx completion
- * @IDPF_TX_BUF_EMPTY: Unused, no action required
- * @IDPF_TX_BUF_SKB: &sk_buff, unmap and consume_skb(), update stats
- * @IDPF_TX_BUF_FRAG: Mapped skb, only unmap DMA
- * @IDPF_TX_BUF_RSVD: Indicates ring entry is reserved, i.e. buffer is empty
- *		      but should not be used, typically corresponds to context
- *		      descriptor entry, no action required during cleaning
- * @IDPF_TX_BUF_MISS: marks a buffer on the double completion exception path
- * @IDPF_TX_BUF_XDP: &xdp_buff, unmap and page_frag_free(), update stats
- * @IDPF_TX_BUF_SKB_TSTAMP: same as skb, but execute timestamp logic
- */
-enum idpf_tx_buf_type {
-	IDPF_TX_BUF_EMPTY        = 0U,
-	IDPF_TX_BUF_SKB,
-	IDPF_TX_BUF_FRAG,
-	IDPF_TX_BUF_RSVD,
-	IDPF_TX_BUF_MISS,
-	IDPF_TX_BUF_XDP,
-	IDPF_TX_BUF_SKB_TSTAMP,
-};
-
 #define IDPF_TX_TSTAMP_INVALID_IDX 0xFF
 
 /**
- * struct idpf_tx_buf
- * @skb: Pointer to the skb
-#ifdef HAVE_XDP_FRAME_STRUCT
- * @xdpf: XDP frame
-#else
- * @raw_buf: Raw buffer
-#endif
- * @bytecount: Number of bytes
- * @gso_segs: Number of GSO segments
- * @eop_idx: Index in descriptor/buffer ring of last buffer for this packet
- * @nr_frags: Total number of non empty buffers representing this packet
- * @type: Type of buffer, &idpf_tx_buf_type
- * @compl_tag: Splitq only, flow scheduling only, unique identifier for a
- *	       buffer. Used to compare with completion tag returned in buffer
- *	       completion event.  Because the completion tag is expected to be
- *	       the same in all data descriptors for a given packet, and a single
- *	       packet can span multiple buffers, we need this field to track all
- *	       buffers associated with this completion tag independently of the
- *	       buf_id. The tag consists of a N bit buf_id and M upper order
- *	       "generation bits". See compl_tag_bufid_m and compl_tag_gen_s in
- *	       struct idpf_queue. We'll use a value of -1 to indicate the tag
- *	       is not valid.
- * @len: DMA length
- * @dma: DMA address
+ * enum libeth_sqe_type_ext - extended SQE types
+ * @LIBETH_SQE_TSTAMP_SKB: SQE type for PTP SKBs
+ * @LIBETH_SQE_MISS: SQE type for packets taking the exception path
  */
-struct idpf_tx_buf {
-	union {
-		struct sk_buff *skb;
-#ifdef HAVE_XDP_FRAME_STRUCT
-		struct xdp_frame *xdpf;
-#else
-		void *raw_buf;
-#endif
-	};
-	unsigned int bytecount;
-	unsigned short gso_segs;
-	u16 eop_idx;
-	u16 nr_frags:8;
-
-	u16 type:8;
-	u32 priv;
-	DEFINE_DMA_UNMAP_LEN(len);
-	DEFINE_DMA_UNMAP_ADDR(dma);
+enum libeth_sqe_type_ext {
+	LIBETH_SQE_SKB_TSTAMP = 1000,
+	LIBETH_SQE_MISS,
 };
+
+#define idpf_tx_buf libeth_sqe
 
 struct idpf_tx_stash {
 	struct hlist_node hlist;

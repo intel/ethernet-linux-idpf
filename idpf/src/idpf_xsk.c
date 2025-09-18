@@ -233,7 +233,7 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
 		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
 						 desc.len);
-		tx_buf->bytecount = desc.len;
+		tx_buf->bytes = desc.len;
 
 		tx_parms.compl_tag =
 			(xdpq->compl_tag_cur_gen << xdpq->compl_tag_gen_s) | ntu;
@@ -295,7 +295,7 @@ idpf_xmit_singleq_zc(struct idpf_queue *xdpq, int budget)
 		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
 		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
 						 desc.len);
-		tx_buf->bytecount = desc.len;
+		tx_buf->bytes = desc.len;
 
 		tx_desc = IDPF_BASE_TX_DESC(xdpq, ntu);
 		tx_desc->buf_addr = cpu_to_le64(dma);
@@ -334,7 +334,7 @@ idpf_clean_xdp_tx_buf(struct idpf_queue *xdpq, struct idpf_tx_buf *tx_buf)
 #ifdef HAVE_XDP_FRAME_STRUCT
 	xdp_return_frame(tx_buf->xdpf);
 #else
-	xdp_return_frame((struct xdp_frame *)tx_buf->raw_buf);
+	xdp_return_frame((struct xdp_frame *)tx_buf->raw);
 #endif
 	xdpq->xdp_tx_active--;
 	dma_unmap_single(xdpq->dev, dma_unmap_addr(tx_buf, dma),
@@ -375,15 +375,15 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 #ifdef HAVE_XDP_FRAME_STRUCT
 		if (tx_buf->xdpf) {
 #else
-		if (tx_buf->raw_buf) {
+		if (tx_buf->raw) {
 #endif
 			idpf_clean_xdp_tx_buf(xdpq, tx_buf);
 #ifdef HAVE_XDP_FRAME_STRUCT
 			tx_buf->xdpf = NULL;
 #else
-			tx_buf->raw_buf = NULL;
+			tx_buf->raw = NULL;
 #endif
-			cleaned->bytes += tx_buf->bytecount;
+			cleaned->bytes += tx_buf->bytes;
 		} else {
 			xsk_frames++;
 		}
@@ -692,7 +692,7 @@ void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq)
 #ifdef HAVE_XDP_FRAME_STRUCT
 		if (tx_buf->xdpf)
 #else
-		if (tx_buf->raw_buf)
+		if (tx_buf->raw)
 #endif
 			idpf_clean_xdp_tx_buf(xdpq, tx_buf);
 		else
@@ -701,7 +701,7 @@ void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq)
 #ifdef HAVE_XDP_FRAME_STRUCT
 		tx_buf->xdpf = NULL;
 #else
-		tx_buf->raw_buf = NULL;
+		tx_buf->raw = NULL;
 #endif
 
 		ntc++;
