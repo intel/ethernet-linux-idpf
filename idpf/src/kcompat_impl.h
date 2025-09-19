@@ -3617,4 +3617,13 @@ void _kc_eventfd_signal(struct eventfd_ctx *ctx)
 #define timer_container_of(var, callback_timer, timer_fieldname) \
 	from_timer(var, callback_timer, timer_fieldname)
 #endif /* NEED_TIMER_CONTAINER_OF */
+
+/*
+ * Some legacy kernels lack TCP_MIN_MSS in <net/tcp.h>.  Provide a portable
+ * lower bound so driver code can validate MSS (e.g., avoid zero/tiny values).
+ */
+#ifndef TCP_MIN_MSS
+#define TCP_MIN_MSS 88U
+#endif
+
 #endif /* _KCOMPAT_IMPL_H_ */
