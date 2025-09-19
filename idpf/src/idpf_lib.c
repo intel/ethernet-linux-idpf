@@ -1298,15 +1298,15 @@ void idpf_vport_set_hsplit(struct idpf_vport *vport, bool ena)
 static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 					   struct idpf_vport_max_q *max_q)
 {
-	struct idpf_vport_config *vport_config = NULL;
 	struct idpf_rss_data *rss_data;
 	struct idpf_intr_grp *intr_grp;
 	u16 idx = adapter->next_vport;
 	struct idpf_vport *vport;
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
-	unsigned int i, numa;
+	unsigned int j, numa;
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 	u16 num_max_q;
+	int i;
 
 	if (idx == IDPF_NO_FREE_SLOT)
 		return NULL;
@@ -1315,7 +1315,10 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 	if (!vport)
 		return vport;
 
+	num_max_q = max(max_q->max_txq, max_q->max_rxq);
 	if (!adapter->vport_config[idx]) {
+		struct idpf_vport_config *vport_config;
+		struct idpf_q_coalesce *q_coal;
 
 		vport_config = kzalloc(sizeof(*vport_config), GFP_KERNEL);
 		if (!vport_config) {
@@ -1324,7 +1327,22 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 			return NULL;
 		}
 
-		adapter->vport_config[idx] = vport_config;
+	q_coal = kcalloc(num_max_q, sizeof(*q_coal), GFP_KERNEL);
+	if (!q_coal) {
+		kfree(vport_config);
+		kfree(vport);
+
+	return NULL;
+	}
+	for (i = 0; i < num_max_q; i++) {
+		q_coal[i].tx_intr_mode = IDPF_ITR_DYNAMIC;
+		q_coal[i].tx_coalesce_usecs = IDPF_ITR_TX_DEF;
+		q_coal[i].rx_intr_mode = IDPF_ITR_DYNAMIC;
+		q_coal[i].rx_coalesce_usecs = IDPF_ITR_RX_DEF;
+	}
+	vport_config->user_config.q_coalesce = q_coal;
+
+	adapter->vport_config[idx] = vport_config;
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 
 		vport_config->affinity_config = kzalloc(MAX_NUM_VEC_AFFINTY * sizeof(*vport_config->affinity_config),
@@ -1336,9 +1354,9 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 		}
 
 		numa = dev_to_node(&adapter->pdev->dev);
-		for (i = 0 ; i < MAX_NUM_VEC_AFFINTY ; i++)
-			cpumask_set_cpu(cpumask_local_spread(i, numa),
-					&vport_config->affinity_config[i].affinity_mask);
+		for (j = 0 ; j < MAX_NUM_VEC_AFFINTY ; j++)
+			cpumask_set_cpu(cpumask_local_spread(j, numa),
+					&vport_config->affinity_config[j].affinity_mask);
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 	}
 
@@ -1348,7 +1366,6 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 	vport->default_vport = adapter->num_alloc_vports <
 			       idpf_get_default_vports(adapter);
 
-	num_max_q = max(max_q->max_txq, max_q->max_rxq);
 	intr_grp = &vport->dflt_grp.intr_grp;
 	intr_grp->q_vector_idxs = kcalloc(num_max_q, sizeof(u16), GFP_KERNEL);
 	if (!intr_grp->q_vector_idxs)

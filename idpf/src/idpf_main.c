@@ -170,6 +170,7 @@ destroy_wqs:
 	destroy_workqueue(adapter->vc_event_wq);
 
 	for (i = 0; i < adapter->max_vports; i++) {
+		kfree(adapter->vport_config[i]->user_config.q_coalesce);
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 		if (adapter->vport_config[i])
 			kfree(adapter->vport_config[i]->affinity_config);

@@ -6110,10 +6110,14 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 {
 	u16 txqs_per_vector, rxqs_per_vector, bufq_per_vector, num_txq_vec_need;
 	struct idpf_intr_grp *intr_grp = &vgrp->intr_grp;
+	struct idpf_vport_user_config_data *user_config;
 	struct idpf_q_grp *q_grp = &vgrp->q_grp;
 	struct idpf_q_vector *q_vector;
-	int i, err;
+	struct idpf_q_coalesce *q_coal;
+	u16 idx = vport->idx;
+	u32 v_idx;
 
+	user_config = &vport->adapter->vport_config[idx]->user_config;
 	intr_grp->q_vectors = kcalloc(intr_grp->num_q_vectors,
 				      sizeof(struct idpf_q_vector),
 				      GFP_KERNEL);
@@ -6138,33 +6142,30 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 		txqs_per_vector *= 2;
 
 #endif /* HAVE_XDP_SUPPORT */
-	for (i = 0; i < intr_grp->num_q_vectors; i++) {
-		q_vector = &intr_grp->q_vectors[i];
+	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++) {
+		q_vector = &intr_grp->q_vectors[v_idx];
+		q_coal = &user_config->q_coalesce[v_idx];
 		q_vector->vport = vport;
 
-		q_vector->tx_itr_value = IDPF_ITR_TX_DEF;
-		q_vector->tx_intr_mode = IDPF_ITR_DYNAMIC;
+		q_vector->tx_itr_value = q_coal->tx_coalesce_usecs;
+		q_vector->tx_intr_mode = q_coal->tx_intr_mode;
 		q_vector->tx_itr_idx = VIRTCHNL2_ITR_IDX_1;
 
-		q_vector->rx_itr_value = IDPF_ITR_RX_DEF;
-		q_vector->rx_intr_mode = IDPF_ITR_DYNAMIC;
+		q_vector->rx_itr_value = q_coal->rx_coalesce_usecs;
+		q_vector->rx_intr_mode = q_coal->rx_intr_mode;
 		q_vector->rx_itr_idx = VIRTCHNL2_ITR_IDX_0;
 
 		q_vector->tx = kcalloc(txqs_per_vector,
 				       sizeof(struct idpf_queue *),
 				       GFP_KERNEL);
-		if (!q_vector->tx) {
-			err = -ENOMEM;
+		if (!q_vector->tx)
 			goto error;
-		}
 
 		q_vector->rx = kcalloc(rxqs_per_vector,
 				       sizeof(struct idpf_queue *),
 				       GFP_KERNEL);
-		if (!q_vector->rx) {
-			err = -ENOMEM;
+		if (!q_vector->rx)
 			goto error;
-		}
 
 		if (!idpf_is_queue_model_split(q_grp->rxq_model))
 			continue;
@@ -6172,17 +6173,16 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 		q_vector->bufq = kcalloc(bufq_per_vector,
 					 sizeof(struct idpf_queue *),
 					 GFP_KERNEL);
-		if (!q_vector->bufq) {
-			err = -ENOMEM;
+		if (!q_vector->bufq)
 			goto error;
-		}
 	}
 
 	return 0;
 
 error:
 	idpf_vport_intr_rel(vgrp);
-	return err;
+
+	return -ENOMEM;
 }
 
 /**

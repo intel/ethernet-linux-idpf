@@ -1400,12 +1400,14 @@ static int idpf_get_per_q_coalesce(struct net_device *netdev, u32 q_num,
 /**
  * __idpf_set_q_coalesce - set ITR values for specific queue
  * @ec: ethtool structure from user to update ITR settings
+ * @q_coal: per queue coalesce settings
  * @q: queue for which itr values has to be set
  * @is_rxq: is queue type rx
  *
  * Returns 0 on success, negative otherwise.
  */
 static int __idpf_set_q_coalesce(struct ethtool_coalesce *ec,
+				 struct idpf_q_coalesce *q_coal,
 				 struct idpf_queue *q, bool is_rxq)
 {
 	u32 use_adaptive_coalesce, coalesce_usecs;
@@ -1451,20 +1453,25 @@ static int __idpf_set_q_coalesce(struct ethtool_coalesce *ec,
 
 	if (is_rxq) {
 		qv->rx_itr_value = coalesce_usecs;
+		q_coal->rx_coalesce_usecs = coalesce_usecs;
 		if (use_adaptive_coalesce) {
 			qv->rx_intr_mode = IDPF_ITR_DYNAMIC;
+			q_coal->rx_intr_mode = IDPF_ITR_DYNAMIC;
 		} else {
 			qv->rx_intr_mode = !IDPF_ITR_DYNAMIC;
-			idpf_vport_intr_write_itr(qv, qv->rx_itr_value,
-						  false);
+			q_coal->rx_intr_mode = !IDPF_ITR_DYNAMIC;
+			idpf_vport_intr_write_itr(qv, coalesce_usecs, false);
 		}
 	} else {
 		qv->tx_itr_value = coalesce_usecs;
+		q_coal->tx_coalesce_usecs = coalesce_usecs;
 		if (use_adaptive_coalesce) {
 			qv->tx_intr_mode = IDPF_ITR_DYNAMIC;
+			q_coal->tx_intr_mode = IDPF_ITR_DYNAMIC;
 		} else {
 			qv->tx_intr_mode = !IDPF_ITR_DYNAMIC;
-			idpf_vport_intr_write_itr(qv, qv->tx_itr_value, true);
+			q_coal->tx_intr_mode = !IDPF_ITR_DYNAMIC;
+			idpf_vport_intr_write_itr(qv, coalesce_usecs, true);
 		}
 	}
 
@@ -1477,6 +1484,7 @@ static int __idpf_set_q_coalesce(struct ethtool_coalesce *ec,
 /**
  * idpf_set_q_coalesce - set ITR values for specific queue
  * @vport: vport associated to the queue that need updating
+ * @q_coal: per queue coalesce settings
  * @ec: coalesce settings to program the device with
  * @q_num: update ITR/INTRL (coalesce) settings for this queue number/index
  * @is_rxq: is queue type rx
@@ -1484,6 +1492,7 @@ static int __idpf_set_q_coalesce(struct ethtool_coalesce *ec,
  * Return 0 on success, and negative on failure
  */
 static int idpf_set_q_coalesce(struct idpf_vport *vport,
+			       struct idpf_q_coalesce *q_coal,
 			       struct ethtool_coalesce *ec,
 			       int q_num, bool is_rxq)
 {
@@ -1497,7 +1506,7 @@ static int idpf_set_q_coalesce(struct idpf_vport *vport,
 			vport->txqs[q_num]->txq_grp->complq :
 			vport->txqs[q_num];
 
-	if (q && __idpf_set_q_coalesce(ec, q, is_rxq))
+	if (q && __idpf_set_q_coalesce(ec, q_coal, q, is_rxq))
 		return -EINVAL;
 
 	return 0;
@@ -1523,10 +1532,14 @@ static int idpf_set_coalesce(struct net_device *netdev,
 #endif /* HAVE_ETHTOOL_COALESCE_EXTACK */
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
+	struct idpf_vport_user_config_data *user_config;
 	struct idpf_adapter *adapter = np->adapter;
+	struct idpf_q_coalesce *q_coal;
 	struct idpf_vport *vport;
 	struct idpf_q_grp *q_grp;
 	int i, err = 0;
+
+	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
 
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
@@ -1535,14 +1548,16 @@ static int idpf_set_coalesce(struct net_device *netdev,
 		goto unlock_mutex;
 
 	for (i = 0; i < vport->num_txq; i++) {
-		err = idpf_set_q_coalesce(vport, ec, i, false);
+		q_coal = &user_config->q_coalesce[i];
+		err = idpf_set_q_coalesce(vport, q_coal, ec, i, false);
 		if (err)
 			goto unlock_mutex;
 	}
 
 	q_grp = &vport->dflt_grp.q_grp;
 	for (i = 0; i < q_grp->num_rxq; i++) {
-		err = idpf_set_q_coalesce(vport, ec, i, true);
+		q_coal = &user_config->q_coalesce[i];
+		err = idpf_set_q_coalesce(vport, q_coal, ec, i, true);
 		if (err)
 			goto unlock_mutex;
 	}
@@ -1566,22 +1581,27 @@ static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 				   struct ethtool_coalesce *ec)
 {
 	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
+	struct idpf_netdev_priv *np = netdev_priv(netdev);
+	struct idpf_vport_user_config_data *user_config;
+	struct idpf_q_coalesce *q_coal;
 	struct idpf_vport *vport;
 	struct idpf_q_grp *q_grp;
 	int err = 0;
 
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
+	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
+	q_coal = &user_config->q_coalesce[q_num];
 
 	if (q_num < vport->num_txq) {
-		err = idpf_set_q_coalesce(vport, ec, q_num, false);
+		err = idpf_set_q_coalesce(vport, q_coal, ec, q_num, false);
 		if (err)
 			goto vport_unlock;
 	}
 
 	q_grp = &vport->dflt_grp.q_grp;
 	if (q_num < q_grp->num_rxq)
-		err = idpf_set_q_coalesce(vport, ec, q_num, true);
+		err = idpf_set_q_coalesce(vport, q_coal, ec, q_num, true);
 
 vport_unlock:
 	idpf_vport_cfg_unlock(adapter);
