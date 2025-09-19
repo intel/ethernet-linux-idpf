@@ -2619,11 +2619,11 @@ static int idpf_open(struct net_device *netdev)
 	idpf_vport_cfg_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
-	err = idpf_vport_open(vport);
+	err = idpf_set_real_num_queues(vport);
 	if (err)
 		goto unlock;
 
-	err = idpf_set_real_num_queues(vport);
+	err = idpf_vport_open(vport);
 
 unlock:
 	idpf_vport_cfg_unlock(adapter);
