@@ -10,6 +10,10 @@
 #define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))
 #endif
 
+#ifdef __LINUX_COMPILER_H
+#error "kcompat.h must be included prior to kernel headers"
+#endif
+
 #include "kcompat_generated_defs.h"
 #include "kcompat_gcc.h"
 
