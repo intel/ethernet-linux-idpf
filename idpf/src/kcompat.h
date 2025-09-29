@@ -14,7 +14,33 @@
 #error "kcompat.h must be included prior to kernel headers"
 #endif
 
+#ifndef GCC_VERSION
+#define GCC_VERSION (__GNUC__ * 10000           \
+		     + __GNUC_MINOR__ * 100     \
+		     + __GNUC_PATCHLEVEL__)
+#endif /* GCC_VERSION */
+
+/* as GCC_VERSION yields 40201 for any modern clang (checked on clang 7 & 13)
+ * we want other means to add workarounds for "old GCC" */
+#ifdef __clang__
+#define GCC_IS_BELOW(x) 0
+#else
+#define GCC_IS_BELOW(x) (GCC_VERSION < (x))
+#endif
+
+/*
+ * upstream commit 4eb6bd55cfb2 ("compiler.h: drop fallback overflow checkers")
+ * removed bunch of code for builitin overflow fallback implementations, that
+ * we need for gcc prior to 5.1
+ */
+#if !GCC_IS_BELOW(50100)
+#ifndef COMPILER_HAS_GENERIC_BUILTIN_OVERFLOW
+#define COMPILER_HAS_GENERIC_BUILTIN_OVERFLOW   1
+#endif
+#endif /* GCC_VERSION >= 50100 */
+
 #include "kcompat_generated_defs.h"
+#include "kcompat_overflow.h"
 #include "kcompat_gcc.h"
 
 #ifndef HAVE_XARRAY_API
