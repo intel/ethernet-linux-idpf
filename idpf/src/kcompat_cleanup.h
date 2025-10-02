@@ -169,11 +169,6 @@ static inline class_##_name##_t class_##_name##ext##_constructor(_init_args) \
  *	trivial wrapper around DEFINE_CLASS() above specifically
  *	for locks.
  *
- * DEFINE_GUARD_COND(name, ext, condlock)
- *	wrapper around EXTEND_CLASS above to add conditional lock
- *	variants to a base class, eg. mutex_trylock() or
- *	mutex_lock_interruptible().
- *
  * guard(name):
  *	an anonymous instance of the (guard) class, not recommended for
  *	conditional locks.
@@ -186,11 +181,6 @@ static inline class_##_name##_t class_##_name##ext##_constructor(_init_args) \
  *	for conditional locks the loop body is skipped when the lock is not
  *	acquired.
  *
- * scoped_cond_guard (name, fail, args...) { }:
- *      similar to scoped_guard(), except it does fail when the lock
- *      acquire fails.
- *
- *      Only for conditional locks.
  */
 
 #define __DEFINE_CLASS_IS_CONDITIONAL(_name, _is_cond)	\
@@ -201,14 +191,6 @@ static __maybe_unused const bool class_##_name##_is_conditional = _is_cond
 	DEFINE_CLASS(_name, _type, if (_T) { _unlock; }, ({ _lock; _T; }), _type _T); \
 	static inline void * class_##_name##_lock_ptr(class_##_name##_t *_T) \
 	{ return (void *)(__force unsigned long)*_T; }
-
-#define DEFINE_GUARD_COND(_name, _ext, _condlock) \
-	__DEFINE_CLASS_IS_CONDITIONAL(_name##_ext, true); \
-	EXTEND_CLASS(_name, _ext, \
-		     ({ void *_t = _T; if (_T && !(_condlock)) _t = NULL; _t; }), \
-		     class_##_name##_t _T) \
-	static inline void * class_##_name##_ext##_lock_ptr(class_##_name##_t *_T) \
-	{ return class_##_name##_lock_ptr(_T); }
 
 #define guard(_name) \
 	CLASS(_name, __UNIQUE_ID(guard))
@@ -237,18 +219,6 @@ _label:									\
 #define scoped_guard(_name, args...)	\
 	__scoped_guard(_name, __UNIQUE_ID(label), args)
 
-#define __scoped_cond_guard(_name, _fail, _label, args...)		\
-	for (CLASS(_name, scope)(args); true; ({ goto _label; }))	\
-		if (!__guard_ptr(_name)(&scope)) {			\
-			BUILD_BUG_ON(!__is_cond_ptr(_name));		\
-			_fail;						\
-_label:									\
-			break;						\
-		} else
-
-#define scoped_cond_guard(_name, _fail, args...)	\
-	__scoped_cond_guard(_name, _fail, __UNIQUE_ID(label), args)
-
 /*
  * Additional helper macros for generating lock guards with types, either for
  * locks that don't have a native type (eg. RCU, preempt) or those that need a
@@ -256,7 +226,6 @@ _label:									\
  *
  * DEFINE_LOCK_GUARD_0(name, lock, unlock, ...)
  * DEFINE_LOCK_GUARD_1(name, type, lock, unlock, ...)
- * DEFINE_LOCK_GUARD_1_COND(name, ext, condlock)
  *
  * will result in the following type:
  *
@@ -313,16 +282,6 @@ __DEFINE_CLASS_IS_CONDITIONAL(_name, false);				\
 __DEFINE_UNLOCK_GUARD(_name, void, _unlock, __VA_ARGS__)		\
 __DEFINE_LOCK_GUARD_0(_name, _lock)
 
-#define DEFINE_LOCK_GUARD_1_COND(_name, _ext, _condlock)		\
-	__DEFINE_CLASS_IS_CONDITIONAL(_name##_ext, true);		\
-	EXTEND_CLASS(_name, _ext,					\
-		     ({ class_##_name##_t _t = { .lock = l }, *_T = &_t;\
-		        if (_T->lock && !(_condlock)) _T->lock = NULL;	\
-			_t; }),						\
-		     typeof_member(class_##_name##_t, lock) l)		\
-	static inline void * class_##_name##_ext##_lock_ptr(class_##_name##_t *_T) \
-	{ return class_##_name##_lock_ptr(_T); }
-
 #include <linux/mutex.h>
 
 DEFINE_GUARD(mutex, struct mutex *, mutex_lock(_T), mutex_unlock(_T))
@@ -338,8 +297,6 @@ DEFINE_LOCK_GUARD_1(raw_spinlock, raw_spinlock_t,
 		    raw_spin_lock(_T->lock),
 		    raw_spin_unlock(_T->lock))
 
-DEFINE_LOCK_GUARD_1_COND(raw_spinlock, _try, raw_spin_trylock(_T->lock))
-
 DEFINE_LOCK_GUARD_1(raw_spinlock_nested, raw_spinlock_t,
 		    raw_spin_lock_nested(_T->lock, SINGLE_DEPTH_NESTING),
 		    raw_spin_unlock(_T->lock))
@@ -348,36 +305,23 @@ DEFINE_LOCK_GUARD_1(raw_spinlock_irq, raw_spinlock_t,
 		    raw_spin_lock_irq(_T->lock),
 		    raw_spin_unlock_irq(_T->lock))
 
-DEFINE_LOCK_GUARD_1_COND(raw_spinlock_irq, _try, raw_spin_trylock_irq(_T->lock))
-
 DEFINE_LOCK_GUARD_1(raw_spinlock_irqsave, raw_spinlock_t,
 		    raw_spin_lock_irqsave(_T->lock, _T->flags),
 		    raw_spin_unlock_irqrestore(_T->lock, _T->flags),
 		    unsigned long flags)
 
-DEFINE_LOCK_GUARD_1_COND(raw_spinlock_irqsave, _try,
-			 raw_spin_trylock_irqsave(_T->lock, _T->flags))
-
 DEFINE_LOCK_GUARD_1(spinlock, spinlock_t,
 		    spin_lock(_T->lock),
 		    spin_unlock(_T->lock))
-
-DEFINE_LOCK_GUARD_1_COND(spinlock, _try, spin_trylock(_T->lock))
 
 DEFINE_LOCK_GUARD_1(spinlock_irq, spinlock_t,
 		    spin_lock_irq(_T->lock),
 		    spin_unlock_irq(_T->lock))
 
-DEFINE_LOCK_GUARD_1_COND(spinlock_irq, _try,
-			 spin_trylock_irq(_T->lock))
-
 DEFINE_LOCK_GUARD_1(spinlock_irqsave, spinlock_t,
 		    spin_lock_irqsave(_T->lock, _T->flags),
 		    spin_unlock_irqrestore(_T->lock, _T->flags),
 		    unsigned long flags)
-
-DEFINE_LOCK_GUARD_1_COND(spinlock_irqsave, _try,
-			 spin_trylock_irqsave(_T->lock, _T->flags))
 
 DEFINE_LOCK_GUARD_1(read_lock, rwlock_t,
 		    read_lock(_T->lock),
