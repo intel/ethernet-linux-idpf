@@ -323,31 +323,6 @@ DEFINE_LOCK_GUARD_1(spinlock_irqsave, spinlock_t,
 		    spin_unlock_irqrestore(_T->lock, _T->flags),
 		    unsigned long flags)
 
-DEFINE_LOCK_GUARD_1(read_lock, rwlock_t,
-		    read_lock(_T->lock),
-		    read_unlock(_T->lock))
-
-DEFINE_LOCK_GUARD_1(read_lock_irq, rwlock_t,
-		    read_lock_irq(_T->lock),
-		    read_unlock_irq(_T->lock))
-
-DEFINE_LOCK_GUARD_1(read_lock_irqsave, rwlock_t,
-		    read_lock_irqsave(_T->lock, _T->flags),
-		    read_unlock_irqrestore(_T->lock, _T->flags),
-		    unsigned long flags)
-
-DEFINE_LOCK_GUARD_1(write_lock, rwlock_t,
-		    write_lock(_T->lock),
-		    write_unlock(_T->lock))
-
-DEFINE_LOCK_GUARD_1(write_lock_irq, rwlock_t,
-		    write_lock_irq(_T->lock),
-		    write_unlock_irq(_T->lock))
-
-DEFINE_LOCK_GUARD_1(write_lock_irqsave, rwlock_t,
-		    write_lock_irqsave(_T->lock, _T->flags),
-		    write_unlock_irqrestore(_T->lock, _T->flags),
-		    unsigned long flags)
 
 #include <linux/rcupdate.h>
 
