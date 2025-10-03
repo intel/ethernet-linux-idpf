@@ -343,8 +343,20 @@ function gen() {
 	operator="$1"
 	case "$operator" in
 	absent)
-		pattern='.'
-		in_kw="$2"
+		local next_kw next_op
+		next_kw="$2"
+		in_kw="$next_kw"
+		next_op="$3"
+		if [[ "$next_kw" = or && "$next_op" = lacks ]]; then
+			# intentionally keeping $operator as 'absent'...
+			# but setting 'pattern' to something (not just '.')
+			shift 3
+			test $# -ge 3 || die 39 "$src_line: too few parameters following 'absent or lacks' operator composition, pattern, 'in' keyword and filename needed"
+			pattern="$1"
+			in_kw="$2"
+		else
+			pattern='.'
+		fi
 		shift 2
 	;;
 	matches|lacks)
