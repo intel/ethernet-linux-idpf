@@ -39,9 +39,15 @@
 #endif
 #endif /* GCC_VERSION >= 50100 */
 
+/* Headers that must be before the rest, as they build like-current kerrnel
+ * infra for all other COMPAT and CORE code.
+ */
 #include "kcompat_generated_defs.h"
 #include "kcompat_overflow.h"
 #include "kcompat_gcc.h"
+/* end of must-be-really-first headers */
+
+#include "kcompat_cleanup.h"
 
 #ifndef HAVE_XARRAY_API
 #include "kcompat_xarray.h"

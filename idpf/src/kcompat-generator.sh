@@ -74,6 +74,24 @@ function gen-bitfield() {
 	gen NEED_BITFIELD_FIELD_MAX if macro FIELD_MAX absent in "$bf"
 }
 
+function gen-cleanup() {
+	ch='include/linux/cleanup.h'
+	dh='include/net/devlink.h'
+	mh='include/linux/mutex.h'
+	sh='include/linux/spinlock.h'
+	slabh='include/linux/slab.h'
+	rcuh='include/linux/rcupdate.h'
+	gen NEED_DEFINE_FREE if macro DEFINE_FREE absent in "$ch"
+	gen NEED___DEFINE_CLASS_IS_CONDITIONAL if macro __DEFINE_CLASS_IS_CONDITIONAL absent in "$ch"
+	gen NEED_DEFINE_GUARD_MUTEX if invocation of macro DEFINE_GUARD absent or lacks mutex_lock in "$mh"
+	gen NEED_LOCK_GUARD_FOR_RCU if invocation of macro DEFINE_LOCK_GUARD_0 absent or lacks rcu in "$rcuh"
+	gen NEED_DEFINE_FREE_KFREE if invocation of macro DEFINE_FREE absent or lacks kfree in "$slabh"
+	gen NEED_DEFINE_FREE_KVFREE if invocation of macro DEFINE_FREE absent or lacks kvfree in "$slabh"
+	gen NEED_LOCK_GUARD_FOR_SPINLOCK if invocation of macro DEFINE_LOCK_GUARD_1 absent or lacks spinlock in "$sh"
+	gen NEED_LOCK_GUARD_FOR_SPINLOCK_BH if invocation of macro DEFINE_LOCK_GUARD_1 absent or lacks spinlock_bh in "$sh"
+	gen NEED_DEFINE_GUARD_DEVLINK if invocation of macro DEFINE_GUARD absent or lacks devl_lock in "$dh"
+}
+
 function gen-device() {
 	dh='include/linux/device.h'
 	dph='include/linux/dev_printk.h'
@@ -447,7 +465,6 @@ function gen-other() {
 	gen NEED_BITMAP_TO_ARR32 if fun bitmap_to_arr32 absent in include/linux/bitmap.h
 	gen NEED_ASSIGN_BIT if fun assign_bit absent in include/linux/bitops.h
 	gen NEED_STATIC_ASSERT if macro static_assert absent in include/linux/build_bug.h
-	gen NEED_CLEANUP_API if macro __free absent in include/linux/cleanup.h
 	# special case for kernels 6.2 - 6.6 and __struct_size macro
 	# there is an implicit dependency on CONFIG_FORTIFY_SOURCE config option and inclusion
 	# of 'forify-string.h' header (which includes that macro definition).
@@ -570,6 +587,7 @@ function gen-all() {
 	fi
 	gen-aux
 	gen-bitfield
+	gen-cleanup
 	gen-device
 	gen-devres
 	gen-dma
