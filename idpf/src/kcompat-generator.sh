@@ -520,6 +520,8 @@ function gen-other() {
 	gen HAVE_MDEV_REGISTER_PARENT if fun mdev_register_parent in include/linux/mdev.h
 	gen HAVE_VM_FLAGS_API if fun vm_flags_init in include/linux/mm.h
 	gen HAVE_NL_SET_ERR_MSG_FMT if macro NL_SET_ERR_MSG_FMT in include/linux/netlink.h
+	gen NEED_DEFINE_SIMPLE_DEV_OPS if macro DEFINE_SIMPLE_DEV_OPS absent in include/linux/pm.h
+	gen NEED_PM_SLEEP_PTR if macro pm_sleep_ptr absent in include/linux/pm.h
 	gen NEED_DEV_PM_DOMAIN_ATTACH if fun dev_pm_domain_attach absent in include/linux/pm_domain.h include/linux/pm.h
 	gen NEED_DEV_PM_DOMAIN_DETACH if fun dev_pm_domain_detach absent in include/linux/pm_domain.h include/linux/pm.h
 	gen NEED_RADIX_TREE_EMPTY if fun radix_tree_empty absent in include/linux/radix-tree.h
