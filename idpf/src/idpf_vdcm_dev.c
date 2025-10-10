@@ -551,89 +551,6 @@ static long idpf_vdcm_dev_set_irqs(struct idpf_vdcm *ivdm, unsigned long arg)
 }
 
 /**
- * idpf_vdcm_dev_zap - remove all the previously setup VMA mmap
- * @token: pointer to VDCM
- *
- * Return 0 for success, negative for failure.
- */
-static int idpf_vdcm_dev_zap(void *token)
-{
-	struct idpf_vdcm *ivdm = token;
-	struct idpf_vdcm_mmap_vma *mmap_vma, *tmp;
-
-	if (!ivdm)
-		return -EINVAL;
-
-	/* There are two loops inside while(1) loop in order to gurantee the
-	 * locking order: locking mm first then vma_lock. Because when page
-	 * fault happens, kernel will lock the mm first and then call the
-	 * page fault handler registered, in the ice_vdcm_mmap_fault callback,
-	 * vma_lock is acquired to protect the vma_list. So locking the vma_lock
-	 * after the mm must be followed in the driver to prevent deadlock.
-	 *
-	 * The first loop is to fetch the first valid mm_struct in preparation
-	 * for the next loop mmap_read_lock usage, which must be called before
-	 * vma_lock is acquired. Since VDCM may record VMAs from multi process,
-	 * this behavior will delete the VMAs belonging to the same process one
-	 * by one.
-	 */
-	while (1) {
-		struct mm_struct *mm = NULL;
-
-		mutex_lock(&ivdm->vma_lock);
-		while (!list_empty(&ivdm->vma_list)) {
-			mmap_vma = list_first_entry(&ivdm->vma_list,
-						    struct idpf_vdcm_mmap_vma,
-						    vma_next);
-			/* Fetch the first task memory context*/
-			mm = mmap_vma->vma->vm_mm;
-			if (mmget_not_zero(mm))
-				break;
-
-			/* If there are no lightweight processes sharing the
-			 * mm_struct data structure, delete the list node.
-			 */
-			list_del(&mmap_vma->vma_next);
-			kfree(mmap_vma);
-			mm = NULL;
-		}
-
-		/* Return when vma_list is empty */
-		if (!mm) {
-			mutex_unlock(&ivdm->vma_lock);
-			return 0;
-		}
-		mutex_unlock(&ivdm->vma_lock);
-
-		mmap_read_lock(mm);
-		mutex_lock(&ivdm->vma_lock);
-		list_for_each_entry_safe(mmap_vma, tmp,
-					 &ivdm->vma_list, vma_next) {
-			struct vm_area_struct *vma = mmap_vma->vma;
-
-			/* Skip all the VMAs which don't belong to this task
-			 * memory context. We'll zap the VMAs sharing the same
-			 * mm_struct which means they belong the same process.
-			 */
-			if (vma->vm_mm != mm)
-				continue;
-
-			list_del(&mmap_vma->vma_next);
-			kfree(mmap_vma);
-
-			zap_vma_ptes(vma, vma->vm_start,
-				     vma->vm_end - vma->vm_start);
-			dev_dbg(ivdm->dev, "zap start HVA:0x%lx GPA:0x%lx size:0x%lx",
-				vma->vm_start, vma->vm_pgoff << PAGE_SHIFT,
-				vma->vm_end - vma->vm_start);
-		}
-		mutex_unlock(&ivdm->vma_lock);
-		mmap_read_unlock(mm);
-		mmput(mm);
-	}
-}
-
-/**
  * idpf_vdcm_dev_reset - VFIO device reset
  * @ivdm: pointer to VDCM
  *
@@ -641,7 +558,6 @@ static int idpf_vdcm_dev_zap(void *token)
  */
 static long idpf_vdcm_dev_reset(struct idpf_vdcm *ivdm)
 {
-	idpf_vdcm_dev_zap(ivdm);
 	return ivdm->adi->reset(ivdm->adi);
 }
 
@@ -677,108 +593,6 @@ long idpf_vdcm_dev_ioctl(struct idpf_vdcm *ivdm, unsigned int cmd,
 }
 
 /**
- * idpf_vdcm_dev_mmap_open - open callback for VMA
- * @vma: pointer to VMA
- *
- * Zap mmaps on open so that we can fault them in on access and therefore
- * our vma_list only tracks mappings accessed since last zap.
- *
- * For the VMA created by QEMU/DPDK calling mmap() with vfio device fd, it is
- * not called. If necessary, driver should explicitly call this function in the
- * mmap() callback to do initialization.
- *
- * This callback is typically called after calling mmap() and later forking a
- * child process without VM_DONTCOPY vm_flags for multi-process situation.
- *
- * For QEMU/KVM, QEMU will set MADV_DONTFORK by madvise() when adding ram block,
- * this will mark this VMA with VM_DONTCOPY. So forking a child process in QEMU
- * will not trigger this callback. Refer to ram_add_block() for more details.
- *
- * For DPDK, MADV_DONTFORK is not set by default, so forking a child process
- * will trigger this callback.
- */
-static void idpf_vdcm_dev_mmap_open(struct vm_area_struct *vma)
-{
-	zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
-}
-
-/**
- * idpf_vdcm_dev_mmap_close - close callback for VMA
- * @vma: pointer to VMA
- *
- * This function is typically called when the process is exiting and this VMA
- * has close callback registered.
- */
-static void idpf_vdcm_dev_mmap_close(struct vm_area_struct *vma)
-{
-	struct idpf_vdcm *ivdm = (struct idpf_vdcm *)vma->vm_private_data;
-	struct idpf_vdcm_mmap_vma *mmap_vma, *tmp;
-
-	mutex_lock(&ivdm->vma_lock);
-	list_for_each_entry_safe(mmap_vma, tmp, &ivdm->vma_list, vma_next) {
-		if (mmap_vma->vma == vma) {
-			list_del(&mmap_vma->vma_next);
-			kfree(mmap_vma);
-			break;
-		}
-	}
-	mutex_unlock(&ivdm->vma_lock);
-}
-
-/**
- * idpf_vdcm_dev_mmap_fault - page fault callback for VMA
- * @vmf: pointer to vm fault context
- */
-static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
-{
-	struct vm_area_struct *vma = vmf->vma;
-	struct idpf_vdcm_mmap_vma *mmap_vma;
-	struct idpf_vdcm *ivdm;
-	unsigned int index;
-	u64 addr, pg_off;
-	int err;
-
-	ivdm = (struct idpf_vdcm *)vma->vm_private_data;
-	mutex_lock(&ivdm->vma_lock);
-
-	mmap_vma = kzalloc(sizeof(*mmap_vma), GFP_KERNEL);
-	if (!mmap_vma) {
-		mutex_unlock(&ivdm->vma_lock);
-		return VM_FAULT_OOM;
-	}
-
-	mmap_vma->vma = vma;
-	list_add(&mmap_vma->vma_next, &ivdm->vma_list);
-
-	mutex_unlock(&ivdm->vma_lock);
-
-	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
-	pg_off = vma->vm_pgoff &
-		 ((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
-	err = ivdm->adi->get_sparse_mmap_hpa(ivdm->adi, index, pg_off, &addr);
-	if (err) {
-		dev_err(ivdm->dev,
-			"failed to get HPA for memory map, err: %d.\n", err);
-		return VM_FAULT_SIGBUS;
-	}
-
-	dev_dbg(ivdm->dev, "fault address GPA:0x%lx HPA:0x%llx HVA:0x%lx",
-		vma->vm_pgoff << PAGE_SHIFT, addr, vma->vm_start);
-
-	if (io_remap_pfn_range(vma, vma->vm_start, PHYS_PFN(addr),
-			       vma->vm_end - vma->vm_start, vma->vm_page_prot))
-		return VM_FAULT_SIGBUS;
-
-	return VM_FAULT_NOPAGE;
-}
-
-static const struct vm_operations_struct idpf_vdcm_dev_mmap_ops = {
-	.open = idpf_vdcm_dev_mmap_open,
-	.close = idpf_vdcm_dev_mmap_close,
-	.fault = idpf_vdcm_dev_mmap_fault,
-};
-
-/**
  * idpf_vdcm_dev_mmap - map device memory to user space
  * @ivdm: pointer to VDCM
  * @vma: pointer to the vm where device memory will be mapped
@@ -787,7 +601,9 @@ static const struct vm_operations_struct idpf_vdcm_dev_mmap_ops = {
  */
 int idpf_vdcm_dev_mmap(struct idpf_vdcm *ivdm, struct vm_area_struct *vma)
 {
+	u64 addr, pg_off;
 	u64 index;
+	int err;
 
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 
@@ -805,9 +621,21 @@ int idpf_vdcm_dev_mmap(struct idpf_vdcm *ivdm, struct vm_area_struct *vma)
 #else
 	vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP;
 #endif
-	vma->vm_ops = &idpf_vdcm_dev_mmap_ops;
+	pg_off = vma->vm_pgoff &
+		 ((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
+	err = ivdm->adi->get_sparse_mmap_hpa(ivdm->adi, index, pg_off, &addr);
+	if (err) {
+		dev_err(ivdm->dev,
+			"failed to get HPA for memory map, err: %d.\n", err);
+		return err;
+	}
 
-	return 0;
+	dev_dbg(ivdm->dev, "fault address GPA:0x%lx HPA:0x%llx HVA:0x%lx",
+		vma->vm_pgoff << PAGE_SHIFT, addr, vma->vm_start);
+
+	return io_remap_pfn_range(vma, vma->vm_start, PHYS_PFN(addr),
+				  vma->vm_end - vma->vm_start,
+				  vma->vm_page_prot);
 }
 
 /**
@@ -1398,10 +1226,8 @@ int idpf_vdcm_dev_init(struct idpf_vdcm *ivdm, struct device *dev,
 	ivdm->dev = dev;
 	ivdm->parent_dev = parent_dev;
 
-	mutex_init(&ivdm->vma_lock);
 	mutex_init(&ivdm->igate);
 	mutex_init(&ivdm->ref_lock);
-	INIT_LIST_HEAD(&ivdm->vma_list);
 	err = idpf_vdcm_dev_pci_config_space_init(ivdm);
 	if (err) {
 		idpf_vdcm_free_adi(ivdm->adi);
@@ -1422,7 +1248,6 @@ void idpf_vdcm_dev_release(struct idpf_vdcm *ivdm)
 {
 	mutex_destroy(&ivdm->ref_lock);
 	mutex_destroy(&ivdm->igate);
-	mutex_destroy(&ivdm->vma_lock);
 
 	idpf_vdcm_free_adi(ivdm->adi);
 }

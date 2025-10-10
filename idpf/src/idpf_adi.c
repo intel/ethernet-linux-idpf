@@ -46,7 +46,6 @@ static int idpf_adi_reset(struct idpf_adi *adi)
 void idpf_notify_adi_reset(struct idpf_adapter *adapter, u16 adi_id,
 			   bool reset)
 {
-	struct device *dev = idpf_adapter_to_dev(adapter);
 	struct idpf_adi_priv *priv;
 
 	priv = xa_load(&adapter->adi_info.priv_info, adi_id);
