@@ -137,6 +137,7 @@ enum virtchnl2_op {
 	VIRTCHNL2_OP_GET_OEM_CAPS			= 4999,
 	VIRTCHNL2_OP_OEM_RCA                            = 5000,
 	VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT		= 5001,
+	VIRTCHNL2_OP_OEM_CONFIG_TX_QUEUES_EXT		= 5002,
 };
 
 #define VIRTCHNL2_RDMA_INVALID_QUEUE_IDX	0xFFFF
@@ -322,6 +323,7 @@ enum virtchnl2_action_types {
 #define VIRTCHNL2_CAP_OEM_P2P			BIT(0)
 #define VIRTCHNL2_CAP_OEM_RCA			BIT(1)
 #define VIRTCHNL2_CAP_OEM_CONFIG_RXQ_EXT	BIT(2)
+#define VIRTCHNL2_CAP_OEM_CONFIG_TXQ_EXT	BIT(3)
 /* Other OEM specific caps */
 
 /* underlying device type */
@@ -710,6 +712,44 @@ struct virtchnl2_oem_config_rx_queues_ext {
 	struct virtchnl2_oem_rxq_ext_info qinfo[];
 };
 VIRTCHNL2_CHECK_STRUCT_VAR_LEN(80, virtchnl2_oem_config_rx_queues_ext, qinfo);
+
+/** struct virtchnl2_oem_txq_ext_info - OEM Tx queues ext config.
+ * @type: See enum virtchnl2_queue_type.
+ * @queue_id: Queue ID.
+ * @quanta_profile_idx: Quanta profile index.
+ * @pad3: Padding.
+ *
+ */
+struct virtchnl2_oem_txq_ext_info {
+	__le32 type;
+	__le32 queue_id;
+	u8 quanta_profile_idx;
+	u8 pad3[7];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(16, virtchnl2_oem_txq_ext_info);
+
+/**
+ * struct virtchnl2_oem_config_tx_queues_ext - OEM Tx queues extended config.
+ * @vport_id: Vport id.
+ * @num_qinfo: Number of instances.
+ * @pad: Padding.
+ * @qinfo: Array of virtchnl2_oem_txq_ext_info structures.
+ *
+ * PF sends this message to set up parameters for one or more transmit queues.
+ * This message contains an array of num_qinfo instances of virtchnl2_oem_txq_ext_info
+ * structures. CP configures requested queues and returns a status code.
+ * If the number of queues specified is greater than the number of queues
+ * associated with the vport, an error is returned and no queues are configured.
+ *
+ * Associated with VIRTCHNL2_OP_OEM_CONFIG_TX_QUEUES_EXT.
+ */
+struct virtchnl2_oem_config_tx_queues_ext {
+	__le32 vport_id;
+	__le16 num_qinfo;
+	u8 pad[2];
+	struct virtchnl2_oem_txq_ext_info qinfo[];
+};
+VIRTCHNL2_CHECK_STRUCT_VAR_LEN(24, virtchnl2_oem_config_tx_queues_ext, qinfo);
 
 /**
  * struct virtchnl2_version_info - Version information.
@@ -2488,6 +2528,8 @@ static inline const char *virtchnl2_op_str(__le32 v_opcode)
 		return "VIRTCHNL2_OP_CONFIG_RX_QUEUES";
 	case VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT:
 		return "VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT";
+	case VIRTCHNL2_OP_OEM_CONFIG_TX_QUEUES_EXT:
+		return "VIRTCHNL2_OP_OEM_CONFIG_TX_QUEUES_EXT";
 	case VIRTCHNL2_OP_ENABLE_QUEUES:
 		return "VIRTCHNL2_OP_ENABLE_QUEUES";
 	case VIRTCHNL2_OP_DISABLE_QUEUES:
@@ -2702,6 +2744,19 @@ virtchnl2_vc_validate_vf_msg(struct virtchnl2_version_info *ver, u32 v_opcode,
 					  qinfo, num_chunks);
 		if (!is_flex_array)
 			valid_len -= sizeof(struct virtchnl2_oem_rxq_ext_info);
+
+		break;
+	case VIRTCHNL2_OP_OEM_CONFIG_TX_QUEUES_EXT:
+		num_chunks = ((struct virtchnl2_oem_config_tx_queues_ext *)msg)->num_qinfo;
+		if (!num_chunks) {
+			err_msg_format = true;
+			break;
+		}
+
+		valid_len = struct_size_t(struct virtchnl2_oem_config_tx_queues_ext,
+					  qinfo, num_chunks);
+		if (!is_flex_array)
+			valid_len -= sizeof(struct virtchnl2_oem_txq_ext_info);
 
 		break;
 	case VIRTCHNL2_OP_ADD_QUEUES:
