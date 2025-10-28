@@ -3356,10 +3356,6 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		idpf_tx_set_tstamp_desc(ctx_desc, idx);
 	}
 
-#ifdef IDPF_ADD_PROBES
-	idpf_tx_extra_counters(tx_q, first, &tx_params.offload);
-
-#endif /* IDPF_ADD_PROBES */
 	if (idpf_queue_has(FLOW_SCH_EN, tx_q)) {
 		struct idpf_sw_queue *refillq = tx_q->tx.refillq;
 		if (unlikely(idpf_queue_has(ETF_EN, tx_q)))
@@ -3422,6 +3418,10 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		first->bytes = max_t(unsigned int, skb->len, ETH_ZLEN);
 	}
 
+#ifdef IDPF_ADD_PROBES
+	idpf_tx_extra_counters(tx_q, first, &tx_params.offload);
+
+#endif /* IDPF_ADD_PROBES */
 	idpf_tx_splitq_map(tx_q, &tx_params, first);
 
 	return NETDEV_TX_OK;
