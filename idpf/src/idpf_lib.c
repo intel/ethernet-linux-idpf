@@ -843,6 +843,7 @@ static int idpf_cfg_netdev(struct idpf_vport *vport)
 #ifdef HAVE_NDO_FEATURES_CHECK
 	np->max_tx_hdr_size = idpf_get_max_tx_hdr_size(adapter);
 #endif /* HAVE_NDO_FEATURES_CHECK */
+	np->tx_max_bufs = idpf_get_max_tx_bufs(adapter);
 
 	spin_lock_init(&np->stats_lock);
 
