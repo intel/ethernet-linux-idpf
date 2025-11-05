@@ -542,6 +542,7 @@ function gen-other() {
 	gen NEED_STR_ENABLED_DISABLED if fun str_enabled_disabled absent in include/linux/string_choices.h include/linux/string_helpers.h
 	gen HAVE_STRING_HELPERS_H if enum string_size_units in include/linux/string_helpers.h
 	gen NEED_SYSFS_EMIT if fun sysfs_emit absent in include/linux/sysfs.h
+	gen HAVE_NON_CONST_CYCLECOUNTER if method read of cyclecounter lacks const in include/linux/timecounter.h
 	gen NEED_TIMER_CONTAINER_OF if macro timer_container_of absent in include/linux/timer.h
 	gen NEED_TIMER_DELETE if fun timer_delete absent in include/linux/timer.h
 	gen HAVE_TRACE_ENABLED_SUPPORT if implementation of macro __DECLARE_TRACE matches 'trace_##name##_enabled' in include/linux/tracepoint.h
