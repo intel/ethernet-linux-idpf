@@ -460,6 +460,13 @@ enum virtchnl2_queue_type {
 	VIRTCHNL2_QUEUE_TYPE_P2P_RX_BUFFER	= 9,
 	VIRTCHNL2_QUEUE_TYPE_MBX_TX		= 10,
 	VIRTCHNL2_QUEUE_TYPE_MBX_RX		= 11,
+	/* vCPF will use the following queue types to communicate with CPF
+	 * CPF will also indicate that this is the queue that it would like
+	 * to communicate with vCPFs.  HMA is expected to create a virtual
+	 * pipe between them
+	 */
+	VIRTCHNL2_QUEUE_TYPE_CPF_MBX_TX		= 12,
+	VIRTCHNL2_QUEUE_TYPE_CPF_MBX_RX		= 13,
 };
 
 /* Interrupt throttling rate index */
