@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Copyright (C) 2019-2025 Intel Corporation */
 
+#include "idpf.h"
+#include "idpf_ptp.h"
+
 #if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 #include <clocksource/arm_arch_timer.h>
 #endif
-
-#include "idpf.h"
-#include "idpf_ptp.h"
 
 /**
  * idpf_ptp_get_access - Determine the access type of the PTP features
