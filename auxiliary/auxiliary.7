@@ -1,0 +1,225 @@
+.\" Man page generated from reStructuredText.
+.
+.TH "AUXILIARY" "1" "Aug 28, 2024" "" "auxiliary"
+.SH NAME
+auxiliary \- auxiliary
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.sp
+This project provides an out\-of\-tree implementation of \fBauxiliary.ko\fP,
+\fBCONFIG_AUXILIARY_BUS\fP for older versions of the Linux kernel which lack
+support for it.
+.SH GOAL
+.INDENT 0.0
+.IP \(bu 2
+Enable device drivers to depend on the auxiliary bus interface while still
+working properly on older kernels.
+.UNINDENT
+.SH FILE LAYOUT
+.sp
+For an overview of the files in this project, read the following section.
+.SS layout of auxiliary files
+.sp
+The auxiliary project includes source files required to generate an
+auxiliary.ko kernel module for use in older versions of the Linux kernel
+which do not provide \fBCONFIG_AUXILIARY_BUS\fP as a built\-in.
+.sp
+This document gives an overview of the provided files, their content, and
+their purpose.
+.SS \fBauxiliary.c\fP
+.sp
+This file is the main body of the auxiliary bus implementation. It defines
+the \fBauxiliary.ko\fP module.
+.SS \fBauxiliary_bus.h\fP
+.sp
+This file is the header that other drivers include to depend on the bus
+functions exported by \fBauxiliary.ko\fP
+.SS \fBauxiliary_compat.h\fP
+.sp
+This file includes a minimal subset of the kcompat project that is required
+to get \fBauxiliary.c\fP working with certain older versions of the Linux
+kernel.
+.sp
+We avoid directly including \fBkcompat.h\fP in order to minimize the chance of
+external code impacting the CRC values generated for the symbols we export
+as part of \fBauxiliary.ko\fP
+.SS \fBscripts/check_aux_bus\fP
+.sp
+This script is used to detect the presence of auxiliary support on a target
+system. It detects whether or not the kernel has the proper support, and
+whether or not it is suitable to build the out\-of\-tree \fBauxiliary.ko\fP for
+that system otherwise.
+.SH A NOTE ON KERNEL SYMBOLS
+.sp
+The following section explains how CONFIG_MODVERSIONS can impact
+compatibility of the generated auxiliary.ko module.
+.SS Kernel Symbol CRCs
+.SS Introduction
+.sp
+The Linux kernel supports loadable modules. These modules can be loaded into
+a running kernel to include functionality not built directly into the kernel
+binary.
+.sp
+Modules may want to expose new functionality to other parts of the kernel.
+To do this, they use \fBEXPORT_SYMBOL\fP to indicate that a given function or
+variable can be accessed externally.
+.sp
+These exported symbols can be used by other modules, and the kernel will
+maintain a list of currently exported symbols usable by other modules. When
+a module is loaded, its list of exported symbols is added to the kernel\(aqs
+total set of exported symbols.
+.sp
+When linking a module together, the set of all used symbols is stored into
+the \fB\&.ko\fP\&. When loading a module, the kernel verifies that all of the
+required symbols are present. If a symbol is not present, the kernel will
+refuse to load the module.
+.sp
+In addition, kernels might be built with symbol version support,
+\fBCONFIG_MODVERSIONS\fP\&. This enables some additional functionality to ensure
+that the required symbols are compatible with the versions that are exported
+by the kernel. If the CRCs do not match, the kernel will refuse to load the
+module.
+.SS Symbol CRCs
+.sp
+These "versions" are generated as CRCs of the symbol definition. For
+variables, the CRC is generated based on the definition of the variable
+type. For functions, it is generated based on the function signature.
+.sp
+This process is recursive. For function signatures, the CRC combines the
+data of the function return type, as well as the ordered list of function
+arguments.
+.sp
+For complex types such as structures (including pointers to structures), the
+CRC is generated recursively from the structure definition.
+.sp
+When compiling a module, the list of all exported symbols including their
+CRC is written into the \fBModule.symvers\fP file.
+.sp
+When linking a module to other symbols from other modules or the kernel, all
+required symbols and their CRCs are included into the \fB\&.mod.c\fP file.
+.sp
+You can also dump the object data out of the module \fB\&.ko\fP file using
+\fBnm\fP\&.
+.SS \fBgenksyms\fP
+.sp
+The kernel build process uses the \fBscripts/genksyms/genksyms.c\fP tool to
+generate the CRC values for all exported symbols when compiling a kernel
+module.
+.sp
+This tool processes source code to recursively determine the CRC value for
+each exported symbol. The output will be the set of exported symbols and
+their CRC values.
+.sp
+The tool has some debug options which can be useful for root causing why a
+given CRC value might have changed.
+.SS \fBModule.symvers\fP
+.sp
+The kernel build process must know about the symbol definitions for required
+symbols. When building an out\-of\-tree module, the kernel includes the symbol
+definitions for all symbols from the kernel by loading its
+\fBModule.symvers\fP file. It is also aware of any symbol from modules it is
+compiling at the same time. In addition, you can specify additional symbols
+(such as those from another external module) by adding the path to the file
+containing the symbol definitions to the \fBKBUILD_EXTRA_SYMBOLS\fP makefile
+variable when compiling the module.
+.sp
+The kernel by default will produce errors if it cannot locate the required
+symbol definitions, during the \fBMODPOST\fP build step.
+.SS Why is the CRC important?
+.sp
+The CRC of the symbol generated by \fBgenksyms\fP is used to determine when
+the exported and required symbols match. This means that a module which
+depends on another external module must ensure its required symbol CRCs will
+match the CRCs of the external module installed on the target system.
+.sp
+This is especially important when multiple modules depend on the same
+external module, such as is the case with \fBauxiliary.ko\fP\&. If two different
+drivers each build and install a version of the auxiliary module, only one
+of those will remain on the system. It is vitally important that the
+exported symbols from \fBauxiliary.ko\fP have the same CRC for a given kernel,
+to ensure that the generated binaries are compatible with other drivers
+which might want to use the auxiliary support.
+.sp
+If possible, drivers should detect and rely on the existing installation of
+auxiliary.ko and use \fBKBUILD_EXTRA_SYMBOLS\fP\&.
+.sp
+However, this is not always possible. This project has tried to minimize the
+ways that the CRC could change from one build to another.
+.SS What impacts CRC of a symbol?
+.sp
+The CRC of a symbol depends on its types. So for a variable, the CRC is
+based on the type of the variable. For functions, it is based on the
+function return type combined with the types of each function argument.
+.sp
+Complex structure types are recursively expanded, even if they are pointers.
+Thus a function which takes a \fBstruct device *\fP pointer will depend on the
+definition of \fBstruct device\fP\&. In turn, \fBstruct device\fP will depend on
+recursively expanding the definition of each of its fields.
+.sp
+The biggest impact for CRCs comes from when a structure definition is not
+fully known. For example if code only knows the declaration, but not the
+definition of a structure. This is common when using \(aqprivate\(aq fields. In
+this case, the CRC of the symbol will be different depending on whether or
+not the private definition is known at compile time of the module.
+.sp
+Now, a given copy of the source generally would always include the same set
+of headers, so it should generate the same CRC. However, for the auxiliary
+project, the files are included into another driver build system, which
+might impact precisely how and what gets included into the auxiliary.c file.
+.SS Avoiding usage of \fBkcompat.h\fP
+.sp
+In particular, the \fBkcompat.h\fP header is not used by the auxiliary
+project. This is because this header may expand differently depending on
+what driver is compiling it. This could (and has!) result in a different
+set of kernel headers being included into the auxiliary.c file.
+.sp
+The difference in included headers can change whether or not a key structure
+definition is included into the \fB\&.c\fP file or not. The end result is that
+different drivers each build \fBauxiliary.ko\fP but generated different CRC
+values for its exported symbols.
+.sp
+It is critical that this be avoided in order to minimize risk of
+incompatibility when loading many modules which depend on the auxiliary
+support.
+.sp
+Thus, the auxiliary project no longer includes \fBkcompat.h\fP but instead
+only a minimal subset that is necessary for the \fBauxiliary.ko\fP module.
+This reduces the risk that two different drivers can compile and generate a
+module which would be detected as incompatible with another driver.
+.INDENT 0.0
+.IP \(bu 2
+genindex
+.IP \(bu 2
+modindex
+.IP \(bu 2
+search
+.UNINDENT
+.SH COPYRIGHT
+2021 - 2024 Intel Corporation
+.\" Generated by docutils manpage writer.
+.
