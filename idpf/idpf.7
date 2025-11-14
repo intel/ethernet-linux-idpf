@@ -4,8 +4,54 @@
 .\"
 .\" * Other names and brands may be claimed as the property of others.
 .\"
-.TH idpf 1 "August 9999"
-
-
+.
+.TH idpf 1 "April 6, 2023"
 .SH NAME
-idpf \- this is a placeholder manual page file, if you're reading this you have a pre-release copy of the driver.
+idpf \-This file describes the Linux* Base Driver
+for Intel(R) Infrastructure Data Path Function.
+.SH SYNOPSIS
+.PD 0.4v
+modprobe idpf [<option>=<VAL1>,<VAL2>,...]
+.PD 1v
+.SH DESCRIPTION
+This driver is intended for 5.x and newer kernels. A version of the driver may already be included by your distribution and/or the kernel.org kernel.
+
+This driver includes support for any 64 bit Linux supported system, x86_64, PPC64, ARM, etc.
+.LP
+This driver is only supported as a loadable module at this time. Intel is not supplying patches against the kernel source to allow for static linking of the drivers.
+
+
+For questions related to hardware requirements, refer to the documentation
+supplied with your Intel adapter. All hardware requirements listed apply to
+use with Linux.
+.LP
+.B Jumbo Frames
+.IP
+Jumbo Frames support is enabled by changing the Maximum Transmission Unit (MTU) to a value larger than the default value of 1500.
+
+.IP
+Use the ip command to increase the MTU size. For example, enter the following where <ethX> is the interface number:
+
+.IP
+# ip link set mtu 9000 dev <ethX>
+.IP
+# ip link set up dev <ethX>
+
+.LP
+NOTE: The maximum MTU setting for jumbo frames is 9706. This corresponds to the maximum jumbo frame size of 9728 bytes.
+
+NOTE: This driver will attempt to use multiple page sized buffers to receive each jumbo packet. This should help to avoid buffer starvation issues when allocating receive packets.
+
+NOTE: Packet loss may have a greater impact on throughput when you use jumbo frames. If you observe a drop in performance after enabling jumbo frames, enabling flow control may mitigate the issue.
+See the section "Jumbo Frames" in the Readme.
+.SH SUPPORT
+.LP
+For additional information regarding building and installation, see the
+README
+included with the driver.
+For general information, go to the Intel support website at:
+.B http://www.intel.com/support/
+
+.LP
+If an issue is identified with the released source code on a supported kernel with a supported adapter, email the specific information related to the issue to intel-wired-lan@lists.osuosl.org
+.LP

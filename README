@@ -1,0 +1,547 @@
+idpf Linux* Base Driver Readme for Infrastructure Data-Plane Function
+****************************************************************************
+
+November 14, 2025
+
+
+Contents
+^^^^^^^^^^^^
+
+* idpf Linux* Base Driver Readme for Infrastructure Data-Plane
+  Function
+
+  * Overview
+
+  * Building and Installation
+
+  * Command Line Parameters
+
+  * Additional Features and Configurations
+
+  * Performance Optimization
+
+  * Known Issues/Troubleshooting
+
+
+Overview
+=================
+
+This document provides the README for the out-of-tree idpf Linux
+driver. The driver is compatible with devices based on the following:
+
+* Infrastructure Data-Plane Function
+
+The idpf driver serves as both the Physical Function (PF) and Virtual
+Function (VF) driver for the Infrastructure Data-Plane Function.
+
+Driver information can be obtained using ethtool, lspci, and ip.
+Instructions on updating ethtool can be found in the Additional
+Features and Configurations section later in this document.
+
+This driver is only supported as a loadable module at this time. Intel
+is not supplying patches against the kernel source to allow for static
+linking of the drivers.
+
+This driver supports XDP (Express Data Path) and AF_XDP zero-copy.
+Note that XDP is blocked for frame sizes larger than 3KB.
+
+
+Building and Installation
+==================================
+
+
+To manually build the driver
+-----------------------------------
+
+1. Move the base driver tar file to the directory of your choice. For
+   example, use "/home/username/idpf" or "/usr/local/src/idpf".
+
+2. Untar/unzip the archive, where "<x.x.x>" is the version number for
+   the driver tar file:
+
+      tar zxf idpf-<x.x.x>.tar.gz
+
+3. Change to the driver src directory, where "<x.x.x>" is the version
+   number for the driver tar:
+
+      cd idpf-<x.x.x>
+
+4. Compile the driver module:
+
+      make install
+
+   The binary will be installed as:
+
+      /lib/modules/<KERNEL VER>/updates/drivers/net/ethernet/intel/idpf/idpf.ko
+
+   The install location listed above is the default location. This may
+   differ for various Linux distributions.
+
+   Note:
+
+     To gather and display additional statistics, use the
+     "IDPF_ADD_PROBES" pre-processor macro:
+
+        make CFLAGS_EXTRA=-DIDPF_ADD_PROBES
+
+     Please note that this additional statistics gathering can impact
+     performance.
+
+5. Load the module using the modprobe command.
+
+   To check the version of the driver and then load it:
+
+      modinfo idpf
+      modprobe idpf
+
+   Alternately, make sure that any older idpf drivers are removed from
+   the kernel before loading the new module:
+
+      rmmod idpf; modprobe idpf
+
+6. Assign an IP address to the interface by entering the following,
+   where "<ethX>" is the interface name that was shown in dmesg after
+   modprobe:
+
+      ip address add <IP_address>/<netmask bits> dev <ethX>
+
+7. Verify that the interface works. Enter the following, where
+   IP_address is the IP address for another machine on the same subnet
+   as the interface that is being tested:
+
+      ping <IP_address>
+
+
+To build a binary RPM package of this driver
+---------------------------------------------------
+
+Note:
+
+  RPM functionality has only been tested in Red Hat distributions.
+
+1. Run the following command, where "<x.x.x>" is the version number
+   for the driver tar file:
+
+      rpmbuild -tb idpf-<x.x.x>.tar.gz
+
+   Note:
+
+     For the build to work properly, the currently running kernel MUST
+     match the version and configuration of the installed kernel
+     sources. If you have just recompiled the kernel, reboot the
+     system before building.
+
+2. After building the RPM, the last few lines of the tool output
+   contain the location of the RPM file that was built. Install the
+   RPM with one of the following commands, where "<RPM>" is the
+   location of the RPM file:
+
+      rpm -Uvh <RPM>
+
+   or:
+
+      dnf/yum localinstall <RPM>
+
+Note:
+
+  * To compile the driver on some kernel/arch combinations, you may
+    need to install a package with the development version of libelf
+    (e.g. libelf-dev, libelf-devel, elfutils-libelf-devel).
+
+  * When compiling an out-of-tree driver, details will vary by
+    distribution. However, you will usually need a kernel-devel RPM or
+    some RPM that provides the kernel headers at a minimum. The RPM
+    kernel-devel will usually fill in the link at "/lib/modules/'uname
+    -r'/build".
+
+
+Command Line Parameters
+================================
+
+The idpf driver does not support any command line parameters.
+
+
+Additional Features and Configurations
+===============================================
+
+
+Configuring SR-IOV for improved network security
+-------------------------------------------------------
+
+In a virtualized environment, on Intel(R) Ethernet Network Adapters
+that support SR-IOV or Intel(R) Scalable I/O Virtualization (Intel(R)
+Scalable IOV), the virtual function (VF) may be subject to malicious
+behavior. Software-generated layer-two frames, like IEEE 802.3x (link
+flow control), IEEE 802.1Qbb (priority-based flow control), and others
+of this type are not expected and can throttle traffic between the
+host and the virtual switch, reducing performance.
+
+To resolve this issue, and to ensure isolation from unintended traffic
+streams, configure all SR-IOV or Intel Scalable IOV enabled ports for
+VLAN tagging from the administrative interface on the PF. This
+configuration allows unexpected, and potentially malicious, frames to
+be dropped.
+
+
+ethtool
+--------------
+
+The driver utilizes the ethtool interface for driver configuration and
+diagnostics, as well as displaying statistical information. The latest
+ethtool version is required for this functionality. If you don't have
+one yet, you can obtain it at  at:
+https://kernel.org/pub/software/network/ethtool/.
+
+
+Viewing Link Messages
+----------------------------
+
+Link messages will not be displayed to the console if the distribution
+is restricting system messages. In order to see network driver link
+messages on your console, set dmesg to eight by entering the
+following:
+
+   dmesg -n 8
+
+
+Jumbo Frames
+-------------------
+
+Jumbo Frames support is enabled by changing the Maximum Transmission
+Unit (MTU) to a value larger than the default value of 1500.
+
+Use the ip command to increase the MTU size. For example, enter the
+following where "<ethX>" is the name of the network interface:
+
+   ip link set mtu 5120 dev <ethX>
+   ip link set up dev <ethX>
+
+This setting is not saved across reboots.
+
+Note:
+
+  * The supported maximum MTU setting for jumbo frames on Intel(R) IPU
+    ASIC E2100 B1 Stepping is 7652 bytes as mentioned in the release
+    notes for Release 1.3.0 Release Notes. This corresponds to the
+    maximum frame size of 7678 bytes. Later revisions of the Intel IPU
+    support the maximum MTU of 9188 bytes and maximum frame size of
+    9216 bytes.
+
+  * This driver will attempt to use multiple page sized buffers to
+    receive each jumbo packet. This should help to avoid buffer
+    starvation issues when allocating receive packets.
+
+  * Packet loss may have a greater impact on throughput when you use
+    jumbo frames. If you observe a drop in performance after enabling
+    jumbo frames, enabling flow control may mitigate the issue.
+
+
+Subfunctions
+-------------------
+
+Subfunctions are supported using the devlink interface to create,
+activate or delete subfunction netdevs or dynamic vports.
+
+
+Configuring Subfunctions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. After loading the driver, run the following command to verify that
+   the IDPF driver supports devlink based interface:
+
+      devlink dev show
+
+   In the output, look for the device's PCI address using its
+   "Domain:Bus:Device.Function". The examples below use
+   "pci/0000:b1:00.0". The following output indicates that the IDPF
+   driver supports devlink:
+
+      lspci | grep b1:00.0
+      b1:00.0 Ethernet Controller: Intel Corporation Infrastructure Data Path Function (rev 10)
+
+2. Run the following command to see if a dynamic vPort exists:
+
+      devlink port show
+
+   For example, the following output shows a dynamic vPort does not
+   exist:
+
+      pci/0000:4b:00.0/0: type eth netdev ens785f0 flavour physical port 0 splittable false
+      pci/0000:4b:00.1/0: type eth netdev ens785f1 flavour physical port 1 splittable false
+
+3. Issue the following command to prepare for a single vPort:
+
+      devlink port add pci/0000:b1:00.0 flavour pcisf pfnum 0 sfnum 101
+
+   Example output could be:
+
+      pci/0000:b1:00.0/1: type notset flavour pcisf controller 0 pfnum 0 sfnum 101 splittable false
+      [root@lo0-100 sbhatna1]# devlink port show
+      pci/0000:4b:00.0/0: type eth netdev ens785f0 flavour physical port 0 splittable false
+      pci/0000:4b:00.1/0: type eth netdev ens785f1 flavour physical port 1 splittable false
+      pci/0000:b1:00.0/1: type notset flavour pcisf controller 0 pfnum 0 sfnum 101 splittable false ? type notset
+
+4. Create and activate a single vPort:
+
+      devlink port func set pci/0000:b1:00.0/1 state active
+      dmesg -c
+
+   Example output:
+
+      [ 3186.229091] IPv6: ADDRCONF(NETDEV_CHANGE): eth0: link becomes ready
+
+   Run the following to display the vPort status:
+
+      devlink port show
+
+   Example output:
+
+      pci/0000:4b:00.0/0: type eth netdev ens785f0 flavour physical port 0 splittable false
+      pci/0000:4b:00.1/0: type eth netdev ens785f1 flavour physical port 1 splittable false
+      pci/0000:b1:00.0/1: type eth netdev eth0 flavour pcisf controller 0 pfnum 0 sfnum 101 splittable false ? type is eth
+
+5. Create another 15 vPorts and activate them:
+
+      devlink port show | grep "pci/0000:b1:00" | wc -l
+
+   The output shows the number of activated vPorts. For example:
+
+       16
+
+      [ 3424.563240] IPv6: ADDRCONF(NETDEV_CHANGE): eth4: link becomes ready
+      [ 3425.739128] IPv6: ADDRCONF(NETDEV_CHANGE): eth5: link becomes ready
+      [ 3425.739230] IPv6: ADDRCONF(NETDEV_CHANGE): eth6: link becomes ready
+      [ 3426.947972] IPv6: ADDRCONF(NETDEV_CHANGE): eth7: link becomes ready
+      [ 3426.948245] IPv6: ADDRCONF(NETDEV_CHANGE): eth8: link becomes ready
+      [ 3428.220488] IPv6: ADDRCONF(NETDEV_CHANGE): eth9: link becomes ready
+      [ 3428.220604] IPv6: ADDRCONF(NETDEV_CHANGE): eth10: link becomes ready
+      [ 3429.500157] IPv6: ADDRCONF(NETDEV_CHANGE): eth11: link becomes ready
+      [ 3429.500262] IPv6: ADDRCONF(NETDEV_CHANGE): eth12: link becomes ready
+      [ 3430.825114] IPv6: ADDRCONF(NETDEV_CHANGE): eth13: link becomes ready
+      [ 3430.825241] IPv6: ADDRCONF(NETDEV_CHANGE): eth14: link becomes ready
+      [ 3432.195451] IPv6: ADDRCONF(NETDEV_CHANGE): eth15: link becomes ready
+      [ 3432.195560] IPv6: ADDRCONF(NETDEV_CHANGE): eth16: link becomes ready
+      [ 3433.420897] IPv6: ADDRCONF(NETDEV_CHANGE): eth17: link becomes ready
+      [ 3433.421007] IPv6: ADDRCONF(NETDEV_CHANGE): eth18: link becomes ready
+
+6. Randomly delete a few:
+
+      devlink port del pci/0000:b1:00.0/10
+      devlink port del pci/0000:b1:00.0/5
+      devlink port show | grep "pci/0000:b1:00" | wc -l
+
+   The output of the last command should show fewer vPorts. For
+   example:
+
+      14
+
+7. Remove the IDPF driver:
+
+      rmmod idpf
+
+8. Run the following to show information about the devlink vPorts on
+   the system:
+
+      devlink port show
+
+   Example output:
+
+      pci/0000:4b:00.0/0: type eth netdev ens785f0 flavour physical port 0 splittable false
+      pci/0000:4b:00.1/0: type eth netdev ens785f1 flavour physical port 1 splittable false
+
+
+Performance Optimization
+=================================
+
+Driver defaults are meant to fit a wide variety of workloads, but if
+further optimization is required, we recommend experimenting with the
+following settings.
+
+
+IRQ to Adapter Queue Alignment
+-------------------------------------
+
+Pin the adapter's IRQs to specific cores by disabling the irqbalance
+service and using the included "set_irq_affinity" script. Please see
+the script's help text for further options.
+
+* The following settings will distribute the IRQs across all the cores
+  evenly:
+
+     scripts/set_irq_affinity -x all <interface1> , [ <interface2>, ... ]
+
+* The following settings will distribute the IRQs across all the cores
+  that are local to the adapter (same NUMA node):
+
+     scripts/set_irq_affinity -x local <interface1> ,[ <interface2>, ... ]
+
+* For very CPU-intensive workloads, we recommend pinning the IRQs to
+  all cores.
+
+
+Interrupt Rate Limiting
+------------------------------
+
+This driver supports an adaptive interrupt throttle rate (ITR)
+mechanism that is tuned for general workloads. The user can customize
+the interrupt rate control for specific workloads, via ethtool,
+adjusting the number of microseconds between interrupts.
+
+To set the interrupt rate manually, you must disable adaptive mode:
+
+   ethtool -C <ethX> adaptive-rx off adaptive-tx off
+
+For lower CPU utilization:
+
+* Disable adaptive ITR and lower Rx and Tx interrupts. The examples,
+  below, affect every queue of the specified interface.
+
+* Setting "rx-usecs" and "tx-usecs" to 80 will limit interrupts to
+  about 12,500 interrupts per second per queue:
+
+     ethtool -C <ethX> adaptive-rx off adaptive-tx off rx-usecs 80 tx-usecs 80
+
+For reduced latency:
+
+* Disable adaptive ITR and ITR by setting "rx-usecs" and "tx-usecs" to
+  0 using ethtool:
+
+     ethtool -C <ethX> adaptive-rx off adaptive-tx off rx-usecs 0 tx-usecs 0
+
+Per-queue interrupt rate settings:
+
+* The following examples are for queues 1 and 3, but you can adjust
+  other queues.
+
+* To disable Rx adaptive ITR and set static Rx ITR to 10 microseconds
+  or about 100,000 interrupts/second, for queues 1 and 3:
+
+     ethtool --per-queue <ethX> queue_mask 0xa --coalesce adaptive-rx off rx-usecs 10
+
+* To show the current coalesce settings for queues 1 and 3:
+
+     ethtool --per-queue <ethX> queue_mask 0xa --show-coalesce
+
+
+Transmit/Receive Queue Allocation
+----------------------------------------
+
+To set the number of symmetrical (Rx/Tx) or asymmetrical (mix of
+combined and Tx or Rx) queues, use the "ethtool -L" option. For
+example:
+
+* To set 16 queue pairs for the interface:
+
+     ethtool -L <interface> combined 16
+
+* To set a pair of 12 Tx/Rx and 4 Tx queues:
+
+     ethtool -L combined 12 tx 4
+
+Note:
+
+  Dedicated Tx and Rx queues are not supported.
+
+
+Virtualized Environments
+-------------------------------
+
+The following methods may be helpful to optimize performance in
+virtual machines (VMs):
+
+* Using the appropriate mechanism (vcpupin) in the VM, pin the CPUs to
+  individual LCPUs, making sure to use a set of CPUs included in the
+  device's "local_cpulist":
+  "/sys/class/net/<ethX>/device/local_cpulist"
+
+* Configure as many Rx/Tx queues in the VM as available. For example:
+
+     ethtool -L <virt_interface> combined <max>
+
+  Note:
+
+    Dedicated Tx and Rx queues are not supported.
+
+
+Known Issues/Troubleshooting
+=====================================
+
+
+Receive Error Counts May Be Higher Than the Actual Packet Error Count
+----------------------------------------------------------------------------
+
+When a packet is received with more than one error, two bad packets
+may be reported.
+
+
+"ethtool -S" Does Not Display Tx/Rx Packet Statistics
+------------------------------------------------------------
+
+Issuing the command "ethtool -S" does not display Tx/Rx packet
+statistics. This is by convention. Use other tools (such as the **ip**
+command) that display standard netdev statistics such as Tx/Rx packet
+statistics.
+
+
+Changing Ring Size During Heavy Traffic is Unstable
+----------------------------------------------------------
+
+"ethtool -G" should not be used while the driver is being used to send
+or receive heavy traffic. This can result in the interface going into
+the no-carrier state.
+
+
+Unexpected Issues When the Device Driver and DPDK Share a Device
+-----------------------------------------------------------------------
+
+Unexpected issues may result when an idpf device is in multi driver
+mode and the kernel driver and DPDK driver are sharing the device.
+This is because access to the global NIC resources is not synchronized
+between multiple drivers. Any change to the global NIC configuration
+(writing to a global register, setting global configuration by AQ, or
+changing switch modes) will affect all ports and drivers on the
+device. Loading DPDK with the "multi-driver" module parameter may
+mitigate some of the issues.
+
+
+Support
+================
+
+For general information, go to the Intel support website at:
+http://www.intel.com/support/
+
+If an issue is identified with the released source code on a supported
+kernel with a supported adapter, email the specific information
+related to the issue to intel-wired-lan@lists.osuosl.org.
+
+
+License
+================
+
+This program is free software; you can redistribute it and/or modify
+it under the terms and conditions of the GNU General Public License,
+version 2, as published by the Free Software Foundation.
+
+This program is distributed in the hope it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin St - Fifth Floor, Boston, MA 02110-1301
+USA.
+
+The full GNU General Public License is included in this distribution
+in the file called "COPYING".
+
+Copyright (c) 2019 - 2024 Intel Corporation.
+
+
+Trademarks
+===================
+
+Intel is a trademark or registered trademark of Intel Corporation or
+its subsidiaries in the United States and/or other countries.
+
+* Other names and brands may be claimed as the property of others.
