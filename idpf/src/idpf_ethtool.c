@@ -455,7 +455,12 @@ static int idpf_set_ringparam(struct net_device *netdev,
 
 	q_grp = &vport->dflt_grp.q_grp;
 	if (new_tx_count == q_grp->txq_desc_count &&
+#ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
+	    new_rx_count == q_grp->rxq_desc_count &&
+	    kring->tcp_data_split == idpf_vport_get_hsplit(vport))
+#else
 	    new_rx_count == q_grp->rxq_desc_count)
+#endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 		goto unlock_mutex;
 
 #ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
