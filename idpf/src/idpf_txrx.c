@@ -5021,6 +5021,10 @@ void idpf_vport_intr_rel(struct idpf_vgrp *vgrp)
 		q_vector->tx = NULL;
 		kfree(q_vector->rx);
 		q_vector->rx = NULL;
+
+#ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
+		free_cpumask_var(q_vector->affinity_mask);
+#endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 	}
 
 	kfree(intr_grp->q_vectors);
@@ -5049,7 +5053,7 @@ static void idpf_vport_intr_rel_irq(struct idpf_vport *vport,
 		/* clear the affinity_mask in the IRQ descriptor */
 		irq_set_affinity_notifier(irq_num, NULL);
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
-		free_irq(irq_num, q_vector);
+		kfree(free_irq(irq_num, q_vector));
 		kfree(q_vector->name);
 		q_vector->name = NULL;
 	}
@@ -5227,7 +5231,9 @@ idpf_irq_affinity_notify(struct irq_affinity_notify *notify,
 	struct idpf_vec_affinity_config *affinity_config =
 		container_of(notify, struct idpf_vec_affinity_config, affinity_notify);
 
+#ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 	cpumask_copy(&affinity_config->affinity_mask, mask);
+#endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 }
 
 /**
@@ -5261,6 +5267,7 @@ static int idpf_vport_intr_req_irq(struct idpf_vport *vport,
 
 	for (vector = 0; vector < intr_grp->num_q_vectors; vector++) {
 		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[vector];
+		char *name;
 
 		vidx = intr_grp->q_vector_idxs[vector];
 		irq_num = adapter->msix_entries[vidx].vector;
@@ -5274,11 +5281,10 @@ static int idpf_vport_intr_req_irq(struct idpf_vport *vport,
 		else
 			continue;
 
-		q_vector->name = kasprintf(GFP_KERNEL, "%s-%s-%d",
-					   basename, vec_name, vidx);
-
+		name = kasprintf(GFP_KERNEL, "%s-%s-%d", basename, vec_name,
+				 vidx);
 		err = request_irq(irq_num, idpf_vport_intr_clean_queues, 0,
-				  q_vector->name, q_vector);
+				  name, q_vector);
 		if (err) {
 			netdev_err(vport->netdev,
 				   "Request_irq failed, error: %d\n", err);
@@ -5311,7 +5317,7 @@ free_q_irqs:
 	while (--vector >= 0) {
 		vidx = intr_grp->q_vector_idxs[vector];
 		irq_num = adapter->msix_entries[vidx].vector;
-		free_irq(irq_num, &intr_grp->q_vectors[vector]);
+		kfree(free_irq(irq_num, &intr_grp->q_vectors[vector]));
 		kfree(intr_grp->q_vectors[vector].name);
 		intr_grp->q_vectors[vector].name = NULL;
 	}
@@ -5832,6 +5838,10 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 		q_vector->rx_intr_mode = q_coal->rx_intr_mode;
 		q_vector->rx_itr_idx = VIRTCHNL2_ITR_IDX_0;
 
+#ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
+		if (!zalloc_cpumask_var(&q_vector->affinity_mask, GFP_KERNEL))
+			goto error;
+#endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 		q_vector->tx = kcalloc(txqs_per_vector,
 				       sizeof(struct idpf_queue *),
 				       GFP_KERNEL);

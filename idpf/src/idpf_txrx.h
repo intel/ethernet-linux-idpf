@@ -621,6 +621,9 @@ struct idpf_q_vector {
 	struct idpf_queue **bufq;
 	u16 total_events;
 	char *name;
+#ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
+	cpumask_var_t affinity_mask;
+#endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 	u64 sharedrxq_clean_incomplete;
 	u64 complq_clean_incomplete;
