@@ -354,12 +354,13 @@ static void idpf_unplug_aux_dev(struct idpf_rdma_data *rdma_data)
 	if (!rdma_data->cdev_info)
 		return;
 
+	ida_free(&idpf_idc_ida, rdma_data->aux_idx);
+
 	adev = rdma_data->cdev_info->adev;
 	auxiliary_device_delete(adev);
 	auxiliary_device_uninit(adev);
 	adev = NULL;
 
-	ida_free(&idpf_idc_ida, rdma_data->aux_idx);
 }
 
 /**
