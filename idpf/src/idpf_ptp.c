@@ -646,8 +646,15 @@ u64 idpf_ptp_extend_tstamp(struct idpf_vport *vport, u64 in_tstamp)
 
 	discard_time = ptp->cached_phc_jiffies + 2 * HZ;
 
-	if (time_is_before_jiffies(discard_time))
+	if (time_is_before_jiffies(discard_time)) {
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+		u64_stats_update_begin(&vport->tstamp_stats.stats_sync);
+		u64_stats_inc(&vport->tstamp_stats.discarded);
+		u64_stats_update_end(&vport->tstamp_stats.stats_sync);
+
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
 		return 0;
+	}
 
 	return idpf_ptp_tstamp_extend_32b_to_64b(ptp->cached_phc_time,
 						 lower_32_bits(in_tstamp));
@@ -974,10 +981,20 @@ static void idpf_ptp_release_vport_tstamp(struct idpf_vport *vport)
 	spin_lock_bh(&vport->tx_tstamp_caps->latches_lock);
 
 	head = &vport->tx_tstamp_caps->latches_free;
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+	u64_stats_update_begin(&vport->tstamp_stats.stats_sync);
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
 	list_for_each_entry_safe(ptp_tx_tstamp, tmp, head, list_member) {
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+		u64_stats_inc(&vport->tstamp_stats.flushed);
+
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
 		list_del(&ptp_tx_tstamp->list_member);
 		kfree(ptp_tx_tstamp);
 	}
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+	u64_stats_update_end(&vport->tstamp_stats.stats_sync);
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
 
 	/* Remove list with latches in use */
 	head = &vport->tx_tstamp_caps->latches_in_use;

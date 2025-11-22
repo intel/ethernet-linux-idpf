@@ -3369,8 +3369,13 @@ int idpf_tx_tstamp(struct idpf_queue *tx_q, struct sk_buff *skb,
 
 	/* Grab an open timestamp slot */
 	err = idpf_ptp_request_ts(tx_q, skb, &idx);
-	if (err)
+	if (err) {
+		u64_stats_update_begin(&tx_q->stats_sync);
+		u64_stats_inc(&tx_q->q_stats.tx.tstamp_skipped);
+		u64_stats_update_end(&tx_q->stats_sync);
+
 		return -1;
+	}
 
 	off->tx_flags |= IDPF_TX_FLAGS_TSYN;
 

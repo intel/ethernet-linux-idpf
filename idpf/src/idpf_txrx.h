@@ -656,6 +656,7 @@ struct idpf_tx_queue_stats {
 	u64_stats_t q_busy;
 	u64_stats_t skb_drops;
 	u64_stats_t dma_map_errs;
+	u64_stats_t tstamp_skipped;
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 	u64_stats_t busy_q_restarts;
 	u64_stats_t busy_low_txq_descs;

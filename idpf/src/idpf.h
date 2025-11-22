@@ -362,6 +362,23 @@ enum idpf_vport_flags {
 	IDPF_VPORT_FLAGS_NBITS,
 };
 
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+/**
+ * struct idpf_tstamp_stats - Tx timestamp statistics
+ * @stats_sync: See struct u64_stats_sync
+ * @packets: Number of packets successfully timestamped by the hardware
+ * @discarded: Number of Tx skbs discarded due to cached PHC
+ *	       being too old to correctly extend timestamp
+ * @flushed: Number of Tx skbs flushed due to interface closed
+ */
+struct idpf_tstamp_stats {
+	struct u64_stats_sync stats_sync;
+	u64_stats_t packets;
+	u64_stats_t discarded;
+	u64_stats_t flushed;
+};
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
+
 #ifdef IDPF_ADD_PROBES
 struct idpf_extra_stats {
 	u64_stats_t tx_tcp_segs;
@@ -524,6 +541,9 @@ struct idpf_vgrp {
  * @tx_tstamp_caps: Capabilities negotiated for TX timestamping
  * @tstamp_config: The TX tstamp config
  * @tstamp_task: TX timestamping task
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+ * @tstamp_stats: TX timestamping statistics
+#endif
  * @finish_reset_task: finish vport's soft reset task
  */
 struct idpf_vport {
@@ -570,6 +590,9 @@ struct idpf_vport {
 	struct idpf_ptp_vport_tx_tstamp_caps *tx_tstamp_caps;
 	struct hwtstamp_config tstamp_config;
 	struct work_struct tstamp_task;
+#ifdef HAVE_ETHTOOL_GET_TS_STATS
+	struct idpf_tstamp_stats tstamp_stats;
+#endif /* HAVE_ETHTOOL_GET_TS_STATS */
 	struct work_struct finish_reset_task;
 };
 
