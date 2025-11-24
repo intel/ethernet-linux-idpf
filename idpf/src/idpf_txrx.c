@@ -640,11 +640,10 @@ static void idpf_rx_post_buf_desc(struct idpf_queue *bufq, u16 buf_id)
 	u16 nta = bufq->next_to_alloc;
 	struct idpf_page_info *pinfo;
 	struct idpf_rx_buf *buf;
+	dma_addr_t addr;
 	u32 offset;
 
 	splitq_rx_desc = IDPF_SPLITQ_RX_BUF_DESC(bufq, nta);
-	buf = &bufq->rx.bufs[buf_id];
-	pinfo = &buf->page_info[buf->page_indx];
 
 	if (bufq->rx_hsplit_en) {
 		splitq_rx_desc->hdr_addr =
@@ -652,12 +651,16 @@ static void idpf_rx_post_buf_desc(struct idpf_queue *bufq, u16 buf_id)
 				    (u32)buf_id * IDPF_HDR_BUF_SIZE);
 	}
 
+	buf = &bufq->rx.bufs[buf_id];
+	pinfo = &buf->page_info[buf->page_indx];
 	offset = pinfo->page_offset - pinfo->default_offset;
 	dma_sync_single_range_for_device(bufq->dev, pinfo->dma, offset,
 					 bufq->rx_buf_size,
 					 DMA_FROM_DEVICE);
-	splitq_rx_desc->pkt_addr = cpu_to_le64(pinfo->dma +
-					       pinfo->page_offset);
+
+	addr = pinfo->dma + pinfo->page_offset;
+
+	splitq_rx_desc->pkt_addr = cpu_to_le64(addr);
 	splitq_rx_desc->qword0.buf_id = cpu_to_le16(buf_id);
 
 	nta++;
@@ -668,16 +671,19 @@ static void idpf_rx_post_buf_desc(struct idpf_queue *bufq, u16 buf_id)
 
 /**
  * idpf_rx_post_init_bufs - Post initial buffers to bufq
- * @bufq: Buffer queue to post working set to
+ * @bufq: buffer queue to post working set to
+ * @working_set: number of buffers to put in working set
  */
-static void idpf_rx_post_init_bufs(struct idpf_queue *bufq)
+static void idpf_rx_post_init_bufs(struct idpf_queue *bufq,
+				   u16 working_set)
 {
-	u16 i, working_set = IDPF_RX_BUFQ_WORKING_SET(bufq);
+	int i;
 
 	for (i = 0; i < working_set; i++)
 		idpf_rx_post_buf_desc(bufq, i);
 
-	idpf_rx_buf_hw_update(bufq, bufq->next_to_alloc & ~(bufq->rx_buf_stride - 1));
+	idpf_rx_buf_hw_update(bufq, ALIGN_DOWN(bufq->next_to_alloc,
+					       bufq->rx_buf_stride));
 }
 
 /**
@@ -732,7 +738,7 @@ static int idpf_rx_buf_hw_alloc(struct idpf_queue *q, bool is_splitq)
 		}
 	}
 
-	idpf_rx_post_init_bufs(q);
+	idpf_rx_post_init_bufs(q, IDPF_RX_BUFQ_WORKING_SET(q));
 
 	return 0;
 }
@@ -765,7 +771,7 @@ static int idpf_rx_buf_alloc(struct idpf_queue *q, bool is_splitq)
 	 * The initialization of AF_XDP is contained in 'idpf_vport_xdp_init()'.
 	 */
 	if (idpf_xsk_is_zc_bufq(q)) {
-		idpf_rx_post_init_bufs(q);
+		idpf_rx_post_init_bufs(q, IDPF_RX_BUFQ_WORKING_SET(q));
 		return 0;
 	}
 
@@ -817,18 +823,6 @@ static int idpf_fast_path_txq_init(struct idpf_vport *vport,
 	}
 
 	return 0;
-}
-
-/**
- * idpf_fast_path_txq_deinit - Release fast path TX queue array
- * @vport: Vport structure
- *
- * Returns 0 on success, negative on failure
- */
-static void idpf_fast_path_txq_deinit(struct idpf_vport *vport)
-{
-	kfree(vport->txqs);
-	vport->txqs = NULL;
 }
 
 /**
@@ -1095,38 +1089,51 @@ static void idpf_rx_desc_rel_all(struct idpf_q_grp *q_grp)
 static int idpf_rx_desc_alloc_all(struct idpf_q_grp *q_grp)
 {
 	struct idpf_rxq_group *rx_qgrp;
-	struct idpf_queue *q;
 	int i, j, err;
 	u16 num_rxq;
 
 	for (i = 0; i < q_grp->num_rxq_grp; i++) {
 		rx_qgrp = &q_grp->rxq_grps[i];
-
 		if (idpf_is_queue_model_split(q_grp->rxq_model))
 			num_rxq = rx_qgrp->splitq.num_rxq_sets;
 		else
 			num_rxq = rx_qgrp->singleq.num_rxq;
 
 		for (j = 0; j < num_rxq; j++) {
+			struct idpf_queue *q;
+
 			if (idpf_is_queue_model_split(q_grp->rxq_model))
 				q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
 			else
 				q = rx_qgrp->singleq.rxqs[j];
+
 			err = idpf_rx_desc_alloc(q, false);
-			if (err)
+			if (err) {
+				pci_err(rx_qgrp->vport->adapter->pdev,
+					"Memory allocation for Rx queue %u from queue group %u failed\n",
+					j, i);
 				goto err_out;
+			}
 		}
 
 		if (!idpf_is_queue_model_split(q_grp->rxq_model))
 			continue;
 
 		for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
+			struct idpf_queue *q;
+
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
+
 			err = idpf_rx_desc_alloc(q, true);
-			if (err)
+			if (err) {
+				pci_err(rx_qgrp->vport->adapter->pdev,
+					"Memory allocation for Rx Buffer Queue %u from queue group %u failed\n",
+					j, i);
 				goto err_out;
+			}
 		}
 	}
+
 	return 0;
 
 err_out:
@@ -1216,8 +1223,11 @@ void idpf_vport_queues_rel(struct idpf_vport *vport,
 {
 	idpf_tx_desc_rel_all(q_grp);
 	idpf_rx_desc_rel_all(q_grp);
+
 	idpf_vport_queue_grp_rel_all(q_grp);
-	idpf_fast_path_txq_deinit(vport);
+
+	kfree(vport->txqs);
+	vport->txqs = NULL;
 }
 
 /**
@@ -1629,12 +1639,9 @@ err_alloc:
  */
 static void __idpf_rxq_init(struct idpf_vport *vport, struct idpf_queue *q)
 {
-	struct idpf_vport_user_config_data *config_data;
 	struct idpf_adapter *adapter = vport->adapter;
 
 	u64_stats_init(&q->stats_sync);
-	config_data = &adapter->vport_config[vport->idx]->user_config;
-
 #ifdef CONFIG_IOMMU_BYPASS
 #ifdef CONFIG_ARM64
 	if (adapter->iommu_byp.ddev)
@@ -1645,10 +1652,6 @@ static void __idpf_rxq_init(struct idpf_vport *vport, struct idpf_queue *q)
 	q->dev = idpf_adapter_to_dev(adapter);
 	q->vport = vport;
 	q->rx_buffer_low_watermark = IDPF_LOW_WATERMARK;
-	if (test_bit(__IDPF_PRIV_FLAGS_HDR_SPLIT, config_data->user_flags)) {
-		q->rx_hsplit_en = true;
-		q->rx_hbuf_size = IDPF_HDR_BUF_SIZE;
-	}
 	idpf_queue_set(GEN_CHK, q);
 }
 
@@ -1694,12 +1697,12 @@ static int idpf_rxq_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
 static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
 				u16 num_rxq)
 {
-	struct idpf_adapter *adapter = vport->adapter;
-	struct idpf_queue *q;
 	int i, k, err = 0;
+	struct idpf_vport_user_config_data *config_data =
+		&vport->adapter->vport_config[vport->idx]->user_config;
 
 	q_grp->rxq_grps = kcalloc(q_grp->num_rxq_grp,
-				  sizeof(*q_grp->rxq_grps), GFP_KERNEL);
+				  sizeof(struct idpf_rxq_group), GFP_KERNEL);
 	if (!q_grp->rxq_grps)
 		return -ENOMEM;
 
@@ -1743,25 +1746,25 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 			struct idpf_bufq_set *bufq_set =
 				&rx_qgrp->splitq.bufq_sets[j];
 			int swq_size = sizeof(struct idpf_sw_queue);
+			struct idpf_queue *q;
 
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
-			__idpf_rxq_init(vport, q);
-			q->dev = &adapter->pdev->dev;
 			q->desc_count = q_grp->bufq_desc_count[j];
+			q->rx_buffer_low_watermark = IDPF_LOW_WATERMARK;
+
+			if (test_bit(__IDPF_PRIV_FLAGS_HDR_SPLIT, config_data->user_flags)) {
+				q->rx_hsplit_en = true;
+				q->rx_hbuf_size = IDPF_HDR_BUF_SIZE;
+			}
+
+			__idpf_rxq_init(vport, q);
+			q->dev = &vport->adapter->pdev->dev;
 			q->vport = vport;
 			q->rxq_grp = rx_qgrp;
 			q->idx = j;
 			q->rx_buf_size = q_grp->bufq_size[j];
-			q->rx_buffer_low_watermark = IDPF_LOW_WATERMARK;
 			q->rx_buf_stride = IDPF_RX_BUF_STRIDE;
 			q->rx.rxq_idx = i / q_grp->num_bufqs_per_qgrp;
-
-			if (idpf_is_cap_ena_all(adapter, IDPF_HSPLIT_CAPS,
-						IDPF_CAP_HSPLIT) &&
-			    idpf_is_queue_model_split(q_grp->rxq_model)) {
-				q->rx_hsplit_en = true;
-				q->rx_hbuf_size = IDPF_HDR_BUF_SIZE;
-			}
 
 			bufq_set->num_refillqs = num_rxq;
 			bufq_set->refillqs = kcalloc(num_rxq, swq_size,
@@ -1797,20 +1800,20 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 
 skip_splitq_rx_init:
 		for (j = 0; j < num_rxq; j++) {
+			struct idpf_queue *q;
+
 			if (!idpf_is_queue_model_split(q_grp->rxq_model)) {
 				q = rx_qgrp->singleq.rxqs[j];
 				goto setup_rxq;
 			}
 
+			q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
 			for (k = 0; k < q_grp->num_bufqs_per_qgrp; k++) {
 				rx_qgrp->splitq.rxq_sets[j]->refillq[k] =
 				      &rx_qgrp->splitq.bufq_sets[k].refillqs[j];
 			}
 
-			q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
-			if (idpf_is_cap_ena_all(adapter, IDPF_HSPLIT_CAPS,
-						IDPF_CAP_HSPLIT) &&
-			    idpf_is_queue_model_split(q_grp->rxq_model)) {
+			if (test_bit(__IDPF_PRIV_FLAGS_HDR_SPLIT, config_data->user_flags)) {
 				q->rx_hsplit_en = true;
 				q->rx_hbuf_size = IDPF_HDR_BUF_SIZE;
 			}
@@ -1838,16 +1841,16 @@ err_alloc:
 static int idpf_vport_queue_grp_alloc_all(struct idpf_vport *vport,
 					  struct idpf_q_grp *q_grp)
 {
-	u16 num_txq_per_grp, num_rxq_per_grp;
+	u16 num_txq, num_rxq;
 	int err;
 
-	idpf_vport_calc_numq_per_grp(q_grp, &num_txq_per_grp, &num_rxq_per_grp);
+	idpf_vport_calc_numq_per_grp(q_grp, &num_txq, &num_rxq);
 
-	err = idpf_txq_group_alloc(vport, q_grp, num_txq_per_grp);
+	err = idpf_txq_group_alloc(vport, q_grp, num_txq);
 	if (err)
 		goto err_out;
 
-	err = idpf_rxq_group_alloc(vport, q_grp, num_rxq_per_grp);
+	err = idpf_rxq_group_alloc(vport, q_grp, num_rxq);
 	if (err)
 		goto err_out;
 
