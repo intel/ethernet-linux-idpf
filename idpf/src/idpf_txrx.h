@@ -568,7 +568,7 @@ struct idpf_intr_reg {
 	u32 dyn_ctl_intena_msk_m;
 	u32 dyn_ctl_wb_on_itr_m;
 	u32 dyn_ctl_sw_itridx_ena_m;
-	u8 dyn_ctl_swint_trig_m:3;
+	u32 dyn_ctl_swint_trig_m;
 	u8 dyn_ctl_itridx_m:5;
 	u8 dyn_ctl_intrvl_s:3;
 	u8 dyn_ctl_itridx_s:2;
@@ -682,7 +682,7 @@ union idpf_queue_stats {
 #define IDPF_ITR_IS_DYNAMIC(itr_mode) (itr_mode)
 #define IDPF_ITR_TX_DEF		IDPF_ITR_20K
 #define IDPF_ITR_RX_DEF		IDPF_ITR_20K
-/* Index used for 'No ITR' update in DYN_CTL register */
+/* Index used for 'SW ITR' update in DYN_CTL register */
 #define IDPF_SW_ITR_UPDATE_IDX	2
 #define IDPF_NO_ITR_UPDATE_IDX	3
 #define IDPF_ITR_IDX_SPACING(spacing, dflt)	(spacing ? spacing : dflt)

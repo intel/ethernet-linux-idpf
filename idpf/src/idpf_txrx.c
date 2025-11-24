@@ -5077,37 +5077,32 @@ static void idpf_vport_intr_dis_irq_all(struct idpf_intr_grp *intr_grp)
 
 /**
  * idpf_vport_intr_buildreg_itr - Enable default interrupt generation settings
- * @qvec: pointer to q_vector
+ * @q_vector: pointer to q_vector
  */
-static u32 idpf_vport_intr_buildreg_itr(struct idpf_q_vector *qvec)
+static u32 idpf_vport_intr_buildreg_itr(struct idpf_q_vector *q_vector)
 {
-	u32 itr_val;
+	u32 itr_val = q_vector->intr_reg.dyn_ctl_intena_m;
+	int type = IDPF_NO_ITR_UPDATE_IDX;
+	u16 itr = 0;
 
+	if (q_vector->wb_on_itr) {
+		/*
+		 * Trigger a software interrupt when exiting wb_on_itr, to make
+		 * sure we catch any pending write backs that might have been
+		 * missed due to interrupt state transition.
+		 */
+		itr_val |= q_vector->intr_reg.dyn_ctl_swint_trig_m |
+			   q_vector->intr_reg.dyn_ctl_sw_itridx_ena_m;
+		type = IDPF_SW_ITR_UPDATE_IDX;
+		itr = IDPF_ITR_20K;
+	}
+
+	itr &= IDPF_ITR_MASK;
 	/* Don't clear PBA because that can cause lost interrupts that
 	 * came in while we were cleaning/polling
 	 */
-	itr_val = qvec->intr_reg.dyn_ctl_intena_m |
-		  (IDPF_NO_ITR_UPDATE_IDX << qvec->intr_reg.dyn_ctl_itridx_s);
-
-	return itr_val;
-}
-
-/**
- * idpf_vport_intr_buildreg_sw_itr - enable sw interrupt generation settings
- * @qvec: pointer to q_vector
- *
- * Enable SW triggered interrupt while also enabling default interrupt
- * generation settings.
- */
-static u32 idpf_vport_intr_buildreg_sw_itr(struct idpf_q_vector *qvec)
-{
-	u32 itr_val;
-
-	itr_val = qvec->intr_reg.dyn_ctl_intena_m |
-		  qvec->intr_reg.dyn_ctl_swint_trig_m |
-		  qvec->intr_reg.dyn_ctl_sw_itridx_ena_m |
-		  (IDPF_SW_ITR_UPDATE_IDX << qvec->intr_reg.dyn_ctl_itridx_s) |
-		  (IDPF_ITR_20K << (qvec->intr_reg.dyn_ctl_intrvl_s - 1));
+	itr_val |= (type << q_vector->intr_reg.dyn_ctl_itridx_s) |
+		   (itr << (q_vector->intr_reg.dyn_ctl_intrvl_s - 1));
 
 	return itr_val;
 }
@@ -5204,16 +5199,9 @@ void idpf_vport_intr_update_itr_ena_irq(struct idpf_q_vector *q_vector)
 
 	/* net_dim() updates ITR out-of-band using a work item */
 	idpf_net_dim(q_vector);
-	/* Trigger a software interrupt when exiting busy poll, to make sure to
-	 * catch any pending cleanups that might have been missed due to
-	 * interrupt state transition.
-	 */
-	if (q_vector->wb_on_itr) {
-		q_vector->wb_on_itr = false;
-		intval = idpf_vport_intr_buildreg_sw_itr(q_vector);
-	} else {
-		intval = idpf_vport_intr_buildreg_itr(q_vector);
-	}
+
+	intval = idpf_vport_intr_buildreg_itr(q_vector);
+	q_vector->wb_on_itr = false;
 
 	writel(intval, q_vector->intr_reg.dyn_ctl);
 }
