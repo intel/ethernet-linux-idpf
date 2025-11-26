@@ -873,25 +873,85 @@ static void idpf_init_cached_phc_time(struct idpf_vport *vport,
 }
 
 /**
- * idpf_rx_buf_alloc_all - Allocate memory for all buffer resources
+ * idpf_rx_map_buffer_rings - Link RX buffer ring pointers to buffer rings
+ * @q_grp: Queue resources
+ *
+ * In split queue model, the buffer queues own and manage the actual buffers
+ * but RX queues still need a way to get buffers to make an skb on receive.
+ * This links the buffer rings in buffer queues to RX queues.
+ *
+ * Returns 0 on success, negative on failure.
+ */
+static int idpf_rx_map_buffer_rings(struct idpf_q_grp *q_grp)
+{
+	int i, j, m;
+
+	for (m = 0; m < q_grp->num_rxq_grp; m++) {
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[m];
+
+		for (i = 0; i < rx_qgrp->splitq.num_rxq_sets; i++) {
+			struct idpf_queue *rxq = &rx_qgrp->splitq.rxq_sets[i]->rxq;
+
+			rxq->rx.bufq_bufs = kcalloc(q_grp->num_bufqs_per_qgrp,
+						    sizeof(struct idpf_rx_buf *),
+						    GFP_KERNEL);
+			if (!rxq->rx.bufq_bufs)
+				return -ENOMEM;
+
+			if (rxq->rx_hsplit_en) {
+				rxq->rx.bufq_hdr_bufs = kcalloc(q_grp->num_bufqs_per_qgrp,
+								sizeof(void *),
+								GFP_KERNEL);
+				if (!rxq->rx.bufq_hdr_bufs)
+					return -ENOMEM;
+			}
+
+			for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
+				struct idpf_queue *bufq = &rx_qgrp->splitq.bufq_sets[j].bufq;
+				u32 k;
+
+				rxq->rx.bufq_bufs[j] = bufq->rx.bufs;
+
+				if (!rxq->rx_hsplit_en)
+					continue;
+
+				rxq->rx.bufq_hdr_bufs[j] = kcalloc(bufq->desc_count,
+								   sizeof(*rxq->rx.bufq_hdr_bufs[j]),
+								   GFP_KERNEL);
+				if (!rxq->rx.bufq_hdr_bufs[j])
+					return -ENOMEM;
+
+				for (k = 0; k < bufq->desc_count; k++)
+					rxq->rx.bufq_hdr_bufs[j][k] =
+						(u64)bufq->rx.hdr_buf_va + k * IDPF_HDR_BUF_SIZE;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * idpf_rx_bufs_init_all - Initialize all RX bufs
  * @q_grp: Queue resources
  *
  * Returns 0 on success, negative on failure.
  */
-static int idpf_rx_buf_alloc_all(struct idpf_q_grp *q_grp)
+int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp)
 {
-	struct idpf_rxq_group *rx_qgrp;
-	struct idpf_queue *q;
+	bool split = idpf_is_queue_model_split(q_grp->rxq_model);
 	int i, j, err;
 
 	for (i = 0; i < q_grp->num_rxq_grp; i++) {
-		rx_qgrp = &q_grp->rxq_grps[i];
+		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[i];
 
 		/* Allocate bufs for the rxq itself in singleq */
-		if (!idpf_is_queue_model_split(q_grp->rxq_model)) {
+		if (!split) {
 			int num_rxq = rx_qgrp->singleq.num_rxq;
 
 			for (j = 0; j < num_rxq; j++) {
+				struct idpf_queue *q;
+
 				q = rx_qgrp->singleq.rxqs[j];
 				err = idpf_rx_buf_alloc(q, false);
 				if (err)
@@ -903,11 +963,20 @@ static int idpf_rx_buf_alloc_all(struct idpf_q_grp *q_grp)
 
 		/* Otherwise, allocate bufs for the buffer queues */
 		for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
+			struct idpf_queue *q;
+
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
+
 			err = idpf_rx_buf_alloc(q, true);
 			if (err)
 				return err;
 		}
+	}
+
+	if (idpf_is_queue_model_split(q_grp->rxq_model)) {
+		err = idpf_rx_map_buffer_rings(q_grp);
+		if (err)
+			return err;
 	}
 
 	return 0;
@@ -1863,66 +1932,6 @@ err_out:
 }
 
 /**
- * idpf_rx_map_buffer_rings - Link RX buffer ring pointers to buffer rings
- * @q_grp: Queue resources
- *
- * In split queue model, the buffer queues own and manage the actual buffers
- * but RX queues still need a way to get buffers to make an skb on receive.
- * This links the buffer rings in buffer queues to RX queues.
- *
- * Returns 0 on success, negative on failure.
- */
-static int idpf_rx_map_buffer_rings(struct idpf_q_grp *q_grp)
-{
-	int i, j, m;
-
-	for (m = 0; m < q_grp->num_rxq_grp; m++) {
-		struct idpf_rxq_group *rx_qgrp = &q_grp->rxq_grps[m];
-
-		for (i = 0; i < rx_qgrp->splitq.num_rxq_sets; i++) {
-			struct idpf_queue *rxq = &rx_qgrp->splitq.rxq_sets[i]->rxq;
-
-			rxq->rx.bufq_bufs = kcalloc(q_grp->num_bufqs_per_qgrp,
-						    sizeof(struct idpf_rx_buf *),
-						    GFP_KERNEL);
-			if (!rxq->rx.bufq_bufs)
-				return -ENOMEM;
-
-			if (rxq->rx_hsplit_en) {
-				rxq->rx.bufq_hdr_bufs = kcalloc(q_grp->num_bufqs_per_qgrp,
-								sizeof(void *),
-								GFP_KERNEL);
-				if (!rxq->rx.bufq_hdr_bufs)
-					return -ENOMEM;
-			}
-
-			for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
-				struct idpf_queue *bufq = &rx_qgrp->splitq.bufq_sets[j].bufq;
-				u32 k;
-
-				rxq->rx.bufq_bufs[j] = bufq->rx.bufs;
-
-				if (!rxq->rx_hsplit_en)
-					continue;
-
-				rxq->rx.bufq_hdr_bufs[j] = kcalloc(bufq->desc_count,
-								   sizeof(*rxq->rx.bufq_hdr_bufs[j]),
-								   GFP_KERNEL);
-				if (!rxq->rx.bufq_hdr_bufs[j])
-					return -ENOMEM;
-
-				for (k = 0; k < bufq->desc_count; k++)
-					rxq->rx.bufq_hdr_bufs[j][k] =
-						(u64)bufq->rx.hdr_buf_va + k * IDPF_HDR_BUF_SIZE;
-			}
-		}
-
-	}
-
-	return 0;
-}
-
-/**
  * idpf_vport_queue_alloc_all - Allocate all resources for queues
  * @vport: Virtual port
  * @q_grp: Queue resources
@@ -1953,19 +1962,9 @@ int idpf_vport_queue_alloc_all(struct idpf_vport *vport,
 	if (err)
 		goto err_out;
 
-	err = idpf_rx_buf_alloc_all(q_grp);
-	if (err)
-		goto err_out;
-
 	err = idpf_fast_path_txq_init(vport, q_grp);
 	if (err)
 		goto err_out;
-
-	if (idpf_is_queue_model_split(q_grp->rxq_model)) {
-		err = idpf_rx_map_buffer_rings(q_grp);
-		if (err)
-			goto err_out;
-	}
 
 	idpf_init_cached_phc_time(vport, q_grp);
 

@@ -1686,21 +1686,28 @@ static int idpf_vport_open(struct idpf_vport *vport)
 		goto queues_rel;
 	}
 
-	err = idpf_queue_reg_init(vport, q_grp, chunks);
-	if (err) {
-		dev_err(idpf_adapter_to_dev(adapter), "Failed to initialize queue registers for vport %u: %d\n",
-			vport->vport_id, err);
-		goto queues_rel;
-	}
-
-	idpf_rx_init_buf_tail(q_grp);
-
 	err = idpf_vport_intr_init(vport, vgrp);
 	if (err) {
 		dev_err(idpf_adapter_to_dev(adapter), "Failed to initialize interrupts for vport %u: %d\n",
 			vport->vport_id, err);
 		goto queues_rel;
 	}
+
+	err = idpf_queue_reg_init(vport, q_grp, chunks);
+	if (err) {
+		dev_err(idpf_adapter_to_dev(adapter), "Failed to initialize queue registers for vport %u: %d\n",
+			vport->vport_id, err);
+		goto intr_deinit;
+	}
+
+	err = idpf_rx_bufs_init_all(q_grp);
+	if (err) {
+		dev_err(&adapter->pdev->dev, "Failed to initialize RX buffers for vport %u: %d\n",
+			vport->vport_id, err);
+		goto intr_deinit;
+	}
+
+	idpf_rx_init_buf_tail(q_grp);
 
 #ifdef HAVE_XDP_SUPPORT
 	idpf_vport_xdp_init(vport, q_grp);
