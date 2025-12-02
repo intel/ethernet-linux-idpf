@@ -133,9 +133,6 @@ static void idpf_remove(struct pci_dev *pdev)
 	idpf_vc_core_deinit(adapter);
 	idpf_vport_init_unlock(adapter);
 
-	/* Shut down the per-adapter virtchnl transactions */
-	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
-
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
 	xa_destroy(&adapter->adi_info.priv_info);
 
@@ -626,10 +623,7 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	dev_info(idpf_adapter_to_dev(adapter), "Device FLR Reset initiated\n");
 
 	idpf_device_detach(adapter);
-
 	idpf_netdev_stop_all(adapter);
-	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
-
 	idpf_idc_event(&adapter->rdma_data, IIDC_EVENT_WARN_RESET);
 	idpf_set_vport_state(adapter);
 	idpf_vc_core_deinit(adapter);
