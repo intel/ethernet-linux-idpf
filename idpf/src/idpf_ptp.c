@@ -183,7 +183,7 @@ static int idpf_ptp_read_src_clk_reg(struct idpf_adapter *adapter, u64 *src_clk,
 }
 
 #ifdef HAVE_PTP_CROSSTIMESTAMP
-#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER) || IS_ENABLED(CONFIG_PCIE_PTM)
+#if IS_ENABLED(CONFIG_ARM_ARCH_TIMER) || IS_ENABLED(CONFIG_X86)
 /**
  * idpf_ptp_get_sync_device_time_direct - Get the cross time stamp values
  *					  directly
@@ -207,10 +207,11 @@ static void idpf_ptp_get_sync_device_time_direct(struct idpf_adapter *adapter,
 	sys_time_lo = readl(ptp->dev_clk_regs.sys_time_ns_l);
 	sys_time_hi = readl(ptp->dev_clk_regs.sys_time_ns_h);
 
+	spin_unlock(&ptp->read_dev_clk_lock);
+
 	*dev_time = ((u64)dev_time_hi << 32) | dev_time_lo;
 	*sys_time = ((u64)sys_time_hi << 32) | sys_time_lo;
 
-	spin_unlock(&ptp->read_dev_clk_lock);
 }
 
 /**
@@ -220,7 +221,7 @@ static void idpf_ptp_get_sync_device_time_direct(struct idpf_adapter *adapter,
  * @dev_time: 64bit main timer value expressed in nanoseconds
  * @sys_time: 64bit system time value expressed in nanoseconds
  *
- * Return: a pair of cross timestamp values on success, -errno otherwise.
+ * Return: 0 on success, -errno otherwise.
  */
 static int idpf_ptp_get_sync_device_time_mailbox(struct idpf_adapter *adapter,
 						 u64 *dev_time, u64 *sys_time)
@@ -244,8 +245,9 @@ static int idpf_ptp_get_sync_device_time_mailbox(struct idpf_adapter *adapter,
  * @system: System counter value read synchronously with device time
  * @ctx: Context provided by timekeeping code
  *
- * Return: the device and the system clocks time read simultaneously on success,
- * -errno otherwise.
+ * The device and the system clocks time read simultaneously.
+ *
+ * Return: 0 on success, -errno otherwise.
  */
 static int idpf_ptp_get_sync_device_time(ktime_t *device,
 					 struct system_counterval_t *system,
@@ -258,16 +260,16 @@ static int idpf_ptp_get_sync_device_time(ktime_t *device,
 	switch (adapter->ptp->get_cross_tstamp_access) {
 	case IDPF_PTP_NONE:
 		return -EOPNOTSUPP;
+	case IDPF_PTP_DIRECT:
+		idpf_ptp_get_sync_device_time_direct(adapter, &ns_time_dev,
+						     &ns_time_sys);
+		break;
 	case IDPF_PTP_MAILBOX:
 		err =  idpf_ptp_get_sync_device_time_mailbox(adapter,
 							     &ns_time_dev,
 							     &ns_time_sys);
 		if (err)
 			return err;
-		break;
-	case IDPF_PTP_DIRECT:
-		idpf_ptp_get_sync_device_time_direct(adapter, &ns_time_dev,
-						     &ns_time_sys);
 		break;
 	default:
 		return -EOPNOTSUPP;
@@ -282,10 +284,13 @@ static int idpf_ptp_get_sync_device_time(ktime_t *device,
 #else /* !HAVE_PTP_SYS_COUNTERVAL_CSID */
 	*system = arch_timer_wrap_counter(ns_time_sys);
 #endif /* HAVE_PTP_SYS_COUNTERVAL_CSID */
-#elif IS_ENABLED(CONFIG_PCIE_PTM)
+#elif IS_ENABLED(CONFIG_X86)
 #ifdef HAVE_PTP_CSID_X86_ART
 	system->cycles = ns_time_sys;
-	system->cs_id = CSID_X86_ART;
+
+	system->cs_id = IS_ENABLED(CONFIG_X86) ? CSID_X86_ART
+					       : CSID_ARM_ARCH_COUNTER;
+
 	system->use_nsecs = true;
 #else /* !HAVE_PTP_CSID_X86_ART */
 	*system = convert_art_ns_to_tsc(ns_time_sys);
@@ -314,7 +319,7 @@ static int idpf_ptp_get_crosststamp(struct ptp_clock_info *info,
 					     adapter, NULL, cts);
 }
 
-#endif /* CONFIG_ARM_ARCH_TIMER || CONFIG_PCIE_PTM */
+#endif /* CONFIG_ARM_ARCH_TIMER || CONFIG_X86 */
 #endif /* HAVE_PTP_CROSSTIMESTAMP */
 
 /**
@@ -903,7 +908,7 @@ static void idpf_ptp_set_caps(const struct idpf_adapter *adapter)
 #ifdef HAVE_PTP_CROSSTIMESTAMP
 #if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 	info->getcrosststamp = idpf_ptp_get_crosststamp;
-#elif IS_ENABLED(CONFIG_PCIE_PTM)
+#elif IS_ENABLED(CONFIG_X86)
 	if (pcie_ptm_enabled(adapter->pdev) &&
 	    boot_cpu_has(X86_FEATURE_ART) &&
 	    boot_cpu_has(X86_FEATURE_TSC_KNOWN_FREQ)) {

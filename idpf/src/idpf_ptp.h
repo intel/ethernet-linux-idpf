@@ -355,20 +355,22 @@ idpf_ptp_get_txq_tstamp_capability(struct idpf_queue *txq)
 	return false;
 }
 
+static inline int
+idpf_ptp_get_cross_time(struct idpf_adapter *adapter,
+			struct idpf_ptp_dev_timers *cross_time)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int
+idpf_ptp_set_dev_clk_time(struct idpf_adapter *adapter,
+			  u64 time)
+{
+	return -EOPNOTSUPP;
+}
+
 static inline int idpf_ptp_get_dev_clk_time(struct idpf_adapter *adapter,
 					    struct idpf_ptp_dev_timers *dev_clk_time)
-{
-	return -EOPNOTSUPP;
-}
-
-static inline int idpf_ptp_get_cross_time(struct idpf_adapter *adapter,
-					  struct idpf_ptp_dev_timers *cross_time)
-{
-	return -EOPNOTSUPP;
-}
-
-static inline int idpf_ptp_set_dev_clk_time(struct idpf_adapter *adapter,
-					    u64 time)
 {
 	return -EOPNOTSUPP;
 }
