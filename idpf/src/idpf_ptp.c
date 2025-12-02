@@ -138,7 +138,7 @@ static int idpf_ptp_read_src_clk_reg_mailbox(struct idpf_adapter *adapter,
 					     u64 *src_clk)
 {
 	struct idpf_ptp_dev_timers clk_time;
-	int err = 0;
+	int err;
 
 	/* Read the system timestamp pre PHC read */
 	ptp_read_system_prets(sts);
@@ -931,9 +931,11 @@ static int idpf_ptp_create_clock(const struct idpf_adapter *adapter)
 	idpf_ptp_set_caps(adapter);
 
 	/* Attempt to register the clock before enabling the hardware. */
-	clock = ptp_clock_register(&adapter->ptp->info, &adapter->pdev->dev);
+	clock = ptp_clock_register(&adapter->ptp->info,
+				   &adapter->pdev->dev);
 	if (IS_ERR(clock)) {
-		pci_err(adapter->pdev, "PTP clock creation failed: %pe\n", clock);
+		pci_err(adapter->pdev, "PTP clock creation failed: %pe\n",
+			clock);
 		return PTR_ERR(adapter->ptp->clock);
 	}
 

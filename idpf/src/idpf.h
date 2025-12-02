@@ -841,7 +841,7 @@ struct idpf_iommu_bypass {
  * @sf_id: Unique integer corresponding to a subfunc
  * @sf_cnt: Count of active subfunctions
 #endif
- * @ptp: pointer to PTP structure
+ * @ptp: Storage for PTP-related data
  * @tx_compl_tstamp_gran_s: Number of left bit shifts to convert Tx completion
  *			    descriptor timestamp in nanoseconds.
  * @corer_done: Used to track the completion of CORER
@@ -920,6 +920,7 @@ struct idpf_adapter {
 	unsigned short sf_id;
 	unsigned short sf_cnt;
 #endif /* DEVLINK_ENABLED */
+
 	struct idpf_ptp *ptp;
 	u32 tx_compl_tstamp_gran_s;
 	struct completion corer_done;

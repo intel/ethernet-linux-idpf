@@ -164,18 +164,19 @@ free_mem:
 int idpf_ptp_get_dev_clk_time(struct idpf_adapter *adapter,
 			      struct idpf_ptp_dev_timers *dev_clk_time)
 {
-	struct virtchnl2_ptp_get_dev_clk_time get_dev_clk_time_msg = { };
-	struct idpf_vc_xn_params xn_params = { };
+	struct virtchnl2_ptp_get_dev_clk_time get_dev_clk_time_msg;
+	struct idpf_vc_xn_params xn_params = {
+		.vc_op = VIRTCHNL2_OP_PTP_GET_DEV_CLK_TIME,
+		.send_buf.iov_base = &get_dev_clk_time_msg,
+		.send_buf.iov_len = sizeof(get_dev_clk_time_msg),
+		.recv_buf.iov_base = &get_dev_clk_time_msg,
+		.recv_buf.iov_len = sizeof(get_dev_clk_time_msg),
+		.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC,
+	};
 	int reply_sz;
 	u64 dev_time;
 
-	xn_params.vc_op = VIRTCHNL2_OP_PTP_GET_DEV_CLK_TIME;
-	xn_params.send_buf.iov_base = &get_dev_clk_time_msg;
-	xn_params.send_buf.iov_len = sizeof(get_dev_clk_time_msg);
-	xn_params.recv_buf.iov_base = &get_dev_clk_time_msg;
-	xn_params.recv_buf.iov_len = sizeof(get_dev_clk_time_msg);
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
-
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
 	if (reply_sz < 0)
 		return reply_sz;

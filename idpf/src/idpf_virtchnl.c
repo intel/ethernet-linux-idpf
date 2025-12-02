@@ -5,10 +5,6 @@
 #include "idpf_virtchnl.h"
 #include "idpf_ptp.h"
 
-#define IDPF_VC_XN_MIN_TIMEOUT_MSEC	2000
-#define IDPF_VC_XN_IDX_M		GENMASK(7, 0)
-#define IDPF_VC_XN_SALT_M		GENMASK(15, 8)
-
 /**
  * idpf_vid_to_vport - Translate vport id to vport pointer
  * @adapter: private data struct
@@ -160,11 +156,12 @@ err_kfree:
 	return err;
 }
 
+#if IS_ENABLED(CONFIG_PTP_1588_CLOCK)
 /**
  * idpf_ptp_is_mb_msg - Check if the message is PTP-related
  * @op: virtchnl opcode
  *
- * Returns true if msg is PTP-related, false otherwise
+ * Return: true if msg is PTP-related, false otherwise
  */
 static bool idpf_ptp_is_mb_msg(u32 op)
 {
@@ -202,6 +199,11 @@ static void idpf_prepare_ptp_mb_msg(struct idpf_adapter *adapter, u32 op,
 	ctlq_msg->func_id = adapter->ptp->secondary_mbx.peer_mbx_q_id;
 	ctlq_msg->host_id = adapter->ptp->secondary_mbx.peer_id;
 }
+#else /* !CONFIG_PTP_1588_CLOCK */
+static void idpf_prepare_ptp_mb_msg(struct idpf_adapter *adapter, u32 op,
+				    struct idpf_ctlq_msg *ctlq_msg)
+{ }
+#endif /* CONFIG_PTP_1588_CLOCK */
 
 /**
  * idpf_send_mb_msg - Send message over mailbox
@@ -3203,7 +3205,8 @@ restart:
 
 	err = idpf_ptp_init(adapter);
 	if (err)
-		dev_dbg(idpf_adapter_to_dev(adapter), "PTP init failed, err=%pe\n", ERR_PTR(err));
+		pci_err(adapter->pdev, "PTP init failed, err=%pe\n",
+			ERR_PTR(err));
 	else if (idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS,
 				 VIRTCHNL2_CAP_TX_CMPL_TSTMP))
 		adapter->tx_compl_tstamp_gran_s =

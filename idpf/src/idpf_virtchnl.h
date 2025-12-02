@@ -10,14 +10,16 @@
 #include "idpf.h"
 
 #define IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC	(120 * 1000)
+#define IDPF_VC_XN_IDX_M		GENMASK(7, 0)
+#define IDPF_VC_XN_SALT_M		GENMASK(15, 8)
 #define IDPF_VC_XN_RING_LEN		U8_MAX
 
 /**
  * enum idpf_vc_xn_state - Virtchnl transaction status
  * @IDPF_VC_XN_IDLE: not expecting a reply, ready to be used
  * @IDPF_VC_XN_WAITING: expecting a reply, not yet received
- * @IDPF_VC_XN_COMPLETED_SUCCESS: a reply was expected and received,
- *				  buffer updated
+ * @IDPF_VC_XN_COMPLETED_SUCCESS: a reply was expected and received, buffer
+ *				  updated
  * @IDPF_VC_XN_COMPLETED_FAILED: a reply was expected and received, but there
  *				 was an error, buffer not updated
  * @IDPF_VC_XN_SHUTDOWN: transaction object cannot be used, VC torn down
@@ -91,7 +93,9 @@ struct idpf_vc_xn_manager {
  * @recv_buf: kvec for recv buffer, may be NULL, must then have zero length
  * @timeout_ms: timeout to wait for reply
  * @async: send message asynchronously, will not wait on completion
- * @async_handler: if sent asynchronously, optional callback handler
+ * @async_handler: If sent asynchronously, optional callback handler. The user
+ *		   must be careful when using async handlers as the memory for
+ *		   the recv_buf _cannot_ be on stack if this is async.
  * @vc_op: virtchnl op to send
  */
 struct idpf_vc_xn_params {
@@ -110,6 +114,8 @@ struct idpf_vport;
 struct idpf_vport_max_q;
 struct idpf_vport_user_config_data;
 
+ssize_t idpf_vc_xn_exec(struct idpf_adapter *adapter,
+			const struct idpf_vc_xn_params *params);
 int idpf_init_dflt_mbx(struct idpf_adapter *adapter);
 void idpf_deinit_dflt_mbx(struct idpf_adapter *adapter);
 int idpf_vc_core_init(struct idpf_adapter *adapter);
@@ -183,7 +189,5 @@ int idpf_send_create_adi_msg(struct idpf_adapter *adapter,
 			     struct virtchnl2_non_flex_create_adi *vchnl_adi);
 int idpf_send_destroy_adi_msg(struct idpf_adapter *adapter,
 			      struct virtchnl2_non_flex_destroy_adi *vchnl_adi);
-ssize_t idpf_vc_xn_exec(struct idpf_adapter *adapter,
-			const struct idpf_vc_xn_params *params);
 
 #endif /* _IDPF_VIRTCHNL_H_ */
