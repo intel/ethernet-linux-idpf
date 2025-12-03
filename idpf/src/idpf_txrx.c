@@ -687,39 +687,38 @@ static void idpf_rx_post_init_bufs(struct idpf_queue *bufq,
 }
 
 /**
- * idpf_rx_buf_hw_alloc - Allocate buffers to be given to HW
- * @q: Queue to allocate buffers for, could be RX queue or buffer queue
- *     depending on queueing model
+ * idpf_rx_buf_alloc_all - Allocate memory for all buffer resources
+ * @rxbufq: queue for which the buffers are allocated
  * @is_splitq: True if RX queue model split
  *
  * Returns 0 on success, negative on failure.
  */
-static int idpf_rx_buf_hw_alloc(struct idpf_queue *q, bool is_splitq)
+static int idpf_rx_buf_alloc_all(struct idpf_queue *rxbufq, bool is_splitq)
 {
-	int num_bufs = q->desc_count - 1;
+	int num_bufs = rxbufq->desc_count - 1;
 	int i, err;
 
 	if (!is_splitq)
-		return idpf_rx_singleq_buf_hw_alloc_all(q, num_bufs);
+		return idpf_rx_singleq_buf_hw_alloc_all(rxbufq, num_bufs);
 
 	for (i = 0; i < num_bufs; i++) {
-		struct idpf_rx_buf *buf = &q->rx.bufs[i];
+		struct idpf_rx_buf *buf = &rxbufq->rx.bufs[i];
 
-		if (idpf_xdp_is_prog_ena(q->vport))
+		if (idpf_xdp_is_prog_ena(rxbufq->vport))
 			buf->page_info[0].default_offset = XDP_PACKET_HEADROOM;
 
-		err = idpf_alloc_page(q->dev, &buf->page_info[0]);
+		err = idpf_alloc_page(rxbufq->dev, &buf->page_info[0]);
 		if (err)
 			return err;
 
 		buf->page_indx = 0;
-		buf->buf_size = q->rx_buf_size;
+		buf->buf_size = rxbufq->rx_buf_size;
 
 		if (PAGE_SIZE >= 8192)
 			continue;
 
-		if (q->rx_buf_size > IDPF_RX_BUF_2048) {
-			if (idpf_xdp_is_prog_ena(q->vport))
+		if (rxbufq->rx_buf_size > IDPF_RX_BUF_2048) {
+			if (idpf_xdp_is_prog_ena(rxbufq->vport))
 				buf->page_info[1].default_offset =
 					XDP_PACKET_HEADROOM;
 			/* For 4K buffers, we can reuse the page if there are
@@ -727,7 +726,7 @@ static int idpf_rx_buf_hw_alloc(struct idpf_queue *q, bool is_splitq)
 			 * memory is initialized to 0, both page_info's
 			 * reuse_bias is already set appropriately.
 			 */
-			err = idpf_alloc_page(q->dev, &buf->page_info[1]);
+			err = idpf_alloc_page(rxbufq->dev, &buf->page_info[1]);
 			if (err)
 				return err;
 		} else {
@@ -738,28 +737,28 @@ static int idpf_rx_buf_hw_alloc(struct idpf_queue *q, bool is_splitq)
 		}
 	}
 
-	idpf_rx_post_init_bufs(q, IDPF_RX_BUFQ_WORKING_SET(q));
+	idpf_rx_post_init_bufs(rxbufq, IDPF_RX_BUFQ_WORKING_SET(rxbufq));
 
 	return 0;
 }
 
 /**
- * idpf_rx_buf_alloc - Allocate buffers for a queue
- * @q: Queue to allocate for
+ * idpf_rx_bufs_init - Allocate buffers for a queue
+ * @bufq: Queue to allocate for
  * @is_splitq: True if RX queue model split
  */
-static int idpf_rx_buf_alloc(struct idpf_queue *q, bool is_splitq)
+static int idpf_rx_bufs_init(struct idpf_queue *bufq, bool is_splitq)
 {
 	int err;
 
 	/* bookkeeping ring to contain the actual buffers */
-	q->rx.bufs = kcalloc(q->desc_count, sizeof(struct idpf_rx_buf),
-			     GFP_KERNEL);
-	if (!q->rx.bufs)
+	bufq->rx.bufs = kcalloc(bufq->desc_count, sizeof(struct idpf_rx_buf),
+				GFP_KERNEL);
+	if (!bufq->rx.bufs)
 		return -ENOMEM;
 
-	if (q->rx_hsplit_en) {
-		err = idpf_rx_hdr_buf_alloc(q);
+	if (bufq->rx_hsplit_en) {
+		err = idpf_rx_hdr_buf_alloc(bufq);
 		if (err)
 			return err;
 	}
@@ -770,17 +769,13 @@ static int idpf_rx_buf_alloc(struct idpf_queue *q, bool is_splitq)
 	 * of AF_XDP data structures in bpf.
 	 * The initialization of AF_XDP is contained in 'idpf_vport_xdp_init()'.
 	 */
-	if (idpf_xsk_is_zc_bufq(q)) {
-		idpf_rx_post_init_bufs(q, IDPF_RX_BUFQ_WORKING_SET(q));
+	if (idpf_xsk_is_zc_bufq(bufq)) {
+		idpf_rx_post_init_bufs(bufq, IDPF_RX_BUFQ_WORKING_SET(bufq));
 		return 0;
 	}
 
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
-	err = idpf_rx_buf_hw_alloc(q, is_splitq);
-	if (err)
-		return err;
-
-	return 0;
+	return idpf_rx_buf_alloc_all(bufq, is_splitq);
 }
 
 /**
@@ -953,7 +948,7 @@ int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp)
 				struct idpf_queue *q;
 
 				q = rx_qgrp->singleq.rxqs[j];
-				err = idpf_rx_buf_alloc(q, false);
+				err = idpf_rx_bufs_init(q, false);
 				if (err)
 					return err;
 			}
@@ -967,7 +962,7 @@ int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp)
 
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
 
-			err = idpf_rx_buf_alloc(q, true);
+			err = idpf_rx_bufs_init(q, true);
 			if (err)
 				return err;
 		}
