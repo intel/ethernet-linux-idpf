@@ -236,16 +236,17 @@ int idpf_ptp_get_cross_time(struct idpf_adapter *adapter,
 int idpf_ptp_set_dev_clk_time(struct idpf_adapter *adapter, u64 time)
 {
 	struct virtchnl2_ptp_set_dev_clk_time set_dev_clk_time_msg = { };
-	struct idpf_vc_xn_params xn_params = { };
+	struct idpf_vc_xn_params xn_params = {
+		.vc_op = VIRTCHNL2_OP_PTP_SET_DEV_CLK_TIME,
+		.send_buf.iov_base = &set_dev_clk_time_msg,
+		.send_buf.iov_len = sizeof(set_dev_clk_time_msg),
+		.recv_buf.iov_base = &set_dev_clk_time_msg,
+		.recv_buf.iov_len = sizeof(set_dev_clk_time_msg),
+		.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC,
+	};
 	int reply_sz;
 
 	set_dev_clk_time_msg.dev_time_ns = cpu_to_le64(time);
-
-	xn_params.vc_op = VIRTCHNL2_OP_PTP_SET_DEV_CLK_TIME;
-	xn_params.send_buf.iov_base = &set_dev_clk_time_msg;
-	xn_params.send_buf.iov_len = sizeof(set_dev_clk_time_msg);
-	xn_params.recv_buf.iov_base = &set_dev_clk_time_msg;
-	xn_params.recv_buf.iov_len = sizeof(set_dev_clk_time_msg);
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
@@ -269,16 +270,18 @@ int idpf_ptp_set_dev_clk_time(struct idpf_adapter *adapter, u64 time)
 int idpf_ptp_adj_dev_clk_time(struct idpf_adapter *adapter, s64 delta)
 {
 	struct virtchnl2_ptp_adj_dev_clk_time adj_dev_clk_time_msg = { };
-	struct idpf_vc_xn_params xn_params = { };
+	struct idpf_vc_xn_params xn_params = {
+		.vc_op = VIRTCHNL2_OP_PTP_ADJ_DEV_CLK_TIME,
+		.send_buf.iov_base = &adj_dev_clk_time_msg,
+		.send_buf.iov_len = sizeof(adj_dev_clk_time_msg),
+		.recv_buf.iov_base = &adj_dev_clk_time_msg,
+		.recv_buf.iov_len = sizeof(adj_dev_clk_time_msg),
+		.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC,
+	};
 	int reply_sz;
 
 	adj_dev_clk_time_msg.delta = cpu_to_le64(delta);
 
-	xn_params.vc_op = VIRTCHNL2_OP_PTP_ADJ_DEV_CLK_TIME;
-	xn_params.send_buf.iov_base = &adj_dev_clk_time_msg;
-	xn_params.send_buf.iov_len = sizeof(adj_dev_clk_time_msg);
-	xn_params.recv_buf.iov_base = &adj_dev_clk_time_msg;
-	xn_params.recv_buf.iov_len = sizeof(adj_dev_clk_time_msg);
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
@@ -303,16 +306,18 @@ int idpf_ptp_adj_dev_clk_time(struct idpf_adapter *adapter, s64 delta)
 int idpf_ptp_adj_dev_clk_fine(struct idpf_adapter *adapter, u64 incval)
 {
 	struct virtchnl2_ptp_adj_dev_clk_fine adj_dev_clk_fine_msg = { };
-	struct idpf_vc_xn_params xn_params = { };
+	struct idpf_vc_xn_params xn_params = {
+		.vc_op = VIRTCHNL2_OP_PTP_ADJ_DEV_CLK_FINE,
+		.send_buf.iov_base = &adj_dev_clk_fine_msg,
+		.send_buf.iov_len = sizeof(adj_dev_clk_fine_msg),
+		.recv_buf.iov_base = &adj_dev_clk_fine_msg,
+		.recv_buf.iov_len = sizeof(adj_dev_clk_fine_msg),
+		.timeout_ms = IDPF_VC_XN_DEFAULT_TIMEOUT_MSEC,
+	};
 	int reply_sz;
 
 	adj_dev_clk_fine_msg.incval = cpu_to_le64(incval);
 
-	xn_params.vc_op = VIRTCHNL2_OP_PTP_ADJ_DEV_CLK_FINE;
-	xn_params.send_buf.iov_base = &adj_dev_clk_fine_msg;
-	xn_params.send_buf.iov_len = sizeof(adj_dev_clk_fine_msg);
-	xn_params.recv_buf.iov_base = &adj_dev_clk_fine_msg;
-	xn_params.recv_buf.iov_len = sizeof(adj_dev_clk_fine_msg);
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);

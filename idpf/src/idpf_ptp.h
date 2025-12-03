@@ -33,10 +33,10 @@ struct idpf_ptp_cmd {
  * @incval_h: high part of the increment value register
  * @shadj_l: low part of the shadow adjust register
  * @shadj_h: high part of the shadow adjust register
- * phy_incval_l: low part of the PHY increment value register
- * phy_incval_h: high part of the PHY increment value register
- * phy_shadj_l: low part of the PHY shadow adjust register
- * phy_shadj_h: high part of the PHY shadow adjust register
+ * @phy_incval_l: low part of the PHY increment value register
+ * @phy_incval_h: high part of the PHY increment value register
+ * @phy_shadj_l: low part of the PHY shadow adjust register
+ * @phy_shadj_h: high part of the PHY shadow adjust register
  * @cmd: PTP command register
  * @phy_cmd: PHY command register
  * @cmd_sync: PTP command synchronization register

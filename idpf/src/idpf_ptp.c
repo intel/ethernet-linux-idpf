@@ -447,7 +447,8 @@ static int idpf_ptp_settime64(struct ptp_clock_info *info,
 
 	err = idpf_ptp_set_dev_clk_time(adapter, ns);
 	if (err) {
-		pci_err(adapter->pdev, "Failed to set the time, err: %pe\n", ERR_PTR(err));
+		pci_err(adapter->pdev, "Failed to set the time, err: %pe\n",
+			ERR_PTR(err));
 		return err;
 	}
 
@@ -525,8 +526,7 @@ static int idpf_ptp_adjtime(struct ptp_clock_info *info, s64 delta)
 
 	err = idpf_ptp_adj_dev_clk_time(adapter, delta);
 	if (err) {
-		pci_err(adapter->pdev,
-			"Failed to adjust the clock with delta %lld err: %pe\n",
+		pci_err(adapter->pdev, "Failed to adjust the clock with delta %lld err: %pe\n",
 			delta, ERR_PTR(err));
 		return err;
 	}
@@ -565,8 +565,7 @@ static int idpf_ptp_adjfine(struct ptp_clock_info *info, long scaled_ppm)
 	diff = adjust_by_scaled_ppm(incval, scaled_ppm);
 	err = idpf_ptp_adj_dev_clk_fine(adapter, diff);
 	if (err)
-		pci_err(adapter->pdev,
-			"Failed to adjust clock increment rate for scaled ppm %ld %pe\n",
+		pci_err(adapter->pdev, "Failed to adjust clock increment rate for scaled ppm %ld %pe\n",
 			scaled_ppm, ERR_PTR(err));
 
 	return 0;
@@ -603,6 +602,8 @@ static int idpf_ptp_adjfreq(struct ptp_clock_info *info, s32 ppb)
  * @pin: Pin index
  * @func: Assigned function
  * @chan: Assigned channel
+ *
+ * Return: EOPNOTSUPP as not supported yet.
  */
 static int idpf_ptp_verify_pin(struct ptp_clock_info *info, unsigned int pin,
 			       enum ptp_pin_function func, unsigned int chan)
@@ -615,6 +616,8 @@ static int idpf_ptp_verify_pin(struct ptp_clock_info *info, unsigned int pin,
  * @info: the driver's PTP info structure
  * @rq: The requested feature to change
  * @on: Enable/disable flag
+ *
+ * Return: EOPNOTSUPP as not supported yet.
  */
 static int idpf_ptp_gpio_enable(struct ptp_clock_info *info,
 				struct ptp_clock_request *rq, int on)
@@ -1119,6 +1122,7 @@ int idpf_ptp_init(struct idpf_adapter *adapter)
 remove_clock:
 	ptp_clock_unregister(adapter->ptp->clock);
 	adapter->ptp->clock = NULL;
+
 free_ptp:
 	kfree(adapter->ptp);
 	adapter->ptp = NULL;
