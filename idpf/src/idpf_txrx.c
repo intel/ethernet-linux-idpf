@@ -687,19 +687,51 @@ static void idpf_rx_post_init_bufs(struct idpf_queue *bufq,
 }
 
 /**
+ * idpf_rx_buf_alloc_singleq - Allocate memory for all buffer resources
+ * @rxq: queue for which the buffers are allocated
+ *
+ * Return: 0 on success, -ENOMEM on failure.
+ */
+static int idpf_rx_buf_alloc_singleq(struct idpf_queue *rxq)
+{
+	if (idpf_rx_singleq_buf_hw_alloc_all(rxq, rxq->desc_count - 1))
+		goto err;
+
+	return 0;
+
+err:
+	idpf_rx_buf_rel_all(rxq);
+
+	return -ENOMEM;
+}
+
+/**
+ * idpf_rx_bufs_init_singleq - Initialize page pool and allocate Rx bufs
+ * @rxq: buffer queue to create page pool for
+ *
+ * Return: 0 on success, -errno on failure.
+ */
+static int idpf_rx_bufs_init_singleq(struct idpf_queue *rxq)
+{
+	/* bookkeeping ring to contain the actual buffers */
+	rxq->rx.bufs = kcalloc(rxq->desc_count, sizeof(struct idpf_rx_buf),
+			       GFP_KERNEL);
+	if (!rxq->rx.bufs)
+		return -ENOMEM;
+
+	return idpf_rx_buf_alloc_singleq(rxq);
+}
+
+/**
  * idpf_rx_buf_alloc_all - Allocate memory for all buffer resources
  * @rxbufq: queue for which the buffers are allocated
- * @is_splitq: True if RX queue model split
  *
  * Returns 0 on success, negative on failure.
  */
-static int idpf_rx_buf_alloc_all(struct idpf_queue *rxbufq, bool is_splitq)
+static int idpf_rx_buf_alloc_all(struct idpf_queue *rxbufq)
 {
 	int num_bufs = rxbufq->desc_count - 1;
 	int i, err;
-
-	if (!is_splitq)
-		return idpf_rx_singleq_buf_hw_alloc_all(rxbufq, num_bufs);
 
 	for (i = 0; i < num_bufs; i++) {
 		struct idpf_rx_buf *buf = &rxbufq->rx.bufs[i];
@@ -745,9 +777,8 @@ static int idpf_rx_buf_alloc_all(struct idpf_queue *rxbufq, bool is_splitq)
 /**
  * idpf_rx_bufs_init - Allocate buffers for a queue
  * @bufq: Queue to allocate for
- * @is_splitq: True if RX queue model split
  */
-static int idpf_rx_bufs_init(struct idpf_queue *bufq, bool is_splitq)
+static int idpf_rx_bufs_init(struct idpf_queue *bufq)
 {
 	int err;
 
@@ -775,7 +806,7 @@ static int idpf_rx_bufs_init(struct idpf_queue *bufq, bool is_splitq)
 	}
 
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
-	return idpf_rx_buf_alloc_all(bufq, is_splitq);
+	return idpf_rx_buf_alloc_all(bufq);
 }
 
 /**
@@ -948,7 +979,7 @@ int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp)
 				struct idpf_queue *q;
 
 				q = rx_qgrp->singleq.rxqs[j];
-				err = idpf_rx_bufs_init(q, false);
+				err = idpf_rx_bufs_init_singleq(q);
 				if (err)
 					return err;
 			}
@@ -962,7 +993,7 @@ int idpf_rx_bufs_init_all(struct idpf_q_grp *q_grp)
 
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
 
-			err = idpf_rx_bufs_init(q, true);
+			err = idpf_rx_bufs_init(q);
 			if (err)
 				return err;
 		}
