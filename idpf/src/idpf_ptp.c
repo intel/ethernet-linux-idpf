@@ -880,31 +880,31 @@ static void idpf_ptp_set_caps(const struct idpf_adapter *adapter)
 	snprintf(info->name, sizeof(info->name), "%s-%s-clk",
 		 KBUILD_MODNAME, pci_name(adapter->pdev));
 
-	info->max_adj = adapter->ptp->max_adj;
 	info->owner = THIS_MODULE;
-	info->adjtime = idpf_ptp_adjtime;
-#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
-	info->adjfine = idpf_ptp_adjfine;
-#else
-	info->adjfreq = idpf_ptp_adjfreq;
-#endif /* HAVE_PTP_CLOCK_INFO_ADJFINE */
-#ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
-	info->settime64 = idpf_ptp_settime64;
-#else
-	info->settime = idpf_ptp_settime32;
-#endif /* HAVE_PTP_CLOCK_INFO_GETTIME64 */
-	info->verify = idpf_ptp_verify_pin;
-	info->enable = idpf_ptp_gpio_enable;
-#ifdef HAVE_PTP_CANCEL_WORKER_SYNC
-	info->do_aux_work = idpf_ptp_do_aux_work;
-#endif /* HAVE_PTP_CANCEL_WORKER_SYNC */
+	info->max_adj = adapter->ptp->max_adj;
 #if defined(HAVE_PTP_CLOCK_INFO_GETTIMEX64)
 	info->gettimex64 = idpf_ptp_gettimex64;
 #elif defined(HAVE_PTP_CLOCK_INFO_GETTIME64)
 	info->gettime64 = idpf_ptp_gettime64;
 #else
 	info->gettime = idpf_ptp_gettime32;
-#endif
+#endif /* HAVE_PTP_CLOCK_INFO_GETTIMEX64 */
+#ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
+	info->settime64 = idpf_ptp_settime64;
+#else
+	info->settime = idpf_ptp_settime32;
+#endif /* HAVE_PTP_CLOCK_INFO_GETTIME64 */
+#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
+	info->adjfine = idpf_ptp_adjfine;
+#else
+	info->adjfreq = idpf_ptp_adjfreq;
+#endif /* HAVE_PTP_CLOCK_INFO_ADJFINE */
+	info->adjtime = idpf_ptp_adjtime;
+	info->verify = idpf_ptp_verify_pin;
+	info->enable = idpf_ptp_gpio_enable;
+#ifdef HAVE_PTP_CANCEL_WORKER_SYNC
+	info->do_aux_work = idpf_ptp_do_aux_work;
+#endif /* HAVE_PTP_CANCEL_WORKER_SYNC */
 #ifdef HAVE_PTP_CROSSTIMESTAMP
 #if IS_ENABLED(CONFIG_ARM_ARCH_TIMER)
 	info->getcrosststamp = idpf_ptp_get_crosststamp;

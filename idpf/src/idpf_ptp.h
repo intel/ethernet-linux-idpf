@@ -178,7 +178,7 @@ struct idpf_ptp_vport_tx_tstamp_caps {
  * @set_dev_clk_time_access: access type for setting the device clock time
  * @adj_dev_clk_time_access: access type for the adjusting the device clock
  * @tx_tstamp_access: access type for the Tx timestamp value read
- * @rsv: Reserved fields
+ * @rsv: reserved bits
  * @secondary_mbx: parameters for using dedicated PTP mailbox
  * @read_dev_clk_lock: spinlock protecting access to the device clock read
  *		       operation executed by the HW latch
