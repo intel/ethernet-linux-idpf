@@ -461,6 +461,7 @@ function gen-other() {
 	ush='include/linux/u64_stats_sync.h'
 	fsh='include/linux/fortify-string.h'
 	cth='include/linux/compiler_types.h'
+	ch='include/linux/compiler.h'
 	gen HAVE_X86_STEPPING if struct cpuinfo_x86 matches x86_stepping in arch/x86/include/asm/processor.h
 	gen HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING if fun pci_enable_pcie_error_reporting in "$pciaerh"
 	gen NEED_PCI_AER_CLEAR_NONFATAL_STATUS if fun pci_aer_clear_nonfatal_status absent in "$pciaerh"
@@ -469,6 +470,7 @@ function gen-other() {
 	gen NEED_BITMAP_TO_ARR32 if fun bitmap_to_arr32 absent in include/linux/bitmap.h
 	gen NEED_ASSIGN_BIT if fun assign_bit absent in include/linux/bitops.h
 	gen NEED_STATIC_ASSERT if macro static_assert absent in include/linux/build_bug.h
+	gen NEED____ADDRESSABLE if macro ___ADDRESSABLE absent in "$ch"
 	# special case for kernels 6.2 - 6.6 and __struct_size macro
 	# there is an implicit dependency on CONFIG_FORTIFY_SOURCE config option and inclusion
 	# of 'forify-string.h' header (which includes that macro definition).
