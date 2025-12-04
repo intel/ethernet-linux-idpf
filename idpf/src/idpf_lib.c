@@ -1335,30 +1335,29 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 			return NULL;
 		}
 
-	q_coal = kcalloc(num_max_q, sizeof(*q_coal), GFP_KERNEL);
-	if (!q_coal) {
-		kfree(vport_config);
-		kfree(vport);
+		q_coal = kcalloc(num_max_q, sizeof(*q_coal), GFP_KERNEL);
+		if (!q_coal) {
+			kfree(vport_config);
+			kfree(vport);
 
-	return NULL;
-	}
-	for (i = 0; i < num_max_q; i++) {
-		q_coal[i].tx_intr_mode = IDPF_ITR_DYNAMIC;
-		q_coal[i].tx_coalesce_usecs = IDPF_ITR_TX_DEF;
-		q_coal[i].rx_intr_mode = IDPF_ITR_DYNAMIC;
-		q_coal[i].rx_coalesce_usecs = IDPF_ITR_RX_DEF;
-	}
-	vport_config->user_config.q_coalesce = q_coal;
+			return NULL;
+		}
+		for (i = 0; i < num_max_q; i++) {
+			q_coal[i].tx_intr_mode = IDPF_ITR_DYNAMIC;
+			q_coal[i].tx_coalesce_usecs = IDPF_ITR_TX_DEF;
+			q_coal[i].rx_intr_mode = IDPF_ITR_DYNAMIC;
+			q_coal[i].rx_coalesce_usecs = IDPF_ITR_RX_DEF;
+		}
+		vport_config->user_config.q_coalesce = q_coal;
 
-	adapter->vport_config[idx] = vport_config;
+		adapter->vport_config[idx] = vport_config;
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 
 		vport_config->affinity_config = kzalloc(MAX_NUM_VEC_AFFINTY * sizeof(*vport_config->affinity_config),
 							GFP_KERNEL);
 		if (!vport_config->affinity_config) {
 			kfree(vport_config);
-			kfree(vport);
-			return NULL;
+			goto free_vport;
 		}
 
 		numa = dev_to_node(&adapter->pdev->dev);
@@ -1380,7 +1379,7 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 		goto free_vport;
 
 	if (idpf_vport_init(vport, max_q))
-		goto free_qvec_idxs;
+		goto free_vector_idxs;
 
 	/* This alloc is done separate from the LUT because it's not strictly
 	 * dependent on how many queues we have. If we change number of queues
@@ -1390,7 +1389,7 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 	rss_data = &adapter->vport_config[idx]->user_config.rss_data;
 	rss_data->rss_key = kzalloc(rss_data->rss_key_size, GFP_KERNEL);
 	if (!rss_data->rss_key)
-		goto free_qvec_idxs;
+		goto free_vector_idxs;
 
 	/* Initialize default rss key */
 	netdev_rss_key_fill((void *)rss_data->rss_key, rss_data->rss_key_size);
@@ -1405,11 +1404,12 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 
 	return vport;
 
-free_qvec_idxs:
+free_vector_idxs:
 	kfree(intr_grp->q_vector_idxs);
 	intr_grp->q_vector_idxs = NULL;
 free_vport:
 	kfree(vport);
+
 	return NULL;
 }
 
