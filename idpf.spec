@@ -89,7 +89,7 @@ rm -rf %{buildroot}
 %doc file.list
 %doc idpf/pci.updates
 %doc idpf/COPYING
-%doc idpf/README
+%doc README
 
 %post
 if [ -d /usr/local/share/%{name} ]; then
