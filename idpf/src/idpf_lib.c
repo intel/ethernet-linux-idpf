@@ -1153,7 +1153,7 @@ static void idpf_rx_init_buf_tail(struct idpf_q_grp *q_grp)
 				struct idpf_queue *q =
 					&grp->splitq.bufq_sets[j].bufq;
 
-				writel(q->next_to_alloc, q->tail);
+					writel(q->next_to_alloc, q->tail);
 			}
 		} else {
 			for (j = 0; j < grp->singleq.num_rxq; j++) {
