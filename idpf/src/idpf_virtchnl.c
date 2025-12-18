@@ -932,6 +932,9 @@ static int idpf_send_get_caps_msg(struct idpf_adapter *adapter)
 			    VIRTCHNL2_CAP_EDT			|
 			    VIRTCHNL2_CAP_PTP			|
 			    VIRTCHNL2_CAP_TX_CMPL_TSTMP		|
+#if defined(CONFIG_OEM_CAPS) || defined(CONFIG_P2P)
+			    VIRTCHNL2_CAP_OEM			|
+#endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 			    VIRTCHNL2_CAP_MISS_COMPL_TAG	|
 			    VIRTCHNL2_CAP_LOOPBACK		|
 			    VIRTCHNL2_CAP_VLAN);
@@ -2421,6 +2424,64 @@ int idpf_send_get_stats_msg(struct idpf_vport *vport)
 	return 0;
 }
 
+#ifdef CONFIG_UPLINK_PORT_STATS
+/**
+ * idpf_send_get_port_stats_msg - Send get physical port representor stats msg
+ * @vport: vport to get stats for
+ *
+ * Returns 0 on success, negative on failure.
+ */
+int idpf_send_get_port_stats_msg(struct idpf_vport *vport)
+{
+	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
+	struct rtnl_link_stats64 *netstats = &np->netstats;
+	struct virtchnl2_port_stats stats_msg = { };
+	struct idpf_vc_xn_params xn_params = { };
+	struct virtchnl2_vport_stats *stats;
+	int reply_sz;
+
+	stats_msg.vport_id = cpu_to_le32(vport->vport_id);
+
+	xn_params.vc_op = VIRTCHNL2_OP_GET_PORT_STATS;
+	xn_params.send_buf.iov_base = (u8 *)&stats_msg;
+	xn_params.send_buf.iov_len = sizeof(stats_msg);
+	xn_params.recv_buf = xn_params.send_buf;
+	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(vport->adapter);
+
+	reply_sz = idpf_vc_xn_exec(vport->adapter, &xn_params);
+	if (reply_sz < 0)
+		return reply_sz;
+	if (reply_sz < sizeof(stats_msg))
+		return -EIO;
+
+	spin_lock_bh(&np->stats_lock);
+	stats = &stats_msg.virt_port_stats;
+	netstats->rx_packets = le64_to_cpu(stats->rx_unicast) +
+			       le64_to_cpu(stats->rx_multicast) +
+			       le64_to_cpu(stats->rx_broadcast);
+	netstats->rx_bytes = le64_to_cpu(stats->rx_bytes);
+	netstats->rx_dropped = le64_to_cpu(stats->rx_discards);
+	netstats->rx_over_errors = le64_to_cpu(stats->rx_overflow_drop);
+	netstats->rx_length_errors = le64_to_cpu(stats->rx_invalid_frame_length);
+
+	netstats->tx_packets = le64_to_cpu(stats->tx_unicast) +
+			       le64_to_cpu(stats->tx_multicast) +
+			       le64_to_cpu(stats->tx_broadcast);
+	netstats->tx_bytes = le64_to_cpu(stats->tx_bytes);
+	netstats->tx_errors = le64_to_cpu(stats->tx_errors);
+	netstats->tx_dropped = le64_to_cpu(stats->tx_discards);
+
+	vport->port_stats.vport_stats = stats_msg.virt_port_stats;
+
+	memcpy(vport->port_stats.phy_port_stats, &stats_msg.phy_port_stats,
+	       sizeof(*vport->port_stats.phy_port_stats));
+
+	spin_unlock_bh(&np->stats_lock);
+
+	return 0;
+}
+
+#endif /* CONFIG_UPLINK_PORT_STATS */
 /**
  * idpf_send_get_set_rss_hash_msg - Send set or get rss hash message
  * @vport: virtual port data structure
@@ -3100,6 +3161,35 @@ err_mem:
 	return -ENOMEM;
 }
 
+#if defined(CONFIG_OEM_CAPS) || defined(CONFIG_P2P)
+/**
+ * idpf_get_oem_caps - Send virtchnl get oem capabilities message
+ * @adapter: Driver specific private structure
+ *
+ * Send virtchnl get oem capabilities message.
+ * Returns 0 on success, negative on failure.
+ */
+static int idpf_get_oem_caps(struct idpf_adapter *adapter)
+{
+	struct virtchnl2_oem_caps oem_caps_msg = {};
+	struct idpf_vc_xn_params xn_params = {};
+	ssize_t reply_sz;
+
+	xn_params.vc_op = VIRTCHNL2_OP_GET_OEM_CAPS;
+	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
+	xn_params.send_buf.iov_base = &oem_caps_msg;
+	xn_params.send_buf.iov_len = sizeof(oem_caps_msg);
+	xn_params.recv_buf.iov_base = &adapter->oem_caps;
+	xn_params.recv_buf.iov_len = sizeof(struct virtchnl2_oem_caps);
+
+	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
+	if (reply_sz < 0)
+		return reply_sz;
+
+	return 0;
+}
+
+#endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 /**
  * idpf_vc_core_init - Initialize state machine and get driver specific
  * resources
@@ -3187,6 +3277,14 @@ restart:
 
 	idpf_send_get_edt_caps(adapter);
 
+#if defined(CONFIG_OEM_CAPS) || defined(CONFIG_P2P)
+	if (idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_OEM)) {
+		err = idpf_get_oem_caps(adapter);
+		if (err)
+			dev_err(idpf_adapter_to_dev(adapter), "Failed to receive OEM capabilities\n");
+	}
+
+#endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 	err = idpf_intr_req(adapter);
 	if (err) {
 		dev_err(idpf_adapter_to_dev(adapter), "failed to enable interrupt vectors: %d\n",
@@ -3395,6 +3493,24 @@ static void idpf_vport_edt_init(struct idpf_vport *vport)
 	vport->tw_horizon = le64_to_cpu(adapter->edt_caps.time_horizon_ns);
 }
 
+#ifdef CONFIG_UPLINK_PORT_STATS
+/**
+ * idpf_uplink_port_stats_alloc - Allocate memory for uplink port representor
+ *				  statistics
+ * @vport: Virtual port
+ */
+static int idpf_uplink_port_stats_alloc(struct idpf_vport *vport)
+{
+	vport->port_stats.phy_port_stats = kzalloc(sizeof(*vport->port_stats.phy_port_stats),
+						   GFP_ATOMIC);
+	if (!vport->port_stats.phy_port_stats)
+		return -ENOMEM;
+
+	return 0;
+}
+
+#endif /* CONFIG_UPLINK_PORT_STATS */
+
 #ifdef HAVE_XDP_SUPPORT
 /**
  * idpf_vport_set_xdp_tx_desc_handler - Set a handler function for XDP Tx
@@ -3444,6 +3560,11 @@ int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q)
 
 	if (le16_to_cpu(vport_msg->vport_flags) & VIRTCHNL2_VPORT_UPLINK_PORT) {
 		set_bit(IDPF_VPORT_UPLINK_PORT, vport_config->flags);
+#ifdef CONFIG_UPLINK_PORT_STATS
+		err = idpf_uplink_port_stats_alloc(vport);
+		if (err)
+			return err;
+#endif /* CONFIG_UPLINK_PORT_STATS */
 	}
 
 	vport_config->max_q.max_txq = max_q->max_txq;

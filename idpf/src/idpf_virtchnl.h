@@ -185,6 +185,9 @@ int idpf_send_get_set_rss_lut_msg(struct idpf_vport *vport,
 void idpf_vc_xn_shutdown(struct idpf_vc_xn_manager *vcxn_mngr);
 int idpf_send_get_set_rss_hash_msg(struct idpf_vport *vport, bool get);
 int idpf_set_vlan_features(struct idpf_vport *vport, netdev_features_t features);
+#ifdef CONFIG_UPLINK_PORT_STATS
+int idpf_send_get_port_stats_msg(struct idpf_vport *vport);
+#endif /* CONFIG_UPLINK_PORT_STATS */
 int idpf_send_create_adi_msg(struct idpf_adapter *adapter,
 			     struct virtchnl2_non_flex_create_adi *vchnl_adi);
 int idpf_send_destroy_adi_msg(struct idpf_adapter *adapter,
