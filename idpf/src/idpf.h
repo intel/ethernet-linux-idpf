@@ -121,11 +121,19 @@ struct idpf_mac_filter {
 	bool add;
 };
 
+#ifdef CONFIG_RCA_SUPPORT
+#define IIDC_RDMA_RCA_NAME	"rca"
+#define IIDC_RCA_NAME_SZ	3
+
+#endif /* CONFIG_RCA_SUPPORT */
 struct idpf_rdma_data {
 	struct iidc_core_dev_info *cdev_info;
 	struct msix_entry *msix_entries;
 	int aux_idx;
 	u16 num_vecs;
+#ifdef CONFIG_RCA_SUPPORT
+	bool rca_en;
+#endif /* CONFIG_RCA_SUPPORT */
 };
 
 /**
@@ -412,6 +420,9 @@ struct idpf_port_stats {
 	u64_stats_t tx_dma_map_errs;
 	u64_stats_t tx_reinjection_timeouts;
 	struct virtchnl2_vport_stats vport_stats;
+#ifdef CONFIG_UPLINK_PORT_STATS
+	struct virtchnl2_phy_port_stats *phy_port_stats;
+#endif /* CONFIG_UPLINK_PORT_STATS */
 #ifdef IDPF_ADD_PROBES
 	struct idpf_extra_stats extra_stats;
 #endif /* IDPF_ADD_PROBES */
@@ -926,8 +937,14 @@ struct idpf_adapter {
 	struct idpf_vc_xn_manager *vcxn_mngr;
 
 	struct virtchnl2_edt_caps edt_caps;
+#if defined(CONFIG_OEM_CAPS) || defined(CONFIG_P2P)
+	struct virtchnl2_oem_caps oem_caps;
+#endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 	struct idpf_dev_ops dev_ops;
 	struct idpf_rdma_data rdma_data;
+#ifdef CONFIG_RCA_SUPPORT
+	struct idpf_rdma_data rca_data;
+#endif /* CONFIG_RCA_SUPPORT */
 	int num_vfs;
 	bool req_tx_splitq;
 	bool req_rx_splitq;
@@ -1215,6 +1232,32 @@ static inline u16 idpf_get_max_tx_hdr_size(struct idpf_adapter *adapter)
 }
 
 #endif /* HAVE_NDO_FEATURES_CHECK */
+#if defined(CONFIG_OEM_CAPS) || defined(CONFIG_P2P)
+/**
+ * idpf_is_oem_cap_ena - Implementation of oem caps checking
+ * @adapter: private data struct
+ * @oem_cap: capability to check
+ */
+static inline bool idpf_is_oem_cap_ena(struct idpf_adapter *adapter,
+				       u64 oem_cap)
+{
+	u64 oem_caps = le64_to_cpu(adapter->oem_caps.oem_caps);
+
+	return !!(oem_caps & oem_cap);
+}
+
+#endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
+#ifdef CONFIG_RCA_SUPPORT
+/**
+ * idpf_is_rca_enabled - check if RCA is enabled
+ * @adapter: private data struct
+ */
+static inline bool idpf_is_rca_enabled(struct idpf_adapter *adapter)
+{
+	return idpf_is_oem_cap_ena(adapter, VIRTCHNL2_CAP_OEM_RCA);
+}
+
+#endif /* CONFIG_RCA_SUPPORT */
 /**
  * idpf_vport_init_lock -Acquire the init/deinit control lock. It
  * controls and protect initialization, re-initialization and

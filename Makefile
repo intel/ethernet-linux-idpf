@@ -19,6 +19,18 @@ ifneq (${KERNELRELEASE},)
 obj-y := $(strip $(addsuffix /src/,${TARGETS}))
 ccflags-y += -I$(src)
 subdir-ccflags-y += -I$(src)
+
+# Apply build modifier flags
+ifeq (${BUILD_UPLINK_PORT_STATS},YES)
+  ccflags-y += -DCONFIG_UPLINK_PORT_STATS
+  subdir-ccflags-y += -DCONFIG_UPLINK_PORT_STATS
+endif
+
+ifeq (${BUILD_RCA},YES)
+  ccflags-y += -DCONFIG_RCA_SUPPORT -DCONFIG_OEM_CAPS
+  subdir-ccflags-y += -DCONFIG_RCA_SUPPORT -DCONFIG_OEM_CAPS
+endif
+
 else # ifneq (${KERNELRELEASE},)
 # normal make
 
@@ -153,7 +165,10 @@ prepare_kcompat:
 
 compile: prepare_kcompat
 	@${MAKE} -C ${KSRC} M=$$PWD ${CONFIG_DRIVERS} ccflags-y="${CFLAGS_EXTRA} ${EXTRA_CFLAGS}" modules \
-		NEED_AUX_BUS=${NEED_AUX_BUS} ${EXTRA_OPTS}
+		NEED_AUX_BUS=${NEED_AUX_BUS} \
+		BUILD_UPLINK_PORT_STATS=${BUILD_UPLINK_PORT_STATS} \
+		BUILD_RCA=${BUILD_RCA} \
+		${EXTRA_OPTS}
 
 .PHONY: install
 install: compile

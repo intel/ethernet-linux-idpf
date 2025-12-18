@@ -200,6 +200,18 @@ static void idpf_vf_trigger_reset(struct idpf_adapter *adapter,
  */
 static int idpf_vf_idc_register(struct idpf_adapter *adapter)
 {
+#ifdef CONFIG_RCA_SUPPORT
+	/* TODO: do we even need RCA support for VFs */
+	int err;
+
+	if (idpf_is_rca_enabled(adapter)) {
+		adapter->rca_data.rca_en = true;
+		err = idpf_idc_init_aux_device(&adapter->rca_data, IIDC_FUNCTION_TYPE_VF);
+		if (err)
+			return err;
+	}
+
+#endif /* CONFIG_RCA_SUPPORT */
 	return idpf_idc_init_aux_device(&adapter->rdma_data, IIDC_FUNCTION_TYPE_VF);
 }
 
