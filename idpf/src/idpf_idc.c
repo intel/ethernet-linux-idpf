@@ -163,6 +163,13 @@ static int
 idpf_idc_vc_async_handler(struct idpf_adapter *adapter, struct idpf_vc_xn *xn,
 			  const struct idpf_ctlq_msg *ctlq_msg)
 {
+#ifdef CONFIG_RCA_SUPPORT
+	if (ctlq_msg->cookie.mbx.chnl_opcode == VIRTCHNL2_OP_OEM_RCA)
+		return idpf_idc_vc_receive(&adapter->rca_data, 0,
+					   (u8 *)ctlq_msg->ctx.indirect.payload->va,
+					   ctlq_msg->ctx.indirect.payload->size);
+
+#endif /* CONFIG_RCA_SUPPORT */
 	if (ctlq_msg->cookie.mbx.chnl_opcode != VIRTCHNL2_OP_RDMA)
 		return -EINVAL;
 
@@ -198,6 +205,10 @@ idpf_idc_vc_send(struct iidc_core_dev_info *cdev_info,
 	adapter = pci_get_drvdata(cdev_info->pdev);
 
 	xn_params.vc_op = VIRTCHNL2_OP_RDMA;
+#ifdef CONFIG_RCA_SUPPORT
+	if (!memcmp(cdev_info->adev->name, IIDC_RDMA_RCA_NAME, IIDC_RCA_NAME_SZ))
+		xn_params.vc_op = VIRTCHNL2_OP_OEM_RCA;
+#endif /* CONFIG_RCA_SUPPORT */
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	xn_params.send_buf.iov_base = msg;
 	xn_params.send_buf.iov_len = msg_size;
@@ -235,6 +246,10 @@ idpf_idc_vc_send_sync(struct iidc_core_dev_info *cdev_info, u8 *send_msg,
 	recv_size = min_t(u16, *recv_len, IDPF_CTLQ_MAX_BUF_LEN);
 	*recv_len = 0;
 	xn_params.vc_op = VIRTCHNL2_OP_RDMA;
+#ifdef CONFIG_RCA_SUPPORT
+	if (!memcmp(cdev_info->adev->name, IIDC_RDMA_RCA_NAME, IIDC_RCA_NAME_SZ))
+		xn_params.vc_op = VIRTCHNL2_OP_OEM_RCA;
+#endif /* CONFIG_RCA_SUPPORT */
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	xn_params.send_buf.iov_base = send_msg;
 	xn_params.send_buf.iov_len = msg_size;
@@ -318,6 +333,10 @@ static int idpf_plug_aux_dev(struct idpf_rdma_data *rdma_data)
 		adev->name = IIDC_RDMA_IWARP_NAME;
 	else
 		adev->name = IIDC_RDMA_ROCE_NAME;
+#ifdef CONFIG_RCA_SUPPORT
+	if (rdma_data->rca_en)
+		adev->name = IIDC_RDMA_RCA_NAME;
+#endif /* CONFIG_RCA_SUPPORT */
 
 	adev->id = rdma_data->aux_idx;
 	adev->dev.release = idpf_adev_release;
@@ -430,6 +449,11 @@ idpf_idc_init_aux_device(struct idpf_rdma_data *rdma_data,
 		goto err_cdev_info_alloc;
 	}
 
+#ifdef CONFIG_RCA_SUPPORT
+	if (rdma_data->rca_en)
+		adapter = container_of(rdma_data, struct idpf_adapter, rca_data);
+	else
+#endif /* CONFIG_RCA_SUPPORT */
 	adapter = container_of(rdma_data, struct idpf_adapter, rdma_data);
 
 	cdev_info = rdma_data->cdev_info;
@@ -469,6 +493,13 @@ err_cdev_info_alloc:
 void idpf_idc_deinit_aux_device(struct idpf_adapter *adapter)
 {
 	struct idpf_rdma_data *rdma_data = &adapter->rdma_data;
+#ifdef CONFIG_RCA_SUPPORT
+	struct idpf_rdma_data *rca_data = &adapter->rca_data;
+
+	idpf_unplug_aux_dev(rca_data);
+	kfree(rca_data->cdev_info);
+	memset(rca_data, 0, sizeof(*rca_data));
+#endif /* CONFIG_RCA_SUPPORT */
 
 	idpf_unplug_aux_dev(rdma_data);
 	kfree(rdma_data->cdev_info);

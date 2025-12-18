@@ -707,6 +707,9 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	idpf_device_detach(adapter);
 	idpf_netdev_stop_all(adapter);
 	idpf_idc_event(&adapter->rdma_data, IIDC_EVENT_WARN_RESET);
+#ifdef CONFIG_RCA_SUPPORT
+	idpf_idc_event(&adapter->rca_data, IIDC_EVENT_WARN_RESET);
+#endif /* CONFIG_RCA_SUPPORT */
 	idpf_set_vport_state(adapter);
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);

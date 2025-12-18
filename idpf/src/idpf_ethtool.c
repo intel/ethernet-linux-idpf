@@ -614,6 +614,59 @@ static const struct idpf_stats idpf_gstrings_port_stats[] = {
 #define IDPF_PTYPE_STATS_LEN	IDPF_RX_MAX_PTYPE
 #endif /* IDPF_ADD_PROBES */
 
+#ifdef CONFIG_UPLINK_PORT_STATS
+#define IDPF_PHY_PORT_STAT(_name, _stat) \
+	IDPF_STAT(struct virtchnl2_phy_port_stats,  _name, _stat)
+
+static const struct idpf_stats idpf_gstrings_phy_port_stats[] = {
+	IDPF_PHY_PORT_STAT("port-rx_bytes", rx_bytes),
+	IDPF_PHY_PORT_STAT("port-rx-unicast_pkts", rx_unicast_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-multicast_pkts", rx_multicast_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-broadcast_pkts", rx_broadcast_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-64_pkts", rx_size_64_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-127_pkts", rx_size_127_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-255_pkts", rx_size_255_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-511_pkts", rx_size_511_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-1023_pkts", rx_size_1023_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-1518_pkts", rx_size_1518_pkts),
+	IDPF_PHY_PORT_STAT("port-rx_size-jumbo_pkts", rx_size_jumbo_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-xon_events", rx_xon_events),
+	IDPF_PHY_PORT_STAT("port-rx-xoff_events", rx_xoff_events),
+	IDPF_PHY_PORT_STAT("port-rx-undersized_pkts", rx_undersized_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-fragmented_pkts", rx_fragmented_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-oversized_pkts", rx_oversized_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-jabber_pkts", rx_jabber_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-csum_errors", rx_csum_errors),
+	IDPF_PHY_PORT_STAT("port-rx-length_errors", rx_length_errors),
+	IDPF_PHY_PORT_STAT("port-rx-dropped_pkts", rx_dropped_pkts),
+	IDPF_PHY_PORT_STAT("port-rx-crc_errors", rx_crc_errors),
+	IDPF_PHY_PORT_STAT("port-rx-runt_errors", rx_runt_errors),
+	IDPF_PHY_PORT_STAT("port-rx-illegal_bytes", rx_illegal_bytes),
+	IDPF_PHY_PORT_STAT("port-rx-total_pkts", rx_total_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-bytes", tx_bytes),
+	IDPF_PHY_PORT_STAT("port-tx-unicast_pkts", tx_unicast_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-multicast_pkts", tx_multicast_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-broadcast_pkts", tx_broadcast_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-errors", tx_errors),
+	IDPF_PHY_PORT_STAT("port-tx-timeout_events", tx_timeout_events),
+	IDPF_PHY_PORT_STAT("port-tx_size-64_pkts", tx_size_64_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-127_pkts", tx_size_127_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-255_pkts", tx_size_255_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-511_pkts", tx_size_511_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-1023_pkts", tx_size_1023_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-1518_pkts", tx_size_1518_pkts),
+	IDPF_PHY_PORT_STAT("port-tx_size-jumbo_pkts", tx_size_jumbo_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-xon_events", tx_xon_events),
+	IDPF_PHY_PORT_STAT("port-tx-xoff_events", tx_xoff_events),
+	IDPF_PHY_PORT_STAT("port-tx-dropped_link_down_pkts", tx_dropped_link_down_pkts),
+	IDPF_PHY_PORT_STAT("port-tx-total_pkts", tx_total_pkts),
+	IDPF_PHY_PORT_STAT("port-mac-local_faults", mac_local_faults),
+	IDPF_PHY_PORT_STAT("port-mac-remote_faults", mac_remote_faults),
+};
+
+#define IDPF_PHY_PORT_STATS_LEN ARRAY_SIZE(idpf_gstrings_phy_port_stats)
+
+#endif /* CONFIG_UPLINK_PORT_STATS */
 struct idpf_priv_flags {
 	char flag_string[ETH_GSTRING_LEN];
 	bool read_only;
@@ -688,6 +741,15 @@ static void idpf_add_stat_strings(u8 **p, const struct idpf_stats *stats,
 #else
 		ethtool_sprintf(p, "%s", stats[i].stat_string);
 #endif /* HAVE_ETHTOOL_PUTS */
+#ifdef CONFIG_UPLINK_PORT_STATS
+	/* Return early for uplink port stats since this function will be
+	 * called again immediately to include the standard stats strings.
+	 * Otherwise, we will add the lso/gro_hw strings twice.
+	 */
+	if (stats == idpf_gstrings_phy_port_stats)
+		return;
+
+#endif /* CONFIG_UPLINK_PORT_STATS */
 	for (i = 0; i < IDPF_MAX_SEGS; i++)
 		ethtool_sprintf(p, "lso_num_segs_%u", i + 1);
 	for (i = 0; i < IDPF_MAX_SEGS; i++)
@@ -712,6 +774,11 @@ static void idpf_get_stat_strings(struct net_device *netdev, u8 *data)
 	unsigned int i;
 
 	vport_config = np->adapter->vport_config[np->vport_idx];
+#ifdef CONFIG_UPLINK_PORT_STATS
+	if (test_bit(IDPF_VPORT_UPLINK_PORT, vport_config->flags))
+		idpf_add_stat_strings(&data, idpf_gstrings_phy_port_stats,
+				      IDPF_PHY_PORT_STATS_LEN);
+#endif /* CONFIG_UPLINK_PORT_STATS */
 	idpf_add_stat_strings(&data, idpf_gstrings_port_stats,
 			      IDPF_PORT_STATS_LEN);
 
@@ -902,6 +969,10 @@ static int idpf_get_sset_count(struct net_device *netdev, int sset)
 
 	size = IDPF_PORT_STATS_LEN + (IDPF_TX_QUEUE_STATS_LEN * max_txq) +
 	       (IDPF_RX_QUEUE_STATS_LEN * max_rxq);
+#ifdef CONFIG_UPLINK_PORT_STATS
+	if (test_bit(IDPF_VPORT_UPLINK_PORT, vport_config->flags))
+		size += IDPF_PHY_PORT_STATS_LEN;
+#endif /* CONFIG_UPLINK_PORT_STATS */
 	size += (IDPF_MAX_SEGS * 2);
 #ifdef IDPF_ADD_PROBES
 	size +=	IDPF_PTYPE_STATS_LEN;
@@ -1021,6 +1092,35 @@ static void idpf_add_empty_queue_stats(u64 **data, u16 qtype)
 	*data += stats_len;
 }
 
+#ifdef CONFIG_UPLINK_PORT_STATS
+/**
+ * idpf_add_phy_port_stats - Copy phy_port stats into ethtool buffer
+ * @vport: virtual port struct
+ * @data: ethtool buffer to copy into
+ */
+static void idpf_add_phy_port_stats(struct idpf_vport *vport, u64 **data)
+{
+	unsigned int size = IDPF_PHY_PORT_STATS_LEN;
+	unsigned int start;
+	unsigned int i;
+
+	/* To avoid invalid statistics values, ensure that we keep retrying
+	 * the copy until we get a consistent value according to
+	 * u64_stats_fetch_retry.
+	 */
+	do {
+		start = u64_stats_fetch_begin(&vport->port_stats.stats_sync);
+		for (i = 0; i < size; i++) {
+			idpf_add_one_ethtool_stat(&(*data)[i],
+						  vport->port_stats.phy_port_stats,
+						  &idpf_gstrings_phy_port_stats[i]);
+		}
+	} while (u64_stats_fetch_retry(&vport->port_stats.stats_sync, start));
+
+	*data += size;
+}
+
+#endif /* CONFIG_UPLINK_PORT_STATS */
 /**
  * idpf_add_port_stats - Copy port stats into ethtool buffer
  * @vport: virtual port struct
@@ -1247,6 +1347,10 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	vport_config = vport->adapter->vport_config[np->vport_idx];
 
 	idpf_collect_queue_stats(vport);
+#ifdef CONFIG_UPLINK_PORT_STATS
+	if (test_bit(IDPF_VPORT_UPLINK_PORT, vport_config->flags))
+		idpf_add_phy_port_stats(vport, &data);
+#endif /* CONFIG_UPLINK_PORT_STATS */
 	idpf_add_port_stats(vport, &data);
 
 	q_grp = &vport->dflt_grp.q_grp;
