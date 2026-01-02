@@ -697,6 +697,7 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
  */
 static void idpf_reset_prepare(struct idpf_adapter *adapter)
 {
+	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_vport_init_lock(adapter);
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
