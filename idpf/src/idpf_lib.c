@@ -781,21 +781,63 @@ static int idpf_init_mac_addr(struct idpf_vport *vport,
 	return 0;
 }
 
-/**
- * idpf_device_detach - Mark device as removed on reset. This will help reduce
- * noise from kernel callbacks.
- * @adapter: private data struct
- */
-void idpf_device_detach(struct idpf_adapter *adapter)
+void idpf_detach_and_close(struct idpf_adapter *adapter)
 {
-	int i;
+	int max_vports = adapter->max_vports;
 
-	rtnl_lock();
-	for (i = 0; i < adapter->max_vports; i++) {
-		if (adapter->netdevs[i])
-			netif_device_detach(adapter->netdevs[i]);
+	for (int i = 0; i < max_vports; i++) {
+		struct net_device *netdev = adapter->netdevs[i];
+
+		/* If the interface is in detached state, that means the
+		 * previous reset was not handled successfully for this
+		 * vport.
+		 */
+		if (!netif_device_present(netdev))
+			continue;
+
+		/* Hold RTNL to protect racing with callbacks */
+		rtnl_lock();
+		netif_device_detach(netdev);
+		if (netif_running(netdev)) {
+			set_bit(IDPF_VPORT_UP_REQUESTED,
+				adapter->vport_config[i]->flags);
+			dev_close(netdev);
+		}
+		rtnl_unlock();
 	}
-	rtnl_unlock();
+}
+
+void idpf_attach_and_open(struct idpf_adapter *adapter)
+{
+	int max_vports = adapter->max_vports;
+
+	for (int i = 0; i < max_vports; i++) {
+		struct idpf_vport *vport = adapter->vports[i];
+		struct idpf_vport_config *vport_config;
+		struct net_device *netdev;
+
+		/* In case of a critical error in the init task, the vport
+		 * will be freed. Only continue to restore the netdevs
+		 * if the vport is allocated.
+		 */
+		if (!vport)
+			continue;
+
+		/* No need for RTNL on attach as this function is called
+		 * following detach and dev_close(). We do take RTNL for
+		 * dev_open() below as it can race with external callbacks
+		 * following the call to netif_device_attach().
+		 */
+		netdev = adapter->netdevs[i];
+		netif_device_attach(netdev);
+		vport_config = adapter->vport_config[vport->idx];
+		if (test_and_clear_bit(IDPF_VPORT_UP_REQUESTED,
+				       vport_config->flags)) {
+			rtnl_lock();
+			dev_open(netdev, NULL);
+			rtnl_unlock();
+		}
+	}
 }
 
 /**
@@ -1019,29 +1061,6 @@ static void idpf_netdev_stop(struct net_device *netdev)
 }
 
 /**
- * idpf_netdev_stop_all - Stop all traffic on all netdevs
- * @adapter: private data struct
- *
- * In the case of PFR, we have a small window to stop queueing up
- * traffic before we start triggering tx timeouts on queues that got
- * yanked out from under us. We can't afford to timeout on all the
- * virtchnl messages or wait for cancelling delayed work before
- * stopping traffic. Stop traffic on all vports first, then try to
- * clean up any dangling resources.
- */
-void idpf_netdev_stop_all(struct idpf_adapter *adapter)
-{
-	int i;
-
-	if (!adapter->vports)
-		return;
-
-	for (i = 0; i < adapter->max_vports; i++)
-		if (adapter->vports[i])
-			idpf_netdev_stop(adapter->vports[i]->netdev);
-}
-
-/**
  * idpf_vport_stop - Disable a vport
  * @vport: vport to disable
  */
@@ -1224,15 +1243,16 @@ static void idpf_vport_dealloc(struct idpf_vport *vport)
 
 	idpf_deinit_mac_addr(vport);
 
-	idpf_vport_cfg_lock(adapter);
-	idpf_vport_stop(vport);
-	idpf_vport_cfg_unlock(adapter);
-
 	if (!vport->idx)
 		idpf_idc_deinit(adapter);
 
-	if (!test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags))
+	if (!test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags)) {
+		idpf_vport_cfg_lock(adapter);
+		idpf_vport_stop(vport);
+		idpf_vport_cfg_unlock(adapter);
+
 		idpf_decfg_netdev(vport);
+	}
 	if (test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
 		idpf_del_user_cfg_data(vport);
 
@@ -1900,12 +1920,6 @@ void idpf_init_task(struct work_struct *work)
 	if (idpf_cfg_netdev(vport))
 		goto unwind_vports;
 
-	if (test_and_clear_bit(IDPF_VPORT_UP_REQUESTED, vport_config->flags)) {
-		idpf_vport_cfg_lock(adapter);
-		idpf_vport_open(vport);
-		idpf_vport_cfg_unlock(adapter);
-	}
-
 	/* Spawn and return 'idpf_init_task' work queue until all the
 	 * default vports are created
 	 */
@@ -1917,23 +1931,22 @@ void idpf_init_task(struct work_struct *work)
 	}
 
 	for (index = 0; index < adapter->max_vports; index++) {
-		struct idpf_vport_config *vport_config = adapter->vport_config[index];
 		struct net_device *netdev = adapter->netdevs[index];
+		struct idpf_vport_config *vport_config;
 
-		if (!netdev)
+		vport_config = adapter->vport_config[index];
+
+		if (!netdev ||
+		    test_bit(IDPF_VPORT_REG_NETDEV, vport_config->flags))
 			continue;
 
-		if (!test_bit(IDPF_VPORT_REG_NETDEV, vport_config->flags)) {
-			err = register_netdev(netdev);
-			if (err) {
-				dev_err(&pdev->dev, "failed to register netdev for vport %d: %pe\n",
-					index, ERR_PTR(err));
-				continue;
-			}
-			set_bit(IDPF_VPORT_REG_NETDEV, vport_config->flags);
-		} else {
-			netif_device_attach(netdev);
+		err = register_netdev(netdev);
+		if (err) {
+			dev_err(&pdev->dev, "failed to register netdev for vport %d: %pe\n",
+				index, ERR_PTR(err));
+			continue;
 		}
+		set_bit(IDPF_VPORT_REG_NETDEV, vport_config->flags);
 	}
 
 	err = idpf_idc_init(adapter);
@@ -2146,27 +2159,6 @@ int idpf_check_reset_complete(struct idpf_adapter *adapter)
 }
 
 /**
- * idpf_set_vport_state - Set the vport state to be after the reset
- * @adapter: Driver specific private structure
- */
-void idpf_set_vport_state(struct idpf_adapter *adapter)
-{
-	u16 i;
-
-	for (i = 0; i < adapter->max_vports; i++) {
-		struct idpf_netdev_priv *np;
-
-		if (!adapter->netdevs[i])
-			continue;
-
-		np = netdev_priv(adapter->netdevs[i]);
-		if (test_bit(IDPF_VPORT_UP, np->state))
-			set_bit(IDPF_VPORT_UP_REQUESTED,
-				adapter->vport_config[i]->flags);
-	}
-}
-
-/**
  * idpf_wait_on_reset_detection - Wait until reset has been detected
  * @adapter: Driver specific private structure
  *
@@ -2204,13 +2196,10 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	struct device *dev = idpf_adapter_to_dev(adapter);
 	int err;
 
+	idpf_detach_and_close(adapter);
 	idpf_vport_init_lock(adapter);
 
 	dev_info(dev, "Device HW Reset initiated\n");
-
-	/* Avoid TX hangs on reset */
-	idpf_netdev_stop_all(adapter);
-	idpf_device_detach(adapter);
 
 	/* Prepare for reset */
 	if (test_bit(IDPF_HR_DRV_LOAD, adapter->flags)) {
@@ -2229,7 +2218,6 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 				goto unlock_mutex;
 			}
 		}
-		idpf_set_vport_state(adapter);
 	} else {
 		dev_err(dev, "Unhandled hard reset cause\n");
 		err = -EBADRQC;
@@ -2259,6 +2247,9 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 
 unlock_mutex:
 	idpf_vport_init_unlock(adapter);
+
+	if (!err)
+		idpf_attach_and_open(adapter);
 
 	return err;
 }
