@@ -1349,8 +1349,8 @@ int idpf_set_promiscuous(struct idpf_adapter *adapter,
 struct virtchnl2_queue_reg_chunks *
 idpf_get_queue_reg_chunks(struct idpf_vport *vport);
 int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q);
-void idpf_netdev_stop_all(struct idpf_adapter *adapter);
-void idpf_device_detach(struct idpf_adapter *adapter);
+void idpf_detach_and_close(struct idpf_adapter *adapter);
+void idpf_attach_and_open(struct idpf_adapter *adapter);
 int idpf_check_reset_complete(struct idpf_adapter *adapter);
 int idpf_reset_recover(struct idpf_adapter *adapter);
 bool idpf_is_reset_detected(struct idpf_adapter *adapter);
@@ -1358,7 +1358,6 @@ int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
 			      struct virtchnl2_queue_reg_chunks *chunks);
 int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
 			struct virtchnl2_queue_reg_chunks *chunks);
-void idpf_set_vport_state(struct idpf_adapter *adapter);
 int idpf_check_supported_desc_ids(struct idpf_vport *vport);
 void idpf_vport_intr_write_itr(struct idpf_q_vector *q_vector,
 			       u16 itr, bool tx);

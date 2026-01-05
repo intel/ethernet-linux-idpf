@@ -698,6 +698,7 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
  */
 static void idpf_reset_prepare(struct idpf_adapter *adapter)
 {
+	idpf_detach_and_close(adapter);
 	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_vport_init_lock(adapter);
 	cancel_delayed_work_sync(&adapter->serv_task);
@@ -705,13 +706,10 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	dev_info(idpf_adapter_to_dev(adapter), "Device FLR Reset initiated\n");
 
-	idpf_device_detach(adapter);
-	idpf_netdev_stop_all(adapter);
 	idpf_idc_event(&adapter->rdma_data, IIDC_EVENT_WARN_RESET);
 #ifdef CONFIG_RCA_SUPPORT
 	idpf_idc_event(&adapter->rca_data, IIDC_EVENT_WARN_RESET);
 #endif /* CONFIG_RCA_SUPPORT */
-	idpf_set_vport_state(adapter);
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);
 
@@ -809,6 +807,9 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 
 	/* Wait for all init_task WQs to complete */
 	flush_delayed_work(&adapter->init_task);
+
+	if (!err)
+		idpf_attach_and_open(adapter);
 }
 
 #ifdef HAVE_PCI_ERROR_HANDLER_RESET_PREPARE
