@@ -3634,4 +3634,20 @@ void _kc_eventfd_signal(struct eventfd_ctx *ctx)
 #ifdef NEED_PM_SLEEP_PTR
 #define pm_sleep_ptr(_ptr) (_ptr)
 #endif /* NEED_PM_SLEEP_PTR */
+
+#ifdef NEED_MODULE_INFO_WITHOUT_CHECK
+/* upstream commit ae83f3b72621 ("module: Add compile-time check for embedded
+ * NUL characters") added an assert preventing embedding dishonest licenses,
+ * like "GPL\0, but proprietary for XXX part". Unfortunately __builtin_strlen()
+ * used does not work in some of our CI builds, so just remove that (essentially
+ * "reverting" the upstream commit).
+ */
+#include <linux/moduleparam.h>
+#undef MODULE_INFO
+#define MODULE_INFO(tag, info)					\
+	static const char __UNIQUE_ID(modinfo)[]		\
+	__used __section(".modinfo") __aligned(1)		\
+	= __MODULE_INFO_PREFIX __stringify(tag) "=" info
+#endif /* NEED_MODULE_INFO_WITHOUT_CHECK */
+
 #endif /* _KCOMPAT_IMPL_H_ */

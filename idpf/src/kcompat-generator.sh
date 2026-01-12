@@ -525,6 +525,7 @@ function gen-other() {
 	gen HAVE_MDEV_GET_DRVDATA if fun mdev_get_drvdata in include/linux/mdev.h
 	gen HAVE_MDEV_REGISTER_PARENT if fun mdev_register_parent in include/linux/mdev.h
 	gen HAVE_VM_FLAGS_API if fun vm_flags_init in include/linux/mm.h
+	gen NEED_MODULE_INFO_WITHOUT_CHECK if implementation of macro MODULE_INFO matches __builtin_strlen in include/linux/moduleparam.h
 	gen HAVE_NL_SET_ERR_MSG_FMT if macro NL_SET_ERR_MSG_FMT in include/linux/netlink.h
 	gen NEED_DEFINE_SIMPLE_DEV_OPS if macro DEFINE_SIMPLE_DEV_OPS absent in include/linux/pm.h
 	gen NEED_PM_SLEEP_PTR if macro pm_sleep_ptr absent in include/linux/pm.h
