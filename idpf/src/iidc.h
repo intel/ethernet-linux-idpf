@@ -24,8 +24,8 @@
  * the version check fails, the auxiliary driver should fail the probe and log
  * an appropriate message.
  */
-#define IIDC_MAJOR_VER		10
-#define IIDC_MINOR_VER		4
+#define IIDC_MAJOR_VER		11
+#define IIDC_MINOR_VER		0
 
 enum iidc_event_type {
 	IIDC_EVENT_BEFORE_MTU_CHANGE,
@@ -263,6 +263,11 @@ struct iidc_core_dev_info {
 	u8 rdma_ports[2];
 	u8 bond_aa; /* is 1 if the bond is a supported active-active mode */
 	u8 rdma_port_bitmap; /* bitmap of port's link on active-active bond */
+	/* Opaque pointer for core driver specific data tracking. This memory
+	 * will be alloc'd and freed by the core driver and used for
+	 * private data accessible only to the specific auxiliary driver.
+	 */
+	void *iidc_priv;
 };
 
 struct iidc_auxiliary_dev {
