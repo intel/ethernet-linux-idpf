@@ -710,10 +710,6 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	dev_info(idpf_adapter_to_dev(adapter), "Device FLR Reset initiated\n");
 
-	idpf_idc_event(&adapter->rdma_data, IIDC_EVENT_WARN_RESET);
-#ifdef CONFIG_RCA_SUPPORT
-	idpf_idc_event(&adapter->rca_data, IIDC_EVENT_WARN_RESET);
-#endif /* CONFIG_RCA_SUPPORT */
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);
 

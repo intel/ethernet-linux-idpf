@@ -3899,8 +3899,6 @@ int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q)
 	vport->crc_enable = adapter->crc_enable;
 
 	idpf_vport_edt_init(vport);
-	INIT_WORK(&vport->finish_reset_task, idpf_finish_soft_reset);
-
 	if (!(vport_msg->vport_flags &
 	      cpu_to_le16(VIRTCHNL2_VPORT_UPLINK_PORT)))
 		return 0;
