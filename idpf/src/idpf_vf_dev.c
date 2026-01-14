@@ -173,37 +173,6 @@ static void idpf_vf_trigger_reset(struct idpf_adapter *adapter,
 }
 
 /**
- * idpf_vf_idc_register - register for idc callbacks
- * @adapter: Driver specific private structure
- */
-static int idpf_vf_idc_register(struct idpf_adapter *adapter)
-{
-#ifdef CONFIG_RCA_SUPPORT
-	/* TODO: do we even need RCA support for VFs */
-	int err;
-
-	if (idpf_is_rca_enabled(adapter)) {
-		adapter->rca_data.rca_en = true;
-		err = idpf_idc_init_aux_device(&adapter->rca_data, IIDC_FUNCTION_TYPE_VF);
-		if (err)
-			return err;
-	}
-
-#endif /* CONFIG_RCA_SUPPORT */
-	return idpf_idc_init_aux_device(&adapter->rdma_data, IIDC_FUNCTION_TYPE_VF);
-}
-
-/**
- * idpf_vf_idc_ops_init - Initialize IDC function pointers
- * @adapter: Driver specific private structure
- */
-static void idpf_vf_idc_ops_init(struct idpf_adapter *adapter)
-{
-	adapter->dev_ops.idc_ops.idc_init = idpf_vf_idc_register;
-	adapter->dev_ops.idc_ops.idc_deinit = idpf_idc_deinit_aux_device;
-}
-
-/**
  * idpf_vf_reg_ops_init - Initialize register API function pointers
  * @adapter: Driver specific private structure
  */
@@ -223,7 +192,6 @@ static void idpf_vf_reg_ops_init(struct idpf_adapter *adapter)
 void idpf_vf_dev_ops_init(struct idpf_adapter *adapter)
 {
 	idpf_vf_reg_ops_init(adapter);
-	idpf_vf_idc_ops_init(adapter);
 
 	if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV) {
 		resource_set_range(&adapter->dev_ops.static_reg_info[0],
