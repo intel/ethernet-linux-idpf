@@ -8,13 +8,6 @@
 
 /* LAN driver does not own all the BAR0 address space. This results in 2 BAR0
  * regions for PF device and the driver should map each region separately.
- *
- * Rest of BAR0 is owned by RDMA and it maps the pages on its own as it needs
- * to map some of the pages for write combing (WC) instead of the default
- * non-cached (NC) mapping that LAN driver does. In the PF BAR space,
- * RDMA BAR0 memory lies between 192MB to 256MB.
- *
- * Also driver should map 1 page of RDMA from its space.
  */
 #define IDPF_PF_BAR0_REGION1_END	0xC001000	/* 192MB + 4KB */
 #define IDPF_PF_BAR0_REGION2_START	0x10000000	/* 256MB */
@@ -215,37 +208,6 @@ static void idpf_ptp_reg_init(const struct idpf_adapter *adapter)
 }
 
 /**
- * idpf_idc_register - idc register function for idpf
- * @adapter: Driver specific private structure
- */
-static int idpf_idc_register(struct idpf_adapter *adapter)
-{
-#ifdef CONFIG_RCA_SUPPORT
-	int err;
-
-	if (idpf_is_rca_enabled(adapter)) {
-		adapter->rca_data.rca_en = true;
-		err = idpf_idc_init_aux_device(&adapter->rca_data,
-					       IIDC_FUNCTION_TYPE_PF);
-		if (err)
-			return err;
-	}
-
-#endif /* CONFIG_RCA_SUPPORT */
-	return idpf_idc_init_aux_device(&adapter->rdma_data, IIDC_FUNCTION_TYPE_PF);
-}
-
-/**
- * idpf_idc_ops_init - Initialize IDC function pointers
- * @adapter: Driver specific private structure
- */
-static void idpf_idc_ops_init(struct idpf_adapter *adapter)
-{
-	adapter->dev_ops.idc_ops.idc_init = idpf_idc_register;
-	adapter->dev_ops.idc_ops.idc_deinit = idpf_idc_deinit_aux_device;
-}
-
-/**
  * idpf_reg_ops_init - Initialize register API function pointers
  * @adapter: Driver specific private structure
  */
@@ -268,7 +230,6 @@ static void idpf_reg_ops_init(struct idpf_adapter *adapter)
 void idpf_dev_ops_init(struct idpf_adapter *adapter)
 {
 	idpf_reg_ops_init(adapter);
-	idpf_idc_ops_init(adapter);
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
 	adapter->dev_ops.vdcm_init = idpf_vdcm_init;
 	adapter->dev_ops.vdcm_deinit = idpf_vdcm_deinit;
