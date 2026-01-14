@@ -93,11 +93,11 @@ void idpf_intr_rel(struct idpf_adapter *adapter)
 	idpf_deinit_vector_stack(adapter);
 	kfree(adapter->msix_entries);
 	adapter->msix_entries = NULL;
-	kfree(adapter->rdma_data.msix_entries);
-	adapter->rdma_data.msix_entries = NULL;
+	kfree(adapter->rdma_msix_entries);
+	adapter->rdma_msix_entries = NULL;
 #ifdef CONFIG_RCA_SUPPORT
-	kfree(adapter->rca_data.msix_entries);
-	adapter->rca_data.msix_entries = NULL;
+	kfree(adapter->rca_msix_entries);
+	adapter->rca_msix_entries = NULL;
 #endif /* CONFIG_RCA_SUPPORT */
 }
 
@@ -385,10 +385,10 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 			num_lan_vecs = v_actual - min_rdma_vecs;
 		}
 
-		adapter->rdma_data.msix_entries = kcalloc(num_rdma_vecs,
-							  sizeof(struct msix_entry),
-							  GFP_KERNEL);
-		if (!adapter->rdma_data.msix_entries) {
+		adapter->rdma_msix_entries = kcalloc(num_rdma_vecs,
+						     sizeof(struct msix_entry),
+						     GFP_KERNEL);
+		if (!adapter->rdma_msix_entries) {
 			err = -ENOMEM;
 			goto free_irq;
 		}
@@ -397,10 +397,10 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 		if (idpf_is_rca_enabled(adapter)) {
 			num_lan_vecs -= IDPF_MIN_RCA_VEC;
 
-			adapter->rca_data.msix_entries = kcalloc(IDPF_MIN_RDMA_VEC,
-								 sizeof(struct msix_entry),
-								 GFP_KERNEL);
-			if (!adapter->rca_data.msix_entries) {
+			adapter->rca_msix_entries = kcalloc(IDPF_MIN_RDMA_VEC,
+							    sizeof(struct msix_entry),
+							    GFP_KERNEL);
+			if (!adapter->rca_msix_entries) {
 				err = -ENOMEM;
 				goto rca_msix_alloc_fail;
 			}
@@ -437,22 +437,22 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 			pci_irq_vector(adapter->pdev, vector);
 	}
 	for (i = 0; i < num_rdma_vecs; vector++, i++) {
-		adapter->rdma_data.msix_entries[i].entry = vecids[vector];
-		adapter->rdma_data.msix_entries[i].vector =
+		adapter->rdma_msix_entries[i].entry = vecids[vector];
+		adapter->rdma_msix_entries[i].vector =
 			pci_irq_vector(adapter->pdev, vector);
 	}
 #ifdef CONFIG_RCA_SUPPORT
 	if (idpf_is_rdma_cap_ena(adapter) && idpf_is_rca_enabled(adapter)) {
 		for (i = 0; i < IDPF_MIN_RCA_VEC; vector++, i++) {
-			adapter->rca_data.msix_entries[i].entry = vecids[vector];
-			adapter->rca_data.msix_entries[i].vector =
+			adapter->rca_msix_entries[i].entry = vecids[vector];
+			adapter->rca_msix_entries[i].vector =
 				pci_irq_vector(adapter->pdev, vector);
 		}
-		adapter->rca_data.num_vecs = IDPF_MIN_RCA_VEC;
+		adapter->num_rca_msix_entries = IDPF_MIN_RCA_VEC;
 	}
 #endif /* CONFIG_RCA_SUPPORT */
 
-	adapter->rdma_data.num_vecs = num_rdma_vecs;
+	adapter->num_rdma_msix_entries = num_rdma_vecs;
 	/* 'num_avail_msix' is used to distribute excess vectors to the vports
 	 * after considering the minimum vectors required per each default
 	 * vport
@@ -482,12 +482,12 @@ free_msix:
 	adapter->msix_entries = NULL;
 free_rdma_msix:
 #ifdef CONFIG_RCA_SUPPORT
-	kfree(adapter->rca_data.msix_entries);
-	adapter->rca_data.msix_entries = NULL;
+	kfree(adapter->rca_msix_entries);
+	adapter->rca_msix_entries = NULL;
 rca_msix_alloc_fail:
 #endif /* CONFIG_RCA_SUPPORT */
-	kfree(adapter->rdma_data.msix_entries);
-	adapter->rdma_data.msix_entries = NULL;
+	kfree(adapter->rdma_msix_entries);
+	adapter->rdma_msix_entries = NULL;
 free_irq:
 	pci_free_irq_vectors(adapter->pdev);
 send_dealloc_vecs:
@@ -1100,8 +1100,6 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	if (!test_and_clear_bit(IDPF_VPORT_UP, np->state))
 		return;
 
-	/* Make sure soft reset has finished */
-	cancel_work_sync(&vport->finish_reset_task);
 	idpf_netdev_stop(vport->netdev);
 
 	if (!test_bit(IDPF_CORER_IN_PROG, vport->adapter->flags)) {
@@ -1270,9 +1268,6 @@ static void idpf_vport_dealloc(struct idpf_vport *vport)
 	unsigned int i = vport->idx;
 
 	idpf_deinit_mac_addr(vport);
-
-	if (!vport->idx)
-		idpf_idc_deinit(adapter);
 
 	if (!test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags)) {
 		idpf_vport_cfg_lock(adapter);
@@ -1981,10 +1976,6 @@ void idpf_init_task(struct work_struct *work)
 		set_bit(IDPF_VPORT_REG_NETDEV, vport_config->flags);
 	}
 
-	err = idpf_idc_init(adapter);
-	if (err)
-		goto unwind_vports;
-
 	/* Clear the reset and load bits as all vports are created */
 	clear_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	clear_bit(IDPF_HR_DRV_LOAD, adapter->flags);
@@ -2237,11 +2228,6 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	if (test_bit(IDPF_HR_DRV_LOAD, adapter->flags)) {
 		reg_ops->trigger_reset(adapter, IDPF_HR_DRV_LOAD);
 	} else if (test_bit(IDPF_HR_FUNC_RESET, adapter->flags)) {
-		idpf_idc_event(&adapter->rdma_data, IIDC_EVENT_WARN_RESET);
-#ifdef CONFIG_RCA_SUPPORT
-		idpf_idc_event(&adapter->rca_data, IIDC_EVENT_WARN_RESET);
-#endif /* CONFIG_RCA_SUPPORT */
-
 		if (!idpf_is_reset_detected(adapter)) {
 			reg_ops->trigger_reset(adapter, IDPF_HR_FUNC_RESET);
 			err = idpf_wait_on_reset_detection(adapter);
@@ -2312,28 +2298,6 @@ func_reset:
 drv_load:
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	idpf_init_hard_reset(adapter);
-}
-
-/**
- * idpf_finish_soft_reset - Delayed task to finish vport soft reset
- * @work: work_struct handle
- *
- * All work that needs to be done __without__ RTNL.
- */
-void idpf_finish_soft_reset(struct work_struct *work)
-{
-	struct idpf_vport *vport;
-
-	vport = container_of(work, struct idpf_vport, finish_reset_task);
-
-	if (test_and_clear_bit(IDPF_VPORT_MTU_CHANGED, vport->flags)) {
-		idpf_idc_event(&vport->adapter->rdma_data,
-			       IIDC_EVENT_AFTER_MTU_CHANGE);
-#ifdef CONFIG_RCA_SUPPORT
-		idpf_idc_event(&vport->adapter->rca_data,
-			       IIDC_EVENT_AFTER_MTU_CHANGE);
-#endif /* CONFIG_RCA_SUPPORT */
-	}
 }
 
 /**
@@ -2457,11 +2421,6 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 
 	if (vport_is_up)
 		err = idpf_vport_open(vport);
-
-	if (!err && !vport->idx && reset_cause == IDPF_SR_MTU_CHANGE) {
-		set_bit(IDPF_VPORT_MTU_CHANGED, vport->flags);
-		queue_work(system_unbound_wq, &vport->finish_reset_task);
-	}
 
 	kfree(new_vport);
 

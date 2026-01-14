@@ -60,8 +60,6 @@ struct idpf_rss_data;
 
 #define IDPF_M(m, s)	((m) << (s))
 
-#include "iidc.h"
-#include <linux/idr.h>
 #include "virtchnl2.h"
 #include "idpf_txrx.h"
 #include "idpf_controlq.h"
@@ -120,21 +118,6 @@ struct idpf_mac_filter {
 	u8 macaddr[ETH_ALEN];
 	bool remove;
 	bool add;
-};
-
-#ifdef CONFIG_RCA_SUPPORT
-#define IIDC_RDMA_RCA_NAME	"rca"
-#define IIDC_RCA_NAME_SZ	3
-
-#endif /* CONFIG_RCA_SUPPORT */
-struct idpf_rdma_data {
-	struct iidc_core_dev_info *cdev_info;
-	struct msix_entry *msix_entries;
-	int aux_idx;
-	u16 num_vecs;
-#ifdef CONFIG_RCA_SUPPORT
-	bool rca_en;
-#endif /* CONFIG_RCA_SUPPORT */
 };
 
 /**
@@ -295,16 +278,6 @@ struct idpf_reg_ops {
 	void (*ptp_reg_init)(const struct idpf_adapter *adapter);
 };
 
-/**
- * struct idpf_idc_ops - IDC specific function pointers
- * @idc_init: IDC initialization
- * @idc_deinit: IDC deinitialization
- */
-struct idpf_idc_ops {
-	int (*idc_init)(struct idpf_adapter *adapter);
-	void (*idc_deinit)(struct idpf_adapter *adapter);
-};
-
 #define IDPF_MMIO_REG_NUM_STATIC	2
 #define IDPF_PF_MBX_REGION_SZ		4096
 #define IDPF_PF_RSTAT_REGION_SZ		2048
@@ -321,7 +294,6 @@ struct idpf_idc_ops {
 #endif
  * notify_adi_reset: Notify ADI reset
  * @reg_ops: Register operations
- * @idc_ops: IDC operations
  * @static_reg_info: array of mailbox and rstat register info
  */
 struct idpf_dev_ops {
@@ -332,8 +304,6 @@ struct idpf_dev_ops {
 	void (*notify_adi_reset)(struct idpf_adapter *adapter,
 				 u16 adi_id, bool reset);
 	struct idpf_reg_ops reg_ops;
-	struct idpf_idc_ops idc_ops;
-
 	/* static_reg_info[0] is mailbox region, static_reg_info[1] is rstat */
 	struct resource static_reg_info[IDPF_MMIO_REG_NUM_STATIC];
 };
@@ -349,7 +319,6 @@ struct idpf_dev_ops {
 #ifdef HAVE_XDP_SUPPORT
  * @IDPF_SR_XDP_CHANGE: XDP soft reset
 #endif
- * @IDPF_HR_WARN_RESET: Hard reset warning event to IDC
  */
 enum idpf_vport_reset_cause {
 	IDPF_SR_Q_CHANGE,
@@ -361,13 +330,11 @@ enum idpf_vport_reset_cause {
 #ifdef HAVE_XDP_SUPPORT
 	IDPF_SR_XDP_CHANGE,
 #endif /* HAVE_XDP_SUPPORT */
-	IDPF_HR_WARN_RESET,
 };
 
 /**
  * enum idpf_vport_flags - vport flags
  * @IDPF_VPORT_DEL_QUEUES: To send delete queues message
- * @IDPF_VPORT_MTU_CHANGED: vport's MTU has changed, inform AUX driver
  * @IDPF_VPORT_SW_MARKER: Indicate TX pipe drain software marker packets
  * 			  processing is done
  * @IDPF_VPORT_FLAGS_NBITS: Must be last
@@ -375,7 +342,6 @@ enum idpf_vport_reset_cause {
 enum idpf_vport_flags {
 	IDPF_VPORT_DEL_QUEUES,
 	IDPF_VPORT_SW_MARKER,
-	IDPF_VPORT_MTU_CHANGED,
 	IDPF_VPORT_FLAGS_NBITS,
 };
 
@@ -569,7 +535,6 @@ struct idpf_fsteer_fltr {
 #ifdef HAVE_ETHTOOL_GET_TS_STATS
  * @tstamp_stats: TX timestamping statistics
 #endif
- * @finish_reset_task: finish vport's soft reset task
  */
 struct idpf_vport {
 	struct idpf_vgrp dflt_grp;
@@ -618,7 +583,6 @@ struct idpf_vport {
 #ifdef HAVE_ETHTOOL_GET_TS_STATS
 	struct idpf_tstamp_stats tstamp_stats;
 #endif /* HAVE_ETHTOOL_GET_TS_STATS */
-	struct work_struct finish_reset_task;
 };
 
 /**
@@ -850,6 +814,12 @@ struct idpf_iommu_bypass {
  * @num_avail_msix: Available number of MSIX vectors
  * @num_msix_entries: Number of entries in MSIX table
  * @msix_entries: MSIX table
+ * @num_rdma_msix_entries: Available number of MSIX vectors for RDMA
+ * @rdma_msix_entries: RDMA MSIX table
+#ifdef CONFIG_RCA_SUPPORT
+ * @num_rca_msix_entries: Available number of MSIX vectors for RCA
+ * @rca_msix_entries: RCA MSIX table
+#endif
  * @req_vec_chunks: Requested vector chunk data
  * @mb_vector: Mailbox vector data
  * @vector_stack: Stack to store the msix vector indexes
@@ -879,7 +849,6 @@ struct idpf_iommu_bypass {
  * @vcxn_mngr: Virtchnl transaction manager
  * @edt_caps: EDT capabilities
  * @dev_ops: See idpf_dev_ops
- * @rdma_data: RDMA data
  * @num_vfs: Number of allocated VFs through sysfs. PF does not directly talk
  *           to VFs but is used to initialize them
  * @req_tx_splitq: TX split or single queue model to request
@@ -927,6 +896,12 @@ struct idpf_adapter {
 	u16 num_avail_msix;
 	u16 num_msix_entries;
 	struct msix_entry *msix_entries;
+	u16 num_rdma_msix_entries;
+	struct msix_entry *rdma_msix_entries;
+#ifdef CONFIG_RCA_SUPPORT
+	u16 num_rca_msix_entries;
+	struct msix_entry *rca_msix_entries;
+#endif /* CONFIG_RCA_SUPPORT */
 	struct virtchnl2_alloc_vectors *req_vec_chunks;
 	struct idpf_q_vector mb_vector;
 	struct idpf_vector_lifo vector_stack;
@@ -962,10 +937,6 @@ struct idpf_adapter {
 	struct virtchnl2_oem_caps oem_caps;
 #endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 	struct idpf_dev_ops dev_ops;
-	struct idpf_rdma_data rdma_data;
-#ifdef CONFIG_RCA_SUPPORT
-	struct idpf_rdma_data rca_data;
-#endif /* CONFIG_RCA_SUPPORT */
 	int num_vfs;
 	bool req_tx_splitq;
 	bool req_rx_splitq;
@@ -1371,7 +1342,6 @@ void idpf_statistics_task(struct work_struct *work);
 void idpf_init_task(struct work_struct *work);
 void idpf_service_task(struct work_struct *work);
 void idpf_mbx_task(struct work_struct *work);
-void idpf_finish_soft_reset(struct work_struct *work);
 void idpf_vc_event_task(struct work_struct *work);
 void idpf_dev_ops_init(struct idpf_adapter *adapter);
 void idpf_vf_dev_ops_init(struct idpf_adapter *adapter);
@@ -1441,16 +1411,6 @@ void idpf_xdp_flush(struct net_device *dev);
 #endif /* HAVE_XDP_SUPPORT */
 int idpf_sriov_configure(struct pci_dev *pdev, int num_vfs);
 int idpf_sriov_config_vfs(struct pci_dev *pdev, int num_vfs);
-int idpf_idc_init(struct idpf_adapter *adapter);
-void idpf_idc_deinit(struct idpf_adapter *adapter);
-int
-idpf_idc_init_aux_device(struct idpf_rdma_data *rdma_data,
-			 enum iidc_function_type ftype);
-void idpf_idc_deinit_aux_device(struct idpf_adapter *adapter);
-int idpf_idc_vc_receive(struct idpf_rdma_data *rdma_data, u32 f_id, const u8 *msg,
-			u16 msg_size);
-void idpf_idc_event(struct idpf_rdma_data *rdma_data,
-		    enum iidc_event_type event_type);
 /**
  * idpf_is_feature_ena - Determine if a particular feature is enabled
  * @vport: Vport to check
