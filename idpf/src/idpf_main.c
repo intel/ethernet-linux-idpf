@@ -808,8 +808,10 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 	/* Wait for all init_task WQs to complete */
 	flush_delayed_work(&adapter->init_task);
 
-	if (!err)
+	if (!err) {
 		idpf_attach_and_open(adapter);
+		idpf_idc_init(adapter);
+	}
 }
 
 #ifdef HAVE_PCI_ERROR_HANDLER_RESET_PREPARE
