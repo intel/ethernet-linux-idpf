@@ -208,6 +208,17 @@ static void idpf_ptp_reg_init(const struct idpf_adapter *adapter)
 }
 
 /**
+ * idpf_idc_register - register for IDC callbacks
+ * @adapter: Driver specific private structure
+ *
+ * Return: 0 on success or error code on failure.
+ */
+static int idpf_idc_register(struct idpf_adapter *adapter)
+{
+	return idpf_idc_init_aux_core_dev(adapter, IIDC_FUNCTION_TYPE_PF);
+}
+
+/**
  * idpf_reg_ops_init - Initialize register API function pointers
  * @adapter: Driver specific private structure
  */
@@ -235,6 +246,8 @@ void idpf_dev_ops_init(struct idpf_adapter *adapter)
 	adapter->dev_ops.vdcm_deinit = idpf_vdcm_deinit;
 	adapter->dev_ops.notify_adi_reset = idpf_notify_adi_reset;
 #endif /* CONFIG_VFIO_MDEV && HAVE_PASID_SUPPORT */
+
+	adapter->dev_ops.idc_init = idpf_idc_register;
 
 	resource_set_range(&adapter->dev_ops.static_reg_info[0],
 			   PF_FW_BASE, IDPF_PF_MBX_REGION_SZ);
