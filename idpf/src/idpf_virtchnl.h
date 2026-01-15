@@ -191,6 +191,9 @@ int idpf_send_get_set_rss_lut_msg(struct idpf_vport *vport,
 				  struct idpf_rss_data *rss_data,
 				  bool get);
 void idpf_vc_xn_shutdown(struct idpf_vc_xn_manager *vcxn_mngr);
+int idpf_idc_rdma_vc_send_sync(struct iidc_rdma_core_dev_info *cdev_info,
+			       u8 *send_msg, u16 msg_size,
+			       u8 *recv_msg, u16 *recv_len);
 int idpf_send_get_set_rss_hash_msg(struct idpf_vport *vport, bool get);
 int idpf_set_vlan_features(struct idpf_vport *vport, netdev_features_t features);
 #ifdef CONFIG_UPLINK_PORT_STATS
