@@ -2264,8 +2264,11 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 unlock_mutex:
 	idpf_vport_init_unlock(adapter);
 
-	if (!err)
+	if (!err) {
 		idpf_attach_and_open(adapter);
+		/* Wait until all vports are created to init RDMA CORE AUX */
+		err = idpf_idc_init(adapter);
+	}
 
 	return err;
 }

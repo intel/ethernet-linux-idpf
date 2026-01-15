@@ -76,6 +76,15 @@ struct idpf_rss_data;
 #include "idpf_devlink.h"
 #endif /* DEVLINK_ENABLED */
 #include "idpf_adi.h"
+#include "iidc.h"
+
+#define iidc_rdma_core_auxiliary_drv iidc_auxiliary_drv
+#define iidc_rdma_core_dev_info iidc_core_dev_info
+#define iidc_rdma_core_auxiliary_dev iidc_auxiliary_dev
+#define iidc_rdma_reset_type iidc_reset_type
+#define iidc_rdma_event iidc_event
+
+#include "iidc_rdma_idpf.h"
 
 #define GETMAXVAL(num_bits)		GENMASK((num_bits) - 1, 0)
 
@@ -294,6 +303,7 @@ struct idpf_reg_ops {
 #endif
  * notify_adi_reset: Notify ADI reset
  * @reg_ops: Register operations
+ * idc_init: IDC initialization
  * @static_reg_info: array of mailbox and rstat register info
  */
 struct idpf_dev_ops {
@@ -304,6 +314,8 @@ struct idpf_dev_ops {
 	void (*notify_adi_reset)(struct idpf_adapter *adapter,
 				 u16 adi_id, bool reset);
 	struct idpf_reg_ops reg_ops;
+	int (*idc_init)(struct idpf_adapter *adapter);
+
 	/* static_reg_info[0] is mailbox region, static_reg_info[1] is rstat */
 	struct resource static_reg_info[IDPF_MMIO_REG_NUM_STATIC];
 };
@@ -849,6 +861,7 @@ struct idpf_iommu_bypass {
  * @vcxn_mngr: Virtchnl transaction manager
  * @edt_caps: EDT capabilities
  * @dev_ops: See idpf_dev_ops
+ * @cdev_info: IDC core device info pointer
  * @num_vfs: Number of allocated VFs through sysfs. PF does not directly talk
  *           to VFs but is used to initialize them
  * @req_tx_splitq: TX split or single queue model to request
@@ -937,6 +950,7 @@ struct idpf_adapter {
 	struct virtchnl2_oem_caps oem_caps;
 #endif /* CONFIG_OEM_CAPS || CONFIG_P2P */
 	struct idpf_dev_ops dev_ops;
+	struct iidc_rdma_core_dev_info *cdev_info;
 	int num_vfs;
 	bool req_tx_splitq;
 	bool req_rx_splitq;
@@ -1372,6 +1386,10 @@ bool idpf_vport_set_hsplit(const struct idpf_vport *vport, u8 val);
 #else
 void idpf_vport_set_hsplit(struct idpf_vport *vport, bool ena);
 #endif /* CONFIG_ETHTOOL_NETLINK && HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT */
+int idpf_idc_init(struct idpf_adapter *adapter);
+int idpf_idc_init_aux_core_dev(struct idpf_adapter *adapter,
+			       enum iidc_function_type ftype);
+void idpf_idc_deinit_core_aux_device(struct iidc_rdma_core_dev_info *cdev_info);
 #ifdef DEVLINK_ENABLED
 void idpf_vport_dealloc(struct idpf_vport *vport);
 #endif /* DEVLINK_ENABLED */
