@@ -78,7 +78,7 @@ LIBETH_SQE_CHECK_PRIV(u32);
 /* Default vector sharing */
 #define IDPF_MBX_Q_VEC		1
 #define IDPF_MIN_Q_VEC		1
-#define IDPF_MIN_RDMA_VEC	2 /* Minimum vectors to be shared with RDMA */
+#define IDPF_MIN_RDMA_VEC	2
 #ifdef CONFIG_RCA_SUPPORT
 #define IDPF_MIN_RCA_VEC	1
 #endif /* CONFIG_RCA_SUPPORT */
