@@ -1028,19 +1028,12 @@ bool idpf_is_capability_ena(struct idpf_adapter *adapter, bool all,
 /**
  * idpf_is_rdma_cap_ena - Determine if RDMA is supported
  * @adapter: private data struct
+ *
+ * Return: true if RDMA capability is enabled, false otherwise
  */
 static inline bool idpf_is_rdma_cap_ena(struct idpf_adapter *adapter)
 {
 	return idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_RDMA);
-}
-
-/**
- * idpf_get_reserved_rdma_vecs - Get reserved RDMA vectors
- * @adapter: private data struct
- */
-static inline u16 idpf_get_reserved_rdma_vecs(struct idpf_adapter *adapter)
-{
-       return le16_to_cpu(adapter->caps.num_rdma_allocated_vectors);
 }
 
 #define IDPF_CAP_RSS (\
@@ -1097,6 +1090,15 @@ static inline u16 idpf_get_reserved_rdma_vecs(struct idpf_adapter *adapter)
 static inline u16 idpf_get_reserved_vecs(struct idpf_adapter *adapter)
 {
 	return le16_to_cpu(adapter->caps.num_allocated_vectors);
+}
+
+/**
+ * idpf_get_reserved_rdma_vecs - Get reserved RDMA vectors
+ * @adapter: private data struct
+ */
+static inline u16 idpf_get_reserved_rdma_vecs(struct idpf_adapter *adapter)
+{
+	return le16_to_cpu(adapter->caps.num_rdma_allocated_vectors);
 }
 
 /**
