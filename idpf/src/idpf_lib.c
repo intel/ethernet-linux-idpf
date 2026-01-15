@@ -323,7 +323,7 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 	u16 num_lan_vecs, min_lan_vecs, num_rdma_vecs = 0, min_rdma_vecs = 0;
 	u16 default_vports = idpf_get_default_vports(adapter);
 	int num_q_vecs, total_vecs, num_vec_ids;
-	int min_vectors, v_actual, err;
+	int min_vectors, actual_vecs, err;
 	unsigned int vector;
 	u16 *vecids;
 	int i;
@@ -363,26 +363,21 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 	if (idpf_is_rca_enabled(adapter))
 		min_vectors += IDPF_MIN_RCA_VEC;
 #endif /* CONFIG_RCA_SUPPORT */
-	v_actual = pci_alloc_irq_vectors(adapter->pdev, min_vectors,
-					 total_vecs, PCI_IRQ_MSIX);
-	if (v_actual < min_vectors) {
-		dev_err(idpf_adapter_to_dev(adapter), "Failed to allocate minimum MSIX vectors required: %d\n",
-			v_actual);
-		err = -EAGAIN;
+	actual_vecs = pci_alloc_irq_vectors(adapter->pdev, min_vectors,
+					    total_vecs, PCI_IRQ_MSIX);
+	if (actual_vecs < 0) {
+		dev_err(&adapter->pdev->dev, "Failed to allocate minimum MSIX vectors required: %d\n",
+			min_vectors);
+		err = actual_vecs;
 		goto send_dealloc_vecs;
 	}
 
-	num_lan_vecs = v_actual - num_rdma_vecs;
-
 	if (idpf_is_rdma_cap_ena(adapter)) {
-		if (v_actual < total_vecs) {
-			dev_warn(idpf_adapter_to_dev(adapter),
-				 "Warning: not enough vectors available. Defaulting to minimum for RDMA and remaining for LAN.\n");
+		if (actual_vecs < total_vecs) {
+			dev_warn(&adapter->pdev->dev,
+				 "Warning: %d vectors requested, only %d available. Defaulting to minimum (%d) for RDMA and remaining for LAN.\n",
+				 total_vecs, actual_vecs, IDPF_MIN_RDMA_VEC);
 			num_rdma_vecs = min_rdma_vecs;
-			/* Reset num_lan_vecs to account for updated
-			 * num_rdma_vecs
-			 */
-			num_lan_vecs = v_actual - min_rdma_vecs;
 		}
 
 		adapter->rdma_msix_entries = kcalloc(num_rdma_vecs,
@@ -408,6 +403,7 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 #endif /* CONFIG_RCA_SUPPORT */
 	}
 
+	num_lan_vecs = actual_vecs - num_rdma_vecs;
 	adapter->msix_entries = kcalloc(num_lan_vecs,
 					sizeof(struct msix_entry), GFP_KERNEL);
 
@@ -418,15 +414,15 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 
 	adapter->mb_vector.v_idx = le16_to_cpu(adapter->caps.mailbox_vector_id);
 
-	vecids = kcalloc(v_actual, sizeof(u16), GFP_KERNEL);
+	vecids = kcalloc(actual_vecs, sizeof(u16), GFP_KERNEL);
 	if (!vecids) {
 		err = -ENOMEM;
 		goto free_msix;
 	}
 
-	num_vec_ids = idpf_get_vec_ids(adapter, vecids, v_actual,
+	num_vec_ids = idpf_get_vec_ids(adapter, vecids, actual_vecs,
 				       &adapter->req_vec_chunks->vchunks);
-	if (num_vec_ids < v_actual) {
+	if (num_vec_ids < actual_vecs) {
 		err = -EINVAL;
 		goto free_vecids;
 	}
@@ -459,6 +455,8 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 	 */
 	adapter->num_avail_msix = num_lan_vecs - min_lan_vecs;
 	adapter->num_msix_entries = num_lan_vecs;
+	if (idpf_is_rdma_cap_ena(adapter))
+		adapter->num_rdma_msix_entries = num_rdma_vecs;
 
 	/* Fill MSIX vector lifo stack with vector indexes */
 	err = idpf_init_vector_stack(adapter);
