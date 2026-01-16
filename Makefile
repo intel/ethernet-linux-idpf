@@ -137,6 +137,9 @@ $(call cmd_depmod)
 endef
 endif
 
+# Set default goal to compile (must be set before the first target is defined)
+.DEFAULT_GOAL := compile
+
 # Ensure kcompat_generated_defs.h exists for all targets before compiling
 # This is done by invoking a simple target in each module's Makefile which
 # will cause common.mk to be included and generate the kcompat file
