@@ -84,6 +84,9 @@ struct idpf_rss_data;
 #define iidc_rdma_reset_type iidc_reset_type
 #define iidc_rdma_event iidc_event
 
+#define iidc_rdma_event_type iidc_event_type
+#define IIDC_RDMA_EVENT_WARN_RESET IIDC_EVENT_WARN_RESET
+
 #include "iidc_rdma_idpf.h"
 
 #define GETMAXVAL(num_bits)		GENMASK((num_bits) - 1, 0)
@@ -1395,6 +1398,7 @@ int idpf_idc_init_aux_core_dev(struct idpf_adapter *adapter,
 			       enum iidc_function_type ftype);
 void idpf_idc_deinit_core_aux_device(struct iidc_rdma_core_dev_info *cdev_info);
 void idpf_idc_deinit_vport_aux_device(struct iidc_rdma_vport_dev_info *vdev_info);
+void idpf_idc_issue_reset_event(struct iidc_rdma_core_dev_info *cdev_info);
 #ifdef DEVLINK_ENABLED
 void idpf_vport_dealloc(struct idpf_vport *vport);
 #endif /* DEVLINK_ENABLED */
