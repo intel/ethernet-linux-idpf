@@ -702,6 +702,8 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
  */
 static void idpf_reset_prepare(struct idpf_adapter *adapter)
 {
+	idpf_idc_issue_reset_event(adapter->cdev_info);
+
 	idpf_detach_and_close(adapter);
 	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_vport_init_lock(adapter);
