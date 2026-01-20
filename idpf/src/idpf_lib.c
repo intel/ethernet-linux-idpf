@@ -2361,6 +2361,9 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 		break;
 	case IDPF_SR_Q_SCH_CHANGE:
 	case IDPF_SR_MTU_CHANGE:
+		idpf_idc_vdev_mtu_event(vport->vdev_info,
+					IIDC_RDMA_EVENT_BEFORE_MTU_CHANGE);
+		break;
 	case IDPF_SR_RSC_CHANGE:
 	case IDPF_SR_HSPLIT_CHANGE:
 #ifdef HAVE_XDP_SUPPORT
@@ -2427,9 +2430,7 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	if (vport_is_up)
 		err = idpf_vport_open(vport);
 
-	kfree(new_vport);
-
-	return err;
+	goto free_vport;
 
 err_reset:
 	q_grp = &vport->dflt_grp.q_grp;
@@ -2441,6 +2442,10 @@ err_open:
 		idpf_vport_open(vport);
 free_vport:
 	kfree(new_vport);
+
+	if (reset_cause == IDPF_SR_MTU_CHANGE)
+		idpf_idc_vdev_mtu_event(vport->vdev_info,
+					IIDC_RDMA_EVENT_AFTER_MTU_CHANGE);
 
 	return err;
 }
