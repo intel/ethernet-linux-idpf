@@ -2228,6 +2228,8 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	if (test_bit(IDPF_HR_DRV_LOAD, adapter->flags)) {
 		reg_ops->trigger_reset(adapter, IDPF_HR_DRV_LOAD);
 	} else if (test_bit(IDPF_HR_FUNC_RESET, adapter->flags)) {
+		idpf_idc_issue_reset_event(adapter->cdev_info);
+
 		if (!idpf_is_reset_detected(adapter)) {
 			reg_ops->trigger_reset(adapter, IDPF_HR_FUNC_RESET);
 			err = idpf_wait_on_reset_detection(adapter);
