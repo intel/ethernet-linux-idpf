@@ -526,6 +526,7 @@ struct idpf_fsteer_fltr {
 #ifdef IDPF_ADD_PROBES
  * @ptype_stats: Ptype statistics
 #endif
+ * @vdev_info: IDC vport device info pointer
  * @adapter: back pointer to associated adapter
  * @netdev: Associated net_device. Each vport should have one and only one
  *          associated netdev.
@@ -573,6 +574,9 @@ struct idpf_vport {
 #ifdef IDPF_ADD_PROBES
 	u64_stats_t ptype_stats[IDPF_RX_MAX_PTYPE];
 #endif /* IDPF_ADD_PROBES */
+
+	struct iidc_rdma_vport_dev_info *vdev_info;
+
 	struct idpf_adapter *adapter;
 	struct net_device *netdev;
 	DECLARE_BITMAP(flags, IDPF_VPORT_FLAGS_NBITS);
@@ -1390,6 +1394,7 @@ int idpf_idc_init(struct idpf_adapter *adapter);
 int idpf_idc_init_aux_core_dev(struct idpf_adapter *adapter,
 			       enum iidc_function_type ftype);
 void idpf_idc_deinit_core_aux_device(struct iidc_rdma_core_dev_info *cdev_info);
+void idpf_idc_deinit_vport_aux_device(struct iidc_rdma_vport_dev_info *vdev_info);
 #ifdef DEVLINK_ENABLED
 void idpf_vport_dealloc(struct idpf_vport *vport);
 #endif /* DEVLINK_ENABLED */
