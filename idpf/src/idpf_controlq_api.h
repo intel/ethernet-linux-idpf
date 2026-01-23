@@ -149,18 +149,30 @@ enum idpf_mbx_opc {
 	idpf_mbq_opc_send_msg_to_peer_drv	= 0x0804,
 };
 
+/* Max number of MMIO regions not including the mailbox and rstat regions in
+ * the fallback case when the whole bar is mapped.
+ */
+#define IDPF_MMIO_MAP_FALLBACK_MAX_REMAINING		3
+
+struct idpf_mmio_reg {
+	void __iomem *vaddr;
+	resource_size_t addr_start;
+	resource_size_t addr_len;
+};
+
 /* Define the APF hardware struct to replace other control structs as needed
  * Align to ctlq_hw_info
  */
 struct idpf_hw {
-	/* Some part of BAR0 address space is not mapped by the LAN driver.
-	 * This results in 2 regions of BAR0 to be mapped by LAN driver which
-	 * will have its own base hardware address when mapped.
+	/* Some parts of BAR0 address space are not mapped by the LAN driver.
+	 * This results in multiple regions of BAR0 mapped by LAN driver which
+	 * will have their own base hardware address when mapped.
 	 */
-	void __iomem *hw_addr;
-	void __iomem *hw_addr_region2;
-	resource_size_t hw_addr_len;
-	resource_size_t hw_addr_region2_len;
+	struct idpf_mmio_reg mbx;
+	struct idpf_mmio_reg rstat;
+	/* Array of remaining LAN BAR regions */
+	int num_lan_regs;
+	struct idpf_mmio_reg *lan_regs;
 
 	void *back;
 	/* control queue - send and receive */
