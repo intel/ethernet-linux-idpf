@@ -202,9 +202,6 @@ destroy_wqs:
 #ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
 	pci_disable_pcie_error_reporting(pdev);
 #endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
-	iounmap(adapter->hw.hw_addr);
-	if (adapter->hw.hw_addr_region2)
-		iounmap(adapter->hw.hw_addr_region2);
 	pci_release_mem_regions(pdev);
 
 #ifdef CONFIG_IOMMU_BYPASS
@@ -245,38 +242,42 @@ static void idpf_shutdown(struct pci_dev *pdev)
  */
 static int idpf_cfg_hw(struct idpf_adapter *adapter)
 {
-	u64 region2_start = adapter->dev_ops.bar0_region2_start;
+	resource_size_t res_start, mbx_start, rstat_start;
 	struct pci_dev *pdev = adapter->pdev;
 	struct idpf_hw *hw = &adapter->hw;
-	resource_size_t res_start;
+	struct device *dev = &pdev->dev;
 	long len;
 
 	res_start = pci_resource_start(pdev, 0);
-	len = adapter->dev_ops.bar0_region1_size;
-	hw->hw_addr = ioremap(res_start, len);
-	if (!hw->hw_addr) {
-		dev_info(&pdev->dev, "ioremap(0x%04llx) region1 failed:\n",
-			 res_start);
-		return -EIO;
-	}
-	hw->hw_addr_len = len;
 
-	len = pci_resource_len(pdev, 0) - region2_start;
-	if (len <= 0)
-		goto store_hw_info;
+	/* Map mailbox space for virtchnl communication */
+	mbx_start = res_start + adapter->dev_ops.static_reg_info[0].start;
+	len = resource_size(&adapter->dev_ops.static_reg_info[0]);
+	hw->mbx.vaddr = devm_ioremap(dev, mbx_start, len);
+	if (!hw->mbx.vaddr) {
+		pci_err(pdev, "failed to allocate BAR0 mbx region\n");
 
-	hw->hw_addr_region2 = ioremap(res_start + region2_start, len);
-	if (!hw->hw_addr_region2) {
-		dev_info(&pdev->dev, "ioremap(0x%04llx) region2 failed:\n",
-			 res_start + region2_start);
-		return -EIO;
+		return -ENOMEM;
 	}
-	hw->hw_addr_region2_len = len;
-store_hw_info:
+	hw->mbx.addr_start = adapter->dev_ops.static_reg_info[0].start;
+	hw->mbx.addr_len = len;
+
+	/* Map rstat space for resets */
+	rstat_start = res_start + adapter->dev_ops.static_reg_info[1].start;
+	len = resource_size(&adapter->dev_ops.static_reg_info[1]);
+	hw->rstat.vaddr = devm_ioremap(dev, rstat_start, len);
+	if (!hw->rstat.vaddr) {
+		pci_err(pdev, "failed to allocate BAR0 rstat region\n");
+
+		return -ENOMEM;
+	}
+	hw->rstat.addr_start = adapter->dev_ops.static_reg_info[1].start;
+	hw->rstat.addr_len = len;
+
+	hw->back = adapter;
 	hw->vendor_id = pdev->vendor;
 	hw->device_id = pdev->device;
 	hw->subsystem_device_id = pdev->subsystem_device;
-	hw->back = adapter;
 
 	return 0;
 }
@@ -461,8 +462,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	err = pci_request_mem_regions(pdev, pci_name(pdev));
 	if (err) {
-		dev_err(dev,
-			"pci_request_selected_regions failed %d\n", err);
+		pci_err(pdev, "pci_request_mem_regions failed %pe\n", ERR_PTR(err));
 		goto err_free;
 	}
 
@@ -674,7 +674,7 @@ init_err:
  */
 bool idpf_is_reset_detected(struct idpf_adapter *adapter)
 {
-	struct idpf_ctlq_reg reg;
+	struct idpf_ctlq_reg *reg;
 	u32 arqlen;
 	/* No need to check reset state in CORER */
 	if (test_bit(IDPF_CORER_IN_PROG, adapter->flags))
@@ -683,11 +683,11 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
 	if (!adapter->hw.arq)
 		return true;
 
-	reg = adapter->hw.arq->reg;
-	arqlen = readl(idpf_get_reg_addr(adapter, reg.len));
+	reg = &adapter->hw.arq->reg;
+	arqlen = readl(idpf_get_mbx_reg_addr(adapter, reg->len));
 
 	/* We are in reset if either LEN or ENA bits are cleared. */
-	return (!(arqlen & reg.len_mask) || !(arqlen & reg.len_ena_mask));
+	return (!(arqlen & reg->len_mask) || !(arqlen & reg->len_ena_mask));
 }
 
 /**

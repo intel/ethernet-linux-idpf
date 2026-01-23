@@ -24,6 +24,7 @@ struct idpf_rss_data;
 #include <linux/bitfield.h>
 #include <linux/completion.h>
 #include <linux/etherdevice.h>
+#include <linux/ioport.h>
 #include <linux/pci.h>
 #include <linux/sctp.h>
 #if IS_ENABLED(CONFIG_ETHTOOL_NETLINK)
@@ -281,13 +282,13 @@ struct idpf_vport_max_q {
  * @ptp_reg_init: PTP register initialization
  */
 struct idpf_reg_ops {
-	void (*ctlq_reg_init)(struct idpf_hw *hw,
+	void (*ctlq_reg_init)(struct idpf_adapter *adapter,
 			      struct idpf_ctlq_create_info *cq);
-
 	int (*intr_reg_init)(struct idpf_vport *vport,
 			     struct idpf_intr_grp *intr_grp);
 	void (*mb_intr_reg_init)(struct idpf_adapter *adapter);
 	void (*reset_reg_init)(struct idpf_adapter *adapter);
+	void (*oicr_reset_reg_init)(struct idpf_adapter *adapter);
 	void (*trigger_reset)(struct idpf_adapter *adapter,
 			      enum idpf_flags trig_cause);
 	u64 (*read_master_time)(const struct idpf_hw *hw);
@@ -304,6 +305,14 @@ struct idpf_idc_ops {
 	void (*idc_deinit)(struct idpf_adapter *adapter);
 };
 
+#define IDPF_MMIO_REG_NUM_STATIC	2
+#define IDPF_PF_MBX_REGION_SZ		4096
+#define IDPF_PF_RSTAT_REGION_SZ		2048
+#define IDPF_VF_MBX_REGION_SZ		10240
+#define IDPF_VF_RSTAT_REGION_SZ		2048
+#define IDPF_SIOV_MBX_REGION_SZ		4096
+#define IDPF_SIOV_RSTAT_REGION_SZ	2048
+
 /**
  * struct idpf_dev_ops - Device specific operations
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
@@ -313,8 +322,7 @@ struct idpf_idc_ops {
  * notify_adi_reset: Notify ADI reset
  * @reg_ops: Register operations
  * @idc_ops: IDC operations
- * bar0_region1_size: Non-cached BAR0 region 1 size
- * bar0_region2_start: Non-cached BAR0 region 2 start address
+ * @static_reg_info: array of mailbox and rstat register info
  */
 struct idpf_dev_ops {
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
@@ -325,8 +333,9 @@ struct idpf_dev_ops {
 				 u16 adi_id, bool reset);
 	struct idpf_reg_ops reg_ops;
 	struct idpf_idc_ops idc_ops;
-	resource_size_t bar0_region1_size;
-	resource_size_t bar0_region2_start;
+
+	/* static_reg_info[0] is mailbox region, static_reg_info[1] is rstat */
+	struct resource static_reg_info[IDPF_MMIO_REG_NUM_STATIC];
 };
 
 /**
@@ -1158,6 +1167,34 @@ static inline u8 idpf_get_min_tx_pkt_len(struct idpf_adapter *adapter)
 }
 
 /**
+ * idpf_get_mbx_reg_addr - Get BAR0 mailbox register address
+ * @adapter: private data struct
+ * @reg_offset: register offset value
+ *
+ * Return: BAR0 mailbox register address based on register offset.
+ */
+static inline void __iomem *idpf_get_mbx_reg_addr(struct idpf_adapter *adapter,
+						  resource_size_t reg_offset)
+{
+	return adapter->hw.mbx.vaddr + reg_offset;
+}
+
+/**
+ * idpf_get_rstat_reg_addr - Get BAR0 rstat register address
+ * @adapter: private data struct
+ * @reg_offset: register offset value
+ *
+ * Return: BAR0 rstat register address based on register offset.
+ */
+static inline void __iomem *idpf_get_rstat_reg_addr(struct idpf_adapter *adapter,
+						    resource_size_t reg_offset)
+{
+	reg_offset -= adapter->dev_ops.static_reg_info[1].start;
+
+	return adapter->hw.rstat.vaddr + reg_offset;
+}
+
+/**
  * idpf_get_reg_addr - Get BAR0 register address
  * @adapter: private data struct
  * @reg_offset: register offset value
@@ -1169,11 +1206,28 @@ static inline void __iomem *idpf_get_reg_addr(struct idpf_adapter *adapter,
 {
 	struct idpf_hw *hw = &adapter->hw;
 
-	if (reg_offset < adapter->dev_ops.bar0_region1_size)
-		return (void __iomem *)(hw->hw_addr + reg_offset);
-	else
-		return (void __iomem *)(hw->hw_addr_region2 + reg_offset -
-					adapter->dev_ops.bar0_region2_start);
+	for (int i = 0; i < hw->num_lan_regs; i++) {
+		struct idpf_mmio_reg *region = &hw->lan_regs[i];
+
+		if (reg_offset >= region->addr_start &&
+		    reg_offset < (region->addr_start + region->addr_len)) {
+			/* Convert the offset so that it is relative to the
+			 * start of the region.  Then add the base address of
+			 * the region to get the final address.
+			 */
+			reg_offset -= region->addr_start;
+
+			return region->vaddr + reg_offset;
+		}
+	}
+
+	/* It's impossible to hit this case with offsets from the CP. But if we
+	 * do for any other reason, the kernel will panic on that register
+	 * access. Might as well do it here to make it clear what's happening.
+	 */
+	BUG();
+
+	return NULL;
 }
 
 /**
