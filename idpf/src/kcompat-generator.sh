@@ -384,7 +384,10 @@ function gen-packing() {
 }
 
 function gen-pci() {
+	ioporth='include/linux/ioport.h'
 	pcih='include/linux/pci.h'
+	gen HAVE_RESOURCE_SET_RANGE if fun resource_set_range in "$ioporth"
+	gen HAVE_RESOURCE_SET_SIZE if fun resource_set_size in "$ioporth"
 	gen HAVE_PCI_MSIX_ALLOC_IRQ_AT if fun pci_msix_alloc_irq_at in "$pcih"
 	gen HAVE_PCI_MSIX_CAN_ALLOC_DYN if fun pci_msix_can_alloc_dyn in "$pcih"
 	gen HAVE_PCI_MSIX_FREE_IRQ if fun pci_msix_free_irq in "$pcih"
