@@ -5,47 +5,17 @@
 #include "idpf_lan_vf_regs.h"
 #include "idpf_virtchnl.h"
 
-/* LAN driver does not own all the BAR0 address space. This results in 2 BAR0
- * regions for VF device and the driver should map each region separately.
- *
- * Rest of BAR0 is owned by RDMA and it maps the pages on its own as it needs
- * to map some of the pages for write combing (WC) instead of the default
- * non-cached (NC) mapping that LAN driver does. In the VF BAR space,
- * RDMA BAR0 memory lies between 64KB to 128KB.
- *
- * Also driver should map 1 page of RDMA from its space.
- */
-#define IDPF_VF_BAR0_REGION1_END	0x11000		/* 64KB + 4KB */
-#define IDPF_VF_BAR0_REGION2_START	0x20000		/* 128KB */
-
 #define IDPF_VF_ITR_IDX_SPACING		0x40
-
-#define IDPF_VDEV_BAR0_REGION2_START	(SIOV_REG_BAR_SIZE + 0x1000)
-
-static const struct idpf_ctlq_reg idpf_vdev_tx_regs = {
-		.head = VDEV_MBX_ATQH,
-		.tail = VDEV_MBX_ATQT,
-		.len = VDEV_MBX_ATQLEN,
-		.bah = VDEV_MBX_ATQBAH,
-		.bal = VDEV_MBX_ATQBAL
-};
-
-static const struct idpf_ctlq_reg idpf_vdev_rx_regs = {
-		.head = VDEV_MBX_ARQH,
-		.tail = VDEV_MBX_ARQT,
-		.len = VDEV_MBX_ARQLEN,
-		.bah = VDEV_MBX_ARQBAH,
-		.bal = VDEV_MBX_ARQBAL
-};
 
 /**
  * idpf_vf_ctlq_reg_init - initialize default mailbox registers
- * @hw: pointer to hw struct
+ * @adapter: adapter structure
  * @cq: pointer to the array of create control queues
  */
-static void idpf_vf_ctlq_reg_init(struct idpf_hw *hw,
+static void idpf_vf_ctlq_reg_init(struct idpf_adapter *adapter,
 				  struct idpf_ctlq_create_info *cq)
 {
+	resource_size_t mbx_start = adapter->dev_ops.static_reg_info[0].start;
 	int i;
 
 	for (i = 0; i < IDPF_NUM_DFLT_MBX_Q; i++) {
@@ -54,14 +24,18 @@ static void idpf_vf_ctlq_reg_init(struct idpf_hw *hw,
 		switch (ccq->type) {
 		case IDPF_CTLQ_TYPE_MAILBOX_TX:
 			/* set head and tail registers in our local struct */
-			if (hw->device_id == IDPF_DEV_ID_VF_SIOV) {
-				ccq->reg = idpf_vdev_tx_regs;
+			if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV) {
+				ccq->reg.head = VDEV_MBX_ATQH - mbx_start;
+				ccq->reg.tail = VDEV_MBX_ATQT - mbx_start;
+				ccq->reg.len = VDEV_MBX_ATQLEN - mbx_start;
+				ccq->reg.bah = VDEV_MBX_ATQBAH - mbx_start;
+				ccq->reg.bal = VDEV_MBX_ATQBAL - mbx_start;
 			} else {
-				ccq->reg.head = VF_ATQH;
-				ccq->reg.tail = VF_ATQT;
-				ccq->reg.len = VF_ATQLEN;
-				ccq->reg.bah = VF_ATQBAH;
-				ccq->reg.bal = VF_ATQBAL;
+				ccq->reg.head = VF_ATQH - mbx_start;
+				ccq->reg.tail = VF_ATQT - mbx_start;
+				ccq->reg.len = VF_ATQLEN - mbx_start;
+				ccq->reg.bah = VF_ATQBAH - mbx_start;
+				ccq->reg.bal = VF_ATQBAL - mbx_start;
 			}
 			ccq->reg.len_mask = VF_ATQLEN_ATQLEN_M;
 			ccq->reg.len_ena_mask = VF_ATQLEN_ATQENABLE_M;
@@ -69,14 +43,18 @@ static void idpf_vf_ctlq_reg_init(struct idpf_hw *hw,
 			break;
 		case IDPF_CTLQ_TYPE_MAILBOX_RX:
 			/* set head and tail registers in our local struct */
-			if (hw->device_id == IDPF_DEV_ID_VF_SIOV) {
-				ccq->reg = idpf_vdev_rx_regs;
+			if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV) {
+				ccq->reg.head = VDEV_MBX_ARQH - mbx_start;
+				ccq->reg.tail = VDEV_MBX_ARQT - mbx_start;
+				ccq->reg.len = VDEV_MBX_ARQLEN - mbx_start;
+				ccq->reg.bah = VDEV_MBX_ARQBAH - mbx_start;
+				ccq->reg.bal = VDEV_MBX_ARQBAL - mbx_start;
 			} else {
-				ccq->reg.head = VF_ARQH;
-				ccq->reg.tail = VF_ARQT;
-				ccq->reg.len = VF_ARQLEN;
-				ccq->reg.bah = VF_ARQBAH;
-				ccq->reg.bal = VF_ARQBAL;
+				ccq->reg.head = VF_ARQH - mbx_start;
+				ccq->reg.tail = VF_ARQT - mbx_start;
+				ccq->reg.len = VF_ARQLEN - mbx_start;
+				ccq->reg.bah = VF_ARQBAH - mbx_start;
+				ccq->reg.bal = VF_ARQBAL - mbx_start;
 			}
 			ccq->reg.len_mask = VF_ARQLEN_ARQLEN_M;
 			ccq->reg.len_ena_mask = VF_ARQLEN_ARQENABLE_M;
@@ -172,7 +150,7 @@ free_reg_vals:
  */
 static void idpf_vf_reset_reg_init(struct idpf_adapter *adapter)
 {
-	adapter->reset_reg.rstat = idpf_get_reg_addr(adapter, VFGEN_RSTAT);
+	adapter->reset_reg.rstat = idpf_get_rstat_reg_addr(adapter, VFGEN_RSTAT);
 	adapter->reset_reg.rstat_m = VFGEN_RSTAT_VFR_STATE_M;
 }
 
@@ -248,11 +226,14 @@ void idpf_vf_dev_ops_init(struct idpf_adapter *adapter)
 	idpf_vf_idc_ops_init(adapter);
 
 	if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV) {
-		adapter->dev_ops.bar0_region1_size = SIOV_REG_BAR_SIZE;
-		adapter->dev_ops.bar0_region2_start =
-						IDPF_VDEV_BAR0_REGION2_START;
+		resource_set_range(&adapter->dev_ops.static_reg_info[0],
+				   VDEV_MBX_START, IDPF_SIOV_MBX_REGION_SZ);
+		resource_set_range(&adapter->dev_ops.static_reg_info[1],
+				   VFGEN_RSTAT, IDPF_SIOV_RSTAT_REGION_SZ);
 		return;
 	}
-	adapter->dev_ops.bar0_region1_size = IDPF_VF_BAR0_REGION1_END;
-	adapter->dev_ops.bar0_region2_start = IDPF_VF_BAR0_REGION2_START;
+	resource_set_range(&adapter->dev_ops.static_reg_info[0],
+			   VF_BASE, IDPF_VF_MBX_REGION_SZ);
+	resource_set_range(&adapter->dev_ops.static_reg_info[1],
+			   VFGEN_RSTAT, IDPF_VF_RSTAT_REGION_SZ);
 }

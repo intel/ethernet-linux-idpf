@@ -457,7 +457,6 @@ idpf_idc_init_aux_device(struct idpf_rdma_data *rdma_data,
 	adapter = container_of(rdma_data, struct idpf_adapter, rdma_data);
 
 	cdev_info = rdma_data->cdev_info;
-	cdev_info->hw_addr = (u8 __iomem *)adapter->hw.hw_addr;
 	cdev_info->ver.major = IIDC_MAJOR_VER;
 	cdev_info->ver.minor = IIDC_MINOR_VER;
 	cdev_info->ftype = ftype;
