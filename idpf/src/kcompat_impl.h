@@ -3662,4 +3662,12 @@ void _kc_eventfd_signal(struct eventfd_ctx *ctx)
 	= __MODULE_INFO_PREFIX __stringify(tag) "=" info
 #endif /* NEED_MODULE_INFO_WITHOUT_CHECK */
 
+#ifndef HAVE_RESOURCE_SET_SIZE
+void resource_set_size(struct resource *res, resource_size_t size);
+#endif /* !HAVE_RESOURCE_SET_SIZE */
+#ifndef HAVE_RESOURCE_SET_RANGE
+void resource_set_range(struct resource *res, resource_size_t start,
+			resource_size_t size);
+#endif /* !HAVE_RESOURCE_SET_RANGE */
+
 #endif /* _KCOMPAT_IMPL_H_ */
