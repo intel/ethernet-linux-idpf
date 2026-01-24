@@ -938,6 +938,8 @@ static int idpf_rx_map_buffer_rings(struct idpf_q_grp *q_grp)
 
 				rxq->rx.bufq_bufs[j] = bufq->rx.bufs;
 
+				rxq->rx.refillqs = rx_qgrp->splitq.bufq_sets[j].refillqs;
+
 				if (!rxq->rx_hsplit_en)
 					continue;
 
