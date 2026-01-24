@@ -186,7 +186,7 @@ enum idpf_tx_base_desc_cmd_bits {
 struct idpf_base_tx_desc {
 	__le64 buf_addr; /* Address of descriptor's data buf */
 	__le64 qw1; /* type_cmd_offset_bsz_l2tag1 */
-};/* read used with buffer queues*/
+};/* read used with buffer queues */
 
 struct idpf_splitq_tx_compl_desc {
 	/* qid=[10:0] comptype=[13:11] rsvd=[14] gen=[15] */
@@ -197,7 +197,7 @@ struct idpf_splitq_tx_compl_desc {
 	} q_head_compl_tag;
 	u8 ts[3];
 	u8 rsvd; /* Reserved */
-};/* writeback used with completion queues*/
+};/* writeback used with completion queues */
 
 /* Context descriptors */
 struct idpf_base_tx_ctx_desc {

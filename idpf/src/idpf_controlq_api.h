@@ -196,7 +196,7 @@ int idpf_ctlq_add(struct idpf_hw *hw,
 void idpf_ctlq_remove(struct idpf_hw *hw,
 		      struct idpf_ctlq_info *cq);
 
-/* Sends messages to HW and will also free the buffer*/
+/* Sends messages to HW and will also free the buffer */
 int idpf_ctlq_send(struct idpf_hw *hw,
 		   struct idpf_ctlq_info *cq,
 		   u16 num_q_msg,
