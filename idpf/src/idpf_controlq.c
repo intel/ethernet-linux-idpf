@@ -409,7 +409,7 @@ static int __idpf_ctlq_clean_sq(struct idpf_ctlq_info *cq, u16 *clean_count,
 			break;
 
 		/* This barrier is needed to ensure that no other fields
-		 *  are read until we check 	the DD flag
+		 * are read until we check the DD flag
 		 */
 		dma_rmb();
 		/* strip off FW internal code */
@@ -655,7 +655,7 @@ int idpf_ctlq_recv(struct idpf_ctlq_info *cq, u16 *num_q_msg,
 			break;
 
 		/* This barrier is needed to ensure that no other fields
-		 *  are read until we check 	the DD flag
+		 * are read until we check the DD flag
 		 */
 		dma_rmb();
 		ret_val = le16_to_cpu(desc->ret_val);
