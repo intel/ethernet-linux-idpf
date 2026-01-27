@@ -255,14 +255,25 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		tx_parms.dtype = IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE;
 		tx_parms.eop_cmd = IDPF_TXD_FLEX_FLOW_CMD_EOP;
 
+		/* Set the RE bit to periodically "clean" the descriptor ring.
+		 * MIN_GAP is set to MIN_RING size to ensure it will be set at
+		 * least once each time around the ring.
+		 */
+		if (idpf_tx_splitq_need_re(xdpq)) {
+			tx_parms.eop_cmd |= IDPF_TXD_FLEX_FLOW_CMD_RE;
+			xdpq->txq_grp->num_completions_pending++;
+			xdpq->tx.last_re = xdpq->next_to_use;
+		}
+
 		idpf_tx_splitq_build_desc(tx_desc, &tx_parms, tx_parms.eop_cmd |
 					  tx_parms.offload.td_cmd, desc.len);
+
+		tx_buf->rs_idx = ntu;
 
 		ntu++;
 		if (ntu == xdpq->desc_count)
 			ntu = 0;
 
-		idpf_tx_buf_compl_tag(tx_buf) = tx_parms.compl_tag;
 	}
 
 	if (likely(tx_desc)) {
@@ -369,6 +380,7 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		 struct libeth_sq_napi_stats *cleaned,
 		 u16 buf_id)
 {
+	bool fs = idpf_queue_has(FLOW_SCH_EN, xdpq);
 	struct idpf_tx_buf *tx_buf;
 	u32 xsk_frames = 0;
 	u16 i;
@@ -381,7 +393,7 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		goto skip;
 	}
 
-	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
+	if (fs) {
 		clean_count = 1;
 		tx_buf = &xdpq->tx.bufs[buf_id];
 	} else {
@@ -405,6 +417,9 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		} else {
 			xsk_frames++;
 		}
+
+		if (fs)
+			idpf_post_buf_refill(xdpq->tx.refillq, buf_id);
 
 		++ntc;
 		if (unlikely(ntc >= xdpq->desc_count))
