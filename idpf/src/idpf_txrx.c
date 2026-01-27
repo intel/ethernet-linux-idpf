@@ -3401,21 +3401,6 @@ void idpf_tx_set_tstamp_desc(union idpf_flex_tx_ctx_desc *ctx_desc, u32 idx)
 #endif /* CONFIG_PTP_1588_CLOCK && CONFIG_PTP */
 
 /**
- * idpf_tx_splitq_need_re - check whether RE bit needs to be set
- * @tx_q: the tx ring to verify
- *
- * Return: true if RE bit needs to be set, false otherwise
- */
-static inline bool idpf_tx_splitq_need_re(struct idpf_queue *tx_q)
-{
-	int gap = tx_q->next_to_use - tx_q->tx.last_re;
-
-	gap += (gap < 0) ? tx_q->desc_count : 0;
-
-	return gap >= IDPF_TX_SPLITQ_RE_MIN_GAP;
-}
-
-/**
  * idpf_tx_prepare_vlan_tag - prepare context descriptor with VLAN tag
  * @tx_q: TX queue to get the next available descriptor
  * @skb: send buffer to extract the VLAN tag
@@ -4427,6 +4412,16 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 			return IDPF_XDP_CONSUMED;
 
 		tx_params.compl_tag = buf_id;
+
+		/* Set the RE bit to periodically "clean" the descriptor ring.
+		 * MIN_GAP is set to MIN_RING size to ensure it will be set at
+		 * least once each time around the ring.
+		 */
+		if (idpf_tx_splitq_need_re(xdpq)) {
+			tx_params.eop_cmd |= IDPF_TXD_FLEX_FLOW_CMD_RE;
+			xdpq->txq_grp->num_completions_pending++;
+			xdpq->tx.last_re = xdpq->next_to_use;
+		}
 	} else {
 		buf_id = ntu;
 	}
@@ -4439,8 +4434,6 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 #else
 	tx_buf->raw = data;
 #endif
-	idpf_tx_buf_compl_tag(&xdpq->tx.bufs[buf_id]) = tx_params.compl_tag;
-
 	/* record length, and DMA address */
 	dma_unmap_len_set(tx_buf, len, size);
 	dma_unmap_addr_set(tx_buf, dma, dma);
