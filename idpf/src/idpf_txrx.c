@@ -5078,6 +5078,9 @@ static void idpf_vport_intr_rel_irq(struct idpf_vport *vport,
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 		/* clear the affinity_mask in the IRQ descriptor */
 		irq_set_affinity_notifier(irq_num, NULL);
+#ifndef HAVE_EXPORTED_IRQ_SET_AFFINITY
+		irq_set_affinity_hint(irq_num, NULL);
+#endif /* !HAVE_EXPORTED_IRQ_SET_AFFINITY */
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 		kfree(free_irq(irq_num, q_vector));
 		kfree(q_vector->name);
