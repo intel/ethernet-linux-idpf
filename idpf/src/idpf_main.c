@@ -38,7 +38,8 @@ static void idpf_deinit_iommu_bypass(struct idpf_adapter *adapter)
 			    adapter->iommu_byp.bypass_size);
 	if (adapter->iommu_byp.ddev) {
 		struct platform_device *ldev =
-			adapter->iommu_byp.ddev->platform_data;
+			container_of(adapter->iommu_byp.ddev,
+				     struct platform_device, dev);
 		platform_device_unregister(ldev);
 	}
 }
@@ -67,7 +68,6 @@ static int idpf_init_iommu_bypass(struct idpf_adapter *adapter,
 		goto iommu_bypass_fail;
 
 	adapter->iommu_byp.ddev = &ldev->dev;
-	adapter->iommu_byp.ddev->platform_data = ldev;
 	adapter->iommu_byp.ddev->cma_area = pdev->dev.cma_area;
 	adapter->iommu_byp.ddev->dma_coherent = true;
 
@@ -87,7 +87,8 @@ static int idpf_init_iommu_bypass(struct idpf_adapter *adapter,
 		err = iommu_map(iodom, adapter->iommu_byp.bypass_iova_addr,
 				adapter->iommu_byp.bypass_phys_addr,
 				adapter->iommu_byp.bypass_size,
-				IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE);
+				IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE,
+				GFP_KERNEL);
 		if (err)
 			goto iommu_bypass_fail;
 		dev_info(&pdev->dev,
