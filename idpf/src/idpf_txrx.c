@@ -1872,13 +1872,6 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_grp *q_g
 				struct idpf_sw_queue *refillq =
 					&bufq_set->refillqs[k];
 
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-				if (vport->adapter->iommu_byp.ddev)
-					refillq->dev = vport->adapter->iommu_byp.ddev;
-				else
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 				refillq->desc_count =
 					q_grp->bufq_desc_count[j];
 				idpf_queue_set(GEN_CHK, refillq);
