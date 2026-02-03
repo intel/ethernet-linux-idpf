@@ -3012,31 +3012,29 @@ static int idpf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
 			 void *type_data)
 {
 	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
-	struct idpf_vport *vport;
 	int err = 0;
-
-	idpf_vport_cfg_lock(adapter);
-	vport = idpf_netdev_to_vport(netdev);
 
 	switch (type) {
 #ifdef HAVE_ETF_SUPPORT
-	case TC_SETUP_QDISC_ETF:
-		if (!idpf_is_queue_model_split(vport->dflt_grp.q_grp.txq_model)) {
+	case TC_SETUP_QDISC_ETF: {
+		struct idpf_vport *vport;
+
+		idpf_vport_cfg_lock(adapter);
+		vport = idpf_netdev_to_vport(netdev);
+
+		if (!idpf_is_queue_model_split(vport->dflt_grp.q_grp.txq_model))
 			err = -EOPNOTSUPP;
-			goto vport_ctrl_unlock;
-		}
-		err = idpf_offload_txtime(vport, type_data);
+		else
+			err = idpf_offload_txtime(vport, type_data);
+
+		idpf_vport_cfg_unlock(adapter);
 		break;
+	}
 #endif /* HAVE_ETF_SUPPORT */
 	default:
 		err = -EOPNOTSUPP;
 		break;
 	}
-
-#ifdef HAVE_ETF_SUPPORT
-vport_ctrl_unlock:
-#endif /* HAVE_ETF_SUPPORT */
-	idpf_vport_cfg_unlock(adapter);
 
 	return err;
 }
