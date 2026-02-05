@@ -778,10 +778,37 @@ struct idpf_vec_affinity_config {
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 
 /**
+ * struct idpf_queue_id_reg_chunk - individual queue ID and register chunk
+ * @qtail_reg_start: queue tail register offset
+ * @qtail_reg_spacing: queue tail register spacing
+ * @type: queue type of the queues in the chunk
+ * @start_queue_id: starting queue ID in the chunk
+ * @num_queues: number of queues in the chunk
+ */
+struct idpf_queue_id_reg_chunk {
+	u64 qtail_reg_start;
+	u32 qtail_reg_spacing;
+	u32 type;
+	u32 start_queue_id;
+	u32 num_queues;
+};
+
+/**
+ * struct idpf_queue_id_reg_info - queue ID and register chunk info received
+ *                                  over the mailbox
+ * @num_chunks: number of chunks
+ * @queue_chunks: array of chunks
+ */
+struct idpf_queue_id_reg_info {
+	u16 num_chunks;
+	struct idpf_queue_id_reg_chunk *queue_chunks;
+};
+
+/**
  * struct idpf_vport_config - Vport configuration data
  * @user_config: see struct idpf_vport_user_config_data
  * @max_q: Maximum possible queues
- * @req_qs_chunks: Queue chunk data for requested queues
+ * @qid_reg_info: Struct to store the queue ID and register info
  * @mac_filter_list_lock: Lock to protect mac filters
  * @flow_steer_list_lock: Lock to protect fsteer filters
  * @flags: See enum idpf_vport_config_flags
@@ -793,7 +820,7 @@ struct idpf_vport_config {
 #define MAX_NUM_VEC_AFFINTY	64
 	struct idpf_vec_affinity_config *affinity_config;
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
-	struct virtchnl2_add_queues *req_qs_chunks;
+	struct idpf_queue_id_reg_info qid_reg_info;
 	spinlock_t mac_filter_list_lock;
 	/* protects flow_steer_list */
 	spinlock_t flow_steer_list_lock;
@@ -1393,8 +1420,6 @@ int idpf_add_del_mac_filters(struct idpf_vport *vport,
 int idpf_set_promiscuous(struct idpf_adapter *adapter,
 			 struct idpf_vport_user_config_data *config_data,
 			 u32 vport_id);
-struct virtchnl2_queue_reg_chunks *
-idpf_get_queue_reg_chunks(struct idpf_vport *vport);
 int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q);
 void idpf_detach_and_close(struct idpf_adapter *adapter);
 void idpf_attach_and_open(struct idpf_adapter *adapter);
@@ -1402,9 +1427,9 @@ int idpf_check_reset_complete(struct idpf_adapter *adapter);
 int idpf_reset_recover(struct idpf_adapter *adapter);
 bool idpf_is_reset_detected(struct idpf_adapter *adapter);
 int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
-			      struct virtchnl2_queue_reg_chunks *chunks);
+			      struct idpf_queue_id_reg_info *chunks);
 int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
-			struct virtchnl2_queue_reg_chunks *chunks);
+			struct idpf_queue_id_reg_info *chunks);
 int idpf_check_supported_desc_ids(struct idpf_vport *vport);
 void idpf_vport_intr_write_itr(struct idpf_q_vector *q_vector,
 			       u16 itr, bool tx);

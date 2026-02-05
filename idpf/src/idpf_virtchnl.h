@@ -113,6 +113,7 @@ struct idpf_adapter;
 struct idpf_netdev_priv;
 struct idpf_vec_regs;
 struct idpf_vport;
+struct idpf_vport_config;
 struct idpf_vport_max_q;
 struct idpf_vport_user_config_data;
 
@@ -127,9 +128,10 @@ void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr);
 int idpf_get_reg_intr_vecs(struct idpf_vport *vport,
 			   struct idpf_vec_regs *reg_vals);
 int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
-			struct virtchnl2_queue_reg_chunks *chunks);
+			struct idpf_queue_id_reg_info *chunks);
 int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
-			      struct virtchnl2_queue_reg_chunks *chunks);
+			      struct idpf_queue_id_reg_info *chunks);
+
 bool idpf_vport_is_cap_ena(struct idpf_vport *vport, u16 flag);
 bool idpf_sideband_flow_type_ena(struct idpf_vport *vport, u32 flow_type);
 bool idpf_sideband_action_ena(struct idpf_vport *vport,
@@ -138,7 +140,8 @@ unsigned int idpf_fsteer_max_rules(struct idpf_vport *vport);
 int idpf_recv_mb_msg(struct idpf_adapter *adapter);
 int idpf_send_mb_msg(struct idpf_adapter *adapter, u32 op,
 		     u16 msg_size, u8 *msg, u16 cookie);
-int idpf_send_delete_queues_msg(struct idpf_vport *vport);
+int idpf_send_delete_queues_msg(struct idpf_vport *vport,
+			       struct idpf_queue_id_reg_info *chunks);
 int idpf_send_add_queues_msg(const struct idpf_vport *vport, u16 num_tx_q,
 			     u16 num_complq, u16 num_rx_q, u16 num_rx_bufq);
 int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q);
@@ -157,10 +160,10 @@ void idpf_vport_dealloc_max_qs(struct idpf_adapter *adapter,
 int idpf_send_config_queues_msg(struct idpf_vport *vport,
 				struct idpf_q_grp *q_grp);
 int idpf_send_enable_queues_msg(struct idpf_vport *vport,
-				struct virtchnl2_queue_reg_chunks *chunks);
+				struct idpf_queue_id_reg_info *chunks);
 int idpf_send_disable_queues_msg(struct idpf_vport *vport,
 				 struct idpf_vgrp *vgrp,
-				 struct virtchnl2_queue_reg_chunks *chunks);
+				 struct idpf_queue_id_reg_info *chunks);
 
 int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
 				 struct idpf_vgrp *vgrp);
@@ -205,5 +208,20 @@ int idpf_send_create_adi_msg(struct idpf_adapter *adapter,
 			     struct virtchnl2_non_flex_create_adi *vchnl_adi);
 int idpf_send_destroy_adi_msg(struct idpf_adapter *adapter,
 			      struct virtchnl2_non_flex_destroy_adi *vchnl_adi);
+
+/**
+ * idpf_vport_deinit_queue_reg_chunks - deinitialize queue register chunks
+ * @vport_config: vport configuration to cleanup
+ */
+static inline void
+idpf_vport_deinit_queue_reg_chunks(struct idpf_vport_config *vport_config)
+{
+	if (!vport_config)
+		return;
+
+	kfree(vport_config->qid_reg_info.queue_chunks);
+	vport_config->qid_reg_info.queue_chunks = NULL;
+	vport_config->qid_reg_info.num_chunks = 0;
+}
 
 #endif /* _IDPF_VIRTCHNL_H_ */

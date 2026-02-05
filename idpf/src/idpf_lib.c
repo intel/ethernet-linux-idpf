@@ -1093,6 +1093,7 @@ static void idpf_netdev_stop(struct net_device *netdev)
 static void idpf_vport_stop(struct idpf_vport *vport)
 {
 	struct idpf_netdev_priv *np = netdev_priv(vport->netdev);
+	struct idpf_queue_id_reg_info *chunks;
 	struct idpf_vgrp *vgrp = &vport->dflt_grp;
 
 	if (!test_and_clear_bit(IDPF_VPORT_UP, np->state))
@@ -1100,10 +1101,11 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 
 	idpf_netdev_stop(vport->netdev);
 
+	chunks = &vport->adapter->vport_config[vport->idx]->qid_reg_info;
+
 	if (!test_bit(IDPF_CORER_IN_PROG, vport->adapter->flags)) {
 		idpf_send_disable_vport_msg(vport);
-		idpf_send_disable_queues_msg(vport, vgrp,
-					     idpf_get_queue_reg_chunks(vport));
+		idpf_send_disable_queues_msg(vport, vgrp, chunks);
 	}
 	idpf_send_map_unmap_queue_vector_msg(vport, vgrp, false);
 	/* Normally we ask for queues in create_vport, but if the number of
@@ -1112,7 +1114,7 @@ static void idpf_vport_stop(struct idpf_vport *vport)
 	 * instead of deleting and reallocating the vport.
 	 */
 	if (test_and_clear_bit(IDPF_VPORT_DEL_QUEUES, vport->flags))
-		idpf_send_delete_queues_msg(vport);
+		idpf_send_delete_queues_msg(vport, chunks);
 
 	idpf_remove_features(vport);
 
@@ -1199,12 +1201,11 @@ static void idpf_vport_rel(struct idpf_vport *vport)
 	kfree(vport->port_stats.phy_port_stats);
 
 #endif /* CONFIG_UPLINK_PORT_STATS */
+	idpf_vport_deinit_queue_reg_chunks(vport_config);
+
 	kfree(adapter->vport_params_recvd[idx]);
 	adapter->vport_params_recvd[idx] = NULL;
-	if (adapter->vport_config[idx]) {
-		kfree(adapter->vport_config[idx]->req_qs_chunks);
-		adapter->vport_config[idx]->req_qs_chunks = NULL;
-	}
+
 	kfree(vport);
 	adapter->num_alloc_vports--;
 }
@@ -1470,7 +1471,7 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 	rss_data = &adapter->vport_config[idx]->user_config.rss_data;
 	rss_data->rss_key = kzalloc(rss_data->rss_key_size, GFP_KERNEL);
 	if (!rss_data->rss_key)
-		goto free_vector_idxs;
+		goto free_qreg_chunks;
 
 	/* Initialize default rss key */
 	netdev_rss_key_fill((void *)rss_data->rss_key, rss_data->rss_key_size);
@@ -1485,6 +1486,8 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 
 	return vport;
 
+free_qreg_chunks:
+	idpf_vport_deinit_queue_reg_chunks(adapter->vport_config[idx]);
 free_vector_idxs:
 	kfree(intr_grp->q_vector_idxs);
 	intr_grp->q_vector_idxs = NULL;
@@ -1747,7 +1750,8 @@ static int idpf_vport_open(struct idpf_vport *vport)
 	struct idpf_q_grp *q_grp = &vport->dflt_grp.q_grp;
 	struct idpf_adapter *adapter = vport->adapter;
 	struct idpf_vgrp *vgrp = &vport->dflt_grp;
-	struct virtchnl2_queue_reg_chunks *chunks;
+	struct idpf_vport_config *vport_config;
+	struct idpf_queue_id_reg_info *chunks;
 	struct idpf_rss_data *rss_data;
 	int err;
 
@@ -1768,7 +1772,9 @@ static int idpf_vport_open(struct idpf_vport *vport)
 	if (err)
 		goto intr_rel;
 
-	chunks = idpf_get_queue_reg_chunks(vport);
+	vport_config = adapter->vport_config[vport->idx];
+	chunks = &vport_config->qid_reg_info;
+
 	err = idpf_vport_queue_ids_init(q_grp, chunks);
 	if (err) {
 		dev_err(idpf_adapter_to_dev(adapter), "Failed to initialize queue ids for vport %u: %d\n",
@@ -1860,8 +1866,7 @@ deinit_rss:
 disable_vport:
 	idpf_send_disable_vport_msg(vport);
 disable_queues:
-	idpf_send_disable_queues_msg(vport, vgrp,
-				     idpf_get_queue_reg_chunks(vport));
+	idpf_send_disable_queues_msg(vport, vgrp, chunks);
 unmap_queue_vectors:
 	idpf_send_map_unmap_queue_vector_msg(vport, vgrp, false);
 intr_deinit:
@@ -2301,7 +2306,7 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	struct idpf_vport *new_vport;
 	struct idpf_q_grp *new_q_grp;
 	struct idpf_q_grp *q_grp;
-	int err;
+	int err, tmp_err = 0;
 
 	/* If the system is low on memory, we can end up in bad state if we
 	 * free all the memory for queue resources and try to allocate them
@@ -2354,7 +2359,8 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	}
 
 	if (!vport_is_up) {
-		idpf_send_delete_queues_msg(vport);
+		idpf_send_delete_queues_msg(vport,
+			&vport->adapter->vport_config[vport->idx]->qid_reg_info);
 	} else {
 		set_bit(IDPF_VPORT_DEL_QUEUES, vport->flags);
 		idpf_vport_stop(vport);
@@ -2411,11 +2417,13 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 
 err_reset:
 	q_grp = &vport->dflt_grp.q_grp;
-	idpf_send_add_queues_msg(vport, q_grp->num_txq, q_grp->num_complq,
-				 q_grp->num_rxq, q_grp->num_bufq);
+	tmp_err = idpf_send_add_queues_msg(vport, q_grp->num_txq,
+					   q_grp->num_complq,
+					   q_grp->num_rxq,
+					   q_grp->num_bufq);
 
 err_open:
-	if (vport_is_up)
+	if (!tmp_err && vport_is_up)
 		idpf_vport_open(vport);
 free_vport:
 	kfree(new_vport);
@@ -3100,7 +3108,8 @@ idpf_xdp_setup_prog(struct idpf_netdev_priv *np, struct bpf_prog *prog,
 	}
 
 	if (!vport_is_up) {
-		idpf_send_delete_queues_msg(vport);
+		idpf_send_delete_queues_msg(vport,
+			&vport->adapter->vport_config[vport->idx]->qid_reg_info);
 	} else {
 		set_bit(IDPF_VPORT_DEL_QUEUES, vport->flags);
 		idpf_vport_stop(vport);
