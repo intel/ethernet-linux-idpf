@@ -178,10 +178,14 @@ function gen-dma() {
 
 function gen-dpll() {
 	dh='include/linux/dpll.h'
+	gen HAVE_DPLL_DEVICE_GET_TRACKER if fun dpll_device_get matches 'dpll_tracker \\*tracker' in "$dh"
+	gen HAVE_DPLL_DEVICE_PUT_TRACKER if fun dpll_device_put matches 'dpll_tracker \\*tracker' in "$dh"
 	gen HAVE_DPLL_ESYNC if method esync_get of dpll_pin_ops in "$dh"
 	gen HAVE_DPLL_LOCK_STATUS_ERROR if method lock_status_get of dpll_device_ops matches status_error in "$dh"
 	gen HAVE_DPLL_PHASE_OFFSET if method phase_offset_get of dpll_pin_ops in "$dh"
 	gen HAVE_DPLL_PHASE_OFFSET_MONITOR if method phase_offset_monitor_set of dpll_device_ops in "$dh"
+	gen HAVE_DPLL_PIN_GET_TRACKER if fun dpll_pin_get matches 'dpll_tracker \\*tracker' in "$dh"
+	gen HAVE_DPLL_PIN_PUT_TRACKER if fun dpll_pin_put matches 'dpll_tracker \\*tracker' in "$dh"
 	gen NEED_DPLL_NETDEV_PIN_SET if fun dpll_netdev_pin_set absent in "$dh"
 }
 
