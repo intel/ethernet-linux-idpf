@@ -1311,6 +1311,7 @@ void idpf_dev_ops_init(struct idpf_adapter *adapter);
 void idpf_vf_dev_ops_init(struct idpf_adapter *adapter);
 void idpf_vport_adjust_qs(struct idpf_vport *vport);
 int idpf_intr_req(struct idpf_adapter *adapter);
+void idpf_mb_intr_rel_irq(struct idpf_adapter *adapter);
 void idpf_intr_rel(struct idpf_adapter *adapter);
 #ifdef HAVE_NDO_FEATURES_CHECK
 u16 idpf_get_max_tx_hdr_size(struct idpf_adapter *adapter);
