@@ -643,7 +643,6 @@ int idpf_reset_recover(struct idpf_adapter *adapter)
 
 	queue_delayed_work(adapter->serv_wq, &adapter->serv_task,
 			   msecs_to_jiffies(5 * (adapter->pdev->devfn & 0x07)));
-	queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task, 0);
 
 	/* Initialize the state machine, also allocate memory and request
 	 * resources
@@ -661,7 +660,6 @@ int idpf_reset_recover(struct idpf_adapter *adapter)
 	return 0;
 
 init_err:
-	cancel_delayed_work_sync(&adapter->mbx_task);
 	cancel_delayed_work_sync(&adapter->serv_task);
 	idpf_deinit_dflt_mbx(adapter);
 
