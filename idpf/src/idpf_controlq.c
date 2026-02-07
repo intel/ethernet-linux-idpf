@@ -95,7 +95,7 @@ static void idpf_ctlq_init_rxq_bufs(struct idpf_ctlq_info *cq)
  */
 static void idpf_ctlq_shutdown(struct idpf_hw *hw, struct idpf_ctlq_info *cq)
 {
-	spin_lock(&cq->cq_lock);
+	WARN_ON(spin_is_locked(&cq->cq_lock));
 
 	if (IS_SIMICS_DEVICE(hw->subsystem_device_id)) {
 		wr32(hw, cq->reg.head, 0);
@@ -110,8 +110,6 @@ static void idpf_ctlq_shutdown(struct idpf_hw *hw, struct idpf_ctlq_info *cq)
 
 	/* Set ring_size to 0 to indicate uninitialized queue */
 	cq->ring_size = 0;
-
-	spin_unlock(&cq->cq_lock);
 }
 
 /**
