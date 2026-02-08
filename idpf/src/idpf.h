@@ -11,6 +11,7 @@ struct idpf_vport_max_q;
 struct idpf_vgrp;
 struct idpf_q_grp;
 struct idpf_intr_grp;
+struct idpf_q_vec_rsrc;
 struct idpf_rss_data;
 
 /* Because of the header files order dependency in OOT, include kcompat.h first.
@@ -283,7 +284,7 @@ struct idpf_reg_ops {
 	void (*ctlq_reg_init)(struct idpf_adapter *adapter,
 			      struct idpf_ctlq_create_info *cq);
 	int (*intr_reg_init)(struct idpf_vport *vport,
-			     struct idpf_intr_grp *intr_grp);
+			     struct idpf_q_vec_rsrc *rsrc);
 	void (*mb_intr_reg_init)(struct idpf_adapter *adapter);
 	void (*reset_reg_init)(struct idpf_adapter *adapter);
 	void (*oicr_reset_reg_init)(struct idpf_adapter *adapter);
@@ -480,15 +481,23 @@ struct idpf_q_grp {
 };
 
 /**
+ * struct idpf_q_vec_rsrc - handle for queue and vector resources
+ * @q_vectors: array of queue vectors
+ * @q_vector_idxs: starting index of queue vectors
+ * @num_q_vectors: number of IRQ vectors allocated
+ */
+struct idpf_q_vec_rsrc {
+	struct idpf_q_vector	*q_vectors;
+	u16			*q_vector_idxs;
+	u16			num_q_vectors;
+};
+
+/**
  * struct idpf_intr_grp - Interrupt resource group
- * @num_q_vectors: Number of IRQ vectors allocated
- * @q_vectors: Array of queue vectors
- * @q_vector_idxs: Starting index of queue vectors
+ * @rsrc: Queue and vector resources
  */
 struct idpf_intr_grp {
-	u16 num_q_vectors;
-	struct idpf_q_vector *q_vectors;
-	u16 *q_vector_idxs;
+	struct idpf_q_vec_rsrc rsrc;
 };
 
 /**

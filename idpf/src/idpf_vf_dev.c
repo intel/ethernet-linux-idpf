@@ -85,13 +85,13 @@ static void idpf_vf_mb_intr_reg_init(struct idpf_adapter *adapter)
 /**
  * idpf_vf_intr_reg_init - Initialize interrupt registers
  * @vport: virtual port structure
- * @intr_grp: Interrupt resources
+ * @rsrc: pointer to queue and vector resources
  */
 static int idpf_vf_intr_reg_init(struct idpf_vport *vport,
-				 struct idpf_intr_grp *intr_grp)
+				 struct idpf_q_vec_rsrc *rsrc)
 {
 	struct idpf_adapter *adapter = vport->adapter;
-	int num_vecs = intr_grp->num_q_vectors;
+	int num_vecs = rsrc->num_q_vectors;
 	struct idpf_vec_regs *reg_vals;
 	int num_regs, i, err = 0;
 	u32 rx_itr, tx_itr;
@@ -110,9 +110,9 @@ static int idpf_vf_intr_reg_init(struct idpf_vport *vport,
 	}
 
 	for (i = 0; i < num_vecs; i++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[i];
+		struct idpf_q_vector *q_vector = &rsrc->q_vectors[i];
+		u16 vec_id = rsrc->q_vector_idxs[i] - IDPF_MBX_Q_VEC;
 		struct idpf_intr_reg *intr = &q_vector->intr_reg;
-		u16 vec_id = intr_grp->q_vector_idxs[i] - IDPF_MBX_Q_VEC;
 		u32 spacing;
 
 		intr->dyn_ctl = idpf_get_reg_addr(adapter,
