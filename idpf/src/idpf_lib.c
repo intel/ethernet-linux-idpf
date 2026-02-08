@@ -1456,8 +1456,9 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 			       idpf_get_default_vports(adapter);
 
 	intr_grp = &vport->dflt_grp.intr_grp;
-	intr_grp->q_vector_idxs = kcalloc(num_max_q, sizeof(u16), GFP_KERNEL);
-	if (!intr_grp->q_vector_idxs)
+	intr_grp->rsrc.q_vector_idxs = kcalloc(num_max_q, sizeof(u16),
+					       GFP_KERNEL);
+	if (!intr_grp->rsrc.q_vector_idxs)
 		goto free_vport;
 
 	if (idpf_vport_init(vport, max_q))
@@ -1489,8 +1490,8 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 free_qreg_chunks:
 	idpf_vport_deinit_queue_reg_chunks(adapter->vport_config[idx]);
 free_vector_idxs:
-	kfree(intr_grp->q_vector_idxs);
-	intr_grp->q_vector_idxs = NULL;
+	kfree(intr_grp->rsrc.q_vector_idxs);
+	intr_grp->rsrc.q_vector_idxs = NULL;
 free_vport:
 	kfree(vport);
 

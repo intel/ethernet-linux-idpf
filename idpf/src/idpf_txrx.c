@@ -5004,10 +5004,8 @@ static irqreturn_t idpf_vport_intr_clean_queues(int __always_unused irq,
  */
 static void idpf_vport_intr_napi_del_all(struct idpf_intr_grp *intr_grp)
 {
-	u16 v_idx;
-
-	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++)
-		netif_napi_del(&intr_grp->q_vectors[v_idx].napi);
+	for (u16 v_idx = 0; v_idx < intr_grp->rsrc.num_q_vectors; v_idx++)
+		netif_napi_del(&intr_grp->rsrc.q_vectors[v_idx].napi);
 }
 
 /**
@@ -5016,10 +5014,8 @@ static void idpf_vport_intr_napi_del_all(struct idpf_intr_grp *intr_grp)
  */
 static void idpf_vport_intr_napi_dis_all(struct idpf_intr_grp *intr_grp)
 {
-	int v_idx;
-
-	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++)
-		napi_disable(&intr_grp->q_vectors[v_idx].napi);
+	for (u16 v_idx = 0; v_idx < intr_grp->rsrc.num_q_vectors; v_idx++)
+		napi_disable(&intr_grp->rsrc.q_vectors[v_idx].napi);
 }
 
 /**
@@ -5031,10 +5027,9 @@ static void idpf_vport_intr_napi_dis_all(struct idpf_intr_grp *intr_grp)
 void idpf_vport_intr_rel(struct idpf_vgrp *vgrp)
 {
 	struct idpf_intr_grp *intr_grp = &vgrp->intr_grp;
-	int v_idx;
 
-	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[v_idx];
+	for (u16 v_idx = 0; v_idx < intr_grp->rsrc.num_q_vectors; v_idx++) {
+		struct idpf_q_vector *q_vector = &intr_grp->rsrc.q_vectors[v_idx];
 
 		kfree(q_vector->bufq);
 		q_vector->bufq = NULL;
@@ -5048,8 +5043,8 @@ void idpf_vport_intr_rel(struct idpf_vgrp *vgrp)
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 	}
 
-	kfree(intr_grp->q_vectors);
-	intr_grp->q_vectors = NULL;
+	kfree(intr_grp->rsrc.q_vectors);
+	intr_grp->rsrc.q_vectors = NULL;
 }
 
 /**
@@ -5061,13 +5056,12 @@ static void idpf_vport_intr_rel_irq(struct idpf_vport *vport,
 				    struct idpf_intr_grp *intr_grp)
 {
 	struct idpf_adapter *adapter = vport->adapter;
-	int vector;
 
-	for (vector = 0; vector < intr_grp->num_q_vectors; vector++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[vector];
+	for (u16 vector = 0; vector < intr_grp->rsrc.num_q_vectors; vector++) {
+		struct idpf_q_vector *q_vector = &intr_grp->rsrc.q_vectors[vector];
 		int irq_num, vidx;
 
-		vidx = intr_grp->q_vector_idxs[vector];
+		vidx = intr_grp->rsrc.q_vector_idxs[vector];
 		irq_num = adapter->msix_entries[vidx].vector;
 
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
@@ -5089,10 +5083,9 @@ static void idpf_vport_intr_rel_irq(struct idpf_vport *vport,
  */
 static void idpf_vport_intr_dis_irq_all(struct idpf_intr_grp *intr_grp)
 {
-	struct idpf_q_vector *q_vector = intr_grp->q_vectors;
-	int q_idx;
+	struct idpf_q_vector *q_vector = intr_grp->rsrc.q_vectors;
 
-	for (q_idx = 0; q_idx < intr_grp->num_q_vectors; q_idx++)
+	for (u16 q_idx = 0; q_idx < intr_grp->rsrc.num_q_vectors; q_idx++)
 		writel(0, q_vector[q_idx].intr_reg.dyn_ctl);
 }
 
@@ -5277,11 +5270,11 @@ static int idpf_vport_intr_req_irq(struct idpf_vport *vport,
 	int vector, err, irq_num, vidx;
 	const char *vec_name;
 
-	for (vector = 0; vector < intr_grp->num_q_vectors; vector++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[vector];
+	for (vector = 0; vector < intr_grp->rsrc.num_q_vectors; vector++) {
+		struct idpf_q_vector *q_vector = &intr_grp->rsrc.q_vectors[vector];
 		char *name;
 
-		vidx = intr_grp->q_vector_idxs[vector];
+		vidx = intr_grp->rsrc.q_vector_idxs[vector];
 		irq_num = adapter->msix_entries[vidx].vector;
 
 		if (q_vector->num_rxq && q_vector->num_txq)
@@ -5327,11 +5320,11 @@ static int idpf_vport_intr_req_irq(struct idpf_vport *vport,
 
 free_q_irqs:
 	while (--vector >= 0) {
-		vidx = intr_grp->q_vector_idxs[vector];
+		vidx = intr_grp->rsrc.q_vector_idxs[vector];
 		irq_num = adapter->msix_entries[vidx].vector;
-		kfree(free_irq(irq_num, &intr_grp->q_vectors[vector]));
-		kfree(intr_grp->q_vectors[vector].name);
-		intr_grp->q_vectors[vector].name = NULL;
+		kfree(free_irq(irq_num, &intr_grp->rsrc.q_vectors[vector]));
+		kfree(intr_grp->rsrc.q_vectors[vector].name);
+		intr_grp->rsrc.q_vectors[vector].name = NULL;
 	}
 	return err;
 }
@@ -5365,11 +5358,10 @@ static void idpf_vport_intr_ena_irq_all(struct idpf_vport *vport,
 					struct idpf_intr_grp *intr_grp)
 {
 	bool dynamic;
-	int q_idx;
 	u16 itr;
 
-	for (q_idx = 0; q_idx < intr_grp->num_q_vectors; q_idx++) {
-		struct idpf_q_vector *qv = &intr_grp->q_vectors[q_idx];
+	for (u16 q_idx = 0; q_idx < intr_grp->rsrc.num_q_vectors; q_idx++) {
+		struct idpf_q_vector *qv = &intr_grp->rsrc.q_vectors[q_idx];
 
 		/* Write the default ITR values */
 		if (qv->num_txq) {
@@ -5500,10 +5492,8 @@ static void idpf_init_dim(struct idpf_q_vector *qv)
  */
 static void idpf_vport_intr_napi_ena_all(struct idpf_intr_grp *intr_grp)
 {
-	int q_idx;
-
-	for (q_idx = 0; q_idx < intr_grp->num_q_vectors; q_idx++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[q_idx];
+	for (u16 q_idx = 0; q_idx < intr_grp->rsrc.num_q_vectors; q_idx++) {
+		struct idpf_q_vector *q_vector = &intr_grp->rsrc.q_vectors[q_idx];
 
 		idpf_init_dim(q_vector);
 		napi_enable(&q_vector->napi);
@@ -5657,14 +5647,14 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_vgrp *vgrp)
 			num_rxq = rx_qgrp->singleq.num_rxq;
 
 		for (j = 0; j < num_rxq; j++) {
-			if (qv_idx >= intr_grp->num_q_vectors)
+			if (qv_idx >= intr_grp->rsrc.num_q_vectors)
 				qv_idx = 0;
 
 			if (idpf_is_queue_model_split(q_grp->rxq_model))
 				q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
 			else
 				q = rx_qgrp->singleq.rxqs[j];
-			q->q_vector = &intr_grp->q_vectors[qv_idx];
+			q->q_vector = &intr_grp->rsrc.q_vectors[qv_idx];
 			q_index = q->q_vector->num_rxq;
 			q->q_vector->rx[q_index] = q;
 			q->q_vector->num_rxq++;
@@ -5674,12 +5664,12 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_vgrp *vgrp)
 		if (idpf_is_queue_model_split(q_grp->rxq_model)) {
 			for (j = 0; j < q_grp->num_bufqs_per_qgrp; j++) {
 				bufq = &rx_qgrp->splitq.bufq_sets[j].bufq;
-				bufq->q_vector = &intr_grp->q_vectors[bufq_vidx];
+				bufq->q_vector = &intr_grp->rsrc.q_vectors[bufq_vidx];
 				q_index = bufq->q_vector->num_bufq;
 				bufq->q_vector->bufq[q_index] = bufq;
 				bufq->q_vector->num_bufq++;
 			}
-			if (++bufq_vidx >= intr_grp->num_q_vectors)
+			if (++bufq_vidx >= intr_grp->rsrc.num_q_vectors)
 				bufq_vidx = 0;
 		}
 	}
@@ -5694,22 +5684,22 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_vgrp *vgrp)
 		num_txq = tx_qgrp->num_txq;
 
 		if (idpf_is_queue_model_split(q_grp->txq_model)) {
-			if (qv_idx >= intr_grp->num_q_vectors)
+			if (qv_idx >= intr_grp->rsrc.num_q_vectors)
 				qv_idx = 0;
 
 			q = tx_qgrp->complq;
-			q->q_vector = &intr_grp->q_vectors[qv_idx];
+			q->q_vector = &intr_grp->rsrc.q_vectors[qv_idx];
 			q_index = q->q_vector->num_txq;
 			q->q_vector->tx[q_index] = q;
 			q->q_vector->num_txq++;
 			qv_idx++;
 		} else {
 			for (j = 0; j < num_txq; j++) {
-				if (qv_idx >= intr_grp->num_q_vectors)
+				if (qv_idx >= intr_grp->rsrc.num_q_vectors)
 					qv_idx = 0;
 
 				q = tx_qgrp->txqs[j];
-				q->q_vector = &intr_grp->q_vectors[qv_idx];
+				q->q_vector = &intr_grp->rsrc.q_vectors[qv_idx];
 				q_index = q->q_vector->num_txq;
 				q->q_vector->tx[q_index] = q;
 				q->q_vector->num_txq++;
@@ -5733,12 +5723,11 @@ static int idpf_vport_intr_init_vec_idx(struct idpf_vport *vport,
 	struct idpf_adapter *adapter = vport->adapter;
 	struct virtchnl2_alloc_vectors *ac;
 	u16 *vecids, total_vecs;
-	int i;
 
 	ac = adapter->req_vec_chunks;
 	if (!ac) {
-		for (i = 0; i < intr_grp->num_q_vectors; i++)
-			intr_grp->q_vectors[i].v_idx = intr_grp->q_vector_idxs[i];
+		for (u16 i = 0; i < intr_grp->rsrc.num_q_vectors; i++)
+			intr_grp->rsrc.q_vectors[i].v_idx = intr_grp->rsrc.q_vector_idxs[i];
 
 		return 0;
 	}
@@ -5750,8 +5739,8 @@ static int idpf_vport_intr_init_vec_idx(struct idpf_vport *vport,
 
 	idpf_get_vec_ids(adapter, vecids, total_vecs, &ac->vchunks);
 
-	for (i = 0; i < intr_grp->num_q_vectors; i++)
-		intr_grp->q_vectors[i].v_idx = vecids[intr_grp->q_vector_idxs[i]];
+	for (u16 i = 0; i < intr_grp->rsrc.num_q_vectors; i++)
+		intr_grp->rsrc.q_vectors[i].v_idx = vecids[intr_grp->rsrc.q_vector_idxs[i]];
 
 	kfree(vecids);
 
@@ -5775,13 +5764,13 @@ static void idpf_vport_intr_napi_add_all(struct idpf_vport *vport,
 	else
 		napi_poll = idpf_vport_singleq_napi_poll;
 
-	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++) {
-		struct idpf_q_vector *q_vector = &intr_grp->q_vectors[v_idx];
+	for (v_idx = 0; v_idx < intr_grp->rsrc.num_q_vectors; v_idx++) {
+		struct idpf_q_vector *q_vector = &intr_grp->rsrc.q_vectors[v_idx];
 #ifdef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 		int irq_num;
 		u16 qv_idx;
 
-		qv_idx = vgrp->intr_grp.q_vector_idxs[v_idx];
+		qv_idx = vgrp->intr_grp.rsrc.q_vector_idxs[v_idx];
 		irq_num = vport->adapter->msix_entries[qv_idx].vector;
 
 		netif_napi_add_config(vport->netdev, &q_vector->napi,
@@ -5810,13 +5799,12 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 	struct idpf_q_vector *q_vector;
 	struct idpf_q_coalesce *q_coal;
 	u16 idx = vport->idx;
-	u32 v_idx;
 
 	user_config = &vport->adapter->vport_config[idx]->user_config;
-	intr_grp->q_vectors = kcalloc(intr_grp->num_q_vectors,
-				      sizeof(struct idpf_q_vector),
-				      GFP_KERNEL);
-	if (!intr_grp->q_vectors)
+	intr_grp->rsrc.q_vectors = kcalloc(intr_grp->rsrc.num_q_vectors,
+					   sizeof(struct idpf_q_vector),
+					   GFP_KERNEL);
+	if (!intr_grp->rsrc.q_vectors)
 		return -ENOMEM;
 
 	/* In splitq the completion queues get the vectors instead of the TX
@@ -5825,8 +5813,8 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 	num_txq_vec_need = idpf_is_queue_model_split(q_grp->txq_model) ?
 					q_grp->num_complq : q_grp->num_txq;
 	txqs_per_vector = DIV_ROUND_UP(num_txq_vec_need,
-				       intr_grp->num_q_vectors);
-	rxqs_per_vector = DIV_ROUND_UP(q_grp->num_rxq, intr_grp->num_q_vectors);
+				       intr_grp->rsrc.num_q_vectors);
+	rxqs_per_vector = DIV_ROUND_UP(q_grp->num_rxq, intr_grp->rsrc.num_q_vectors);
 
 #ifdef HAVE_XDP_SUPPORT
 	/* For XDP we assign both Tx and XDP Tx queues
@@ -5837,8 +5825,8 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 		txqs_per_vector *= 2;
 
 #endif /* HAVE_XDP_SUPPORT */
-	for (v_idx = 0; v_idx < intr_grp->num_q_vectors; v_idx++) {
-		q_vector = &intr_grp->q_vectors[v_idx];
+	for (u16 v_idx = 0; v_idx < intr_grp->rsrc.num_q_vectors; v_idx++) {
+		q_vector = &intr_grp->rsrc.q_vectors[v_idx];
 		q_coal = &user_config->q_coalesce[v_idx];
 		q_vector->vport = vport;
 
@@ -5905,7 +5893,7 @@ int idpf_vport_intr_init(struct idpf_vport *vport, struct idpf_vgrp *vgrp)
 	idpf_vport_intr_map_vector_to_qs(vgrp);
 	idpf_vport_intr_napi_add_all(vport, vgrp);
 
-	err = adapter->dev_ops.reg_ops.intr_reg_init(vport, intr_grp);
+	err = adapter->dev_ops.reg_ops.intr_reg_init(vport, &intr_grp->rsrc);
 	if (err)
 		goto unroll_vectors_alloc;
 
