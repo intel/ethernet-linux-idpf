@@ -2287,8 +2287,8 @@ int idpf_send_disable_queues_msg(struct idpf_vport *vport,
 
 	/* schedule the napi to receive all the marker packets */
 	local_bh_disable();
-	for (i = 0; i < intr_grp->num_q_vectors; i++)
-		napi_schedule(&intr_grp->q_vectors[i].napi);
+	for (i = 0; i < intr_grp->rsrc.num_q_vectors; i++)
+		napi_schedule(&intr_grp->rsrc.q_vectors[i].napi);
 	local_bh_enable();
 
 	return idpf_wait_for_marker_event(vport, q_grp);
@@ -3708,7 +3708,7 @@ int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
 	struct idpf_vector_info vec_info;
 	int num_alloc_vecs;
 
-	vec_info.num_curr_vecs = intr_grp->num_q_vectors;
+	vec_info.num_curr_vecs = intr_grp->rsrc.num_q_vectors;
 	vec_info.num_req_vecs = max(q_grp->num_txq, q_grp->num_rxq);
 	vec_info.default_vport = vport->default_vport;
 	vec_info.index = vport->idx;
@@ -3727,7 +3727,7 @@ int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
 #endif /* HAVE_XDP_SUPPORT */
 
 	num_alloc_vecs = idpf_req_rel_vector_indexes(vport->adapter,
-						     intr_grp->q_vector_idxs,
+						     intr_grp->rsrc.q_vector_idxs,
 						     &vec_info);
 	if (num_alloc_vecs <= 0) {
 		dev_err(idpf_adapter_to_dev(vport->adapter), "Vector distribution failed: %d\n",
@@ -3735,7 +3735,7 @@ int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
 		return -EINVAL;
 	}
 
-	intr_grp->num_q_vectors = num_alloc_vecs;
+	intr_grp->rsrc.num_q_vectors = num_alloc_vecs;
 
 	return 0;
 }
@@ -3751,15 +3751,15 @@ void idpf_vport_dealloc_vec_indexes(struct idpf_vport *vport,
 	struct idpf_intr_grp *intr_grp = &vgrp->intr_grp;
 	struct idpf_vector_info vec_info;
 
-	vec_info.num_curr_vecs = intr_grp->num_q_vectors;
+	vec_info.num_curr_vecs = intr_grp->rsrc.num_q_vectors;
 	vec_info.num_req_vecs = 0;
 	vec_info.default_vport = vport->default_vport;
 	vec_info.index = vport->idx;
 
-	idpf_req_rel_vector_indexes(vport->adapter, intr_grp->q_vector_idxs,
+	idpf_req_rel_vector_indexes(vport->adapter, intr_grp->rsrc.q_vector_idxs,
 				    &vec_info);
-	kfree(intr_grp->q_vector_idxs);
-	intr_grp->q_vector_idxs = NULL;
+	kfree(intr_grp->rsrc.q_vector_idxs);
+	intr_grp->rsrc.q_vector_idxs = NULL;
 }
 
 /**
