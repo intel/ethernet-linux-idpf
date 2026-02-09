@@ -3414,6 +3414,18 @@ enum dpll_lock_status_error {
 #define dpll_netdev_pin_clear netdev_dpll_pin_clear
 #endif /* NEED_DPLL_NETDEV_PIN_SET */
 
+#ifdef NEED_DPLL_TRACKER
+#ifdef CONFIG_DPLL
+#include <linux/dpll.h>
+#define dpll_device_get(clock_id, device_idx, module, tracker) \
+	dpll_device_get(clock_id, device_idx, module)
+#define dpll_device_put(dpll, tracker) dpll_device_put(dpll)
+#define dpll_pin_get(clock_id, pin_idx, module, prop, tracker) \
+	dpll_pin_get(clock_id, pin_idx, module, prop)
+#define dpll_pin_put(pin, tracker) dpll_pin_put(pin)
+#endif /* CONFIG_DPLL */
+#endif /* NEED_DPLL_TRACKER */
+
 #ifdef NEED_RADIX_TREE_EMPTY
 static inline bool radix_tree_empty(struct radix_tree_root *root)
 {
