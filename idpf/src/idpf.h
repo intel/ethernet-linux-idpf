@@ -8,9 +8,6 @@
 struct idpf_adapter;
 struct idpf_vport;
 struct idpf_vport_max_q;
-struct idpf_vgrp;
-struct idpf_q_grp;
-struct idpf_intr_grp;
 struct idpf_q_vec_rsrc;
 struct idpf_rss_data;
 
@@ -433,81 +430,57 @@ struct idpf_port_stats {
 };
 
 /**
- * struct idpf_q_grp - Queue resource group
- * @num_txq: Number of allocated TX queues
- * @num_complq: Number of allocated completion queues
- * @num_txq_grp: Number of TX queue groups
- * @txq_grps: Array of TX queue groups
- * @txq_desc_count: TX queue descriptor count
- * @complq_desc_count: Completion queue descriptor count
- * @txq_model: Split queue or single queue queuing model
- * @num_bufqs_per_qgrp: Buffer queues per RX queue in a given grouping
- * @num_bufq: Number of allocated buffer queues
- * @num_rxq: Number of allocated RX queues
- * @num_rxq_grp: Number of allocated RX queue groups
- * @rxq_grps: Total number of RX groups. Number of groups * number of RX per
- *	      group will yield total number of RX queues.
- * @rxq_desc_count: RX queue descriptor count. *MUST* have enough descriptors
- *                  to complete all buffer descriptors for all buffer queues in
- *                  the worst case.
- * @bufq_desc_count: Buffer queue descriptor count
- * @bufq_size: Size of buffers in ring (e.g. 2K, 4K, etc)
- * @rxq_model: Splitq queue or single queue queuing model
- * @base_rxd: True if the driver should use base descriptors instead of flex
- * @rxqs: Array of RX queues
- * @bufqs: Array of buffer queues
- * @refillqs: Array of refill queues
- */
-struct idpf_q_grp {
-	u16 num_txq;
-	u16 num_complq;
-	u16 num_txq_grp;
-	struct idpf_txq_group *txq_grps;
-	u32 txq_desc_count;
-	u32 complq_desc_count;
-	u16 txq_model;
-	u8 num_bufqs_per_qgrp;
-	u16 num_bufq;
-
-	u16 num_rxq;
-	u16 num_rxq_grp;
-	struct idpf_rxq_group *rxq_grps;
-	u32 rxq_desc_count;
-	u32 bufq_desc_count[IDPF_MAX_BUFQS_PER_RXQ_GRP];
-	u32 bufq_size[IDPF_MAX_BUFQS_PER_RXQ_GRP];
-	u16 rxq_model;
-	bool base_rxd;
-
-};
-
-/**
  * struct idpf_q_vec_rsrc - handle for queue and vector resources
+ * @dev: device pointer for DMA mapping
  * @q_vectors: array of queue vectors
  * @q_vector_idxs: starting index of queue vectors
  * @num_q_vectors: number of IRQ vectors allocated
+ * @txq_grps: array of TX queue groups
+ * @txq_desc_count: TX queue descriptor count
+ * @complq_desc_count: completion queue descriptor count
+ * @txq_model: split queue or single queue queuing model
+ * @num_txq: number of allocated TX queues
+ * @num_complq: number of allocated completion queues
+ * @num_txq_grp: number of TX queue groups
+ * @num_rxq_grp: number of RX queues in a group
+ * @rxq_model: splitq queue or single queue queuing model
+ * @rxq_grps: total number of RX groups. Number of groups * number of RX per
+ *            group will yield total number of RX queues.
+ * @num_rxq: number of allocated RX queues
+ * @num_bufq: number of allocated buffer queues
+ * @rxq_desc_count: RX queue descriptor count. *MUST* have enough descriptors
+ *                  to complete all buffer descriptors for all buffer queues in
+ *                  the worst case.
+ * @bufq_desc_count: buffer queue descriptor count
+ * @num_bufqs_per_qgrp: buffer queues per RX queue in a given grouping
+ * @base_rxd: true if the driver should use base descriptors instead of flex
+ * @bufq_size: size of buffers in ring (e.g. 2K, 4K, etc)
  */
 struct idpf_q_vec_rsrc {
+	struct device		*dev;
 	struct idpf_q_vector	*q_vectors;
 	u16			*q_vector_idxs;
 	u16			num_q_vectors;
-};
 
-/**
- * struct idpf_intr_grp - Interrupt resource group
- * @rsrc: Queue and vector resources
- */
-struct idpf_intr_grp {
-	struct idpf_q_vec_rsrc rsrc;
-};
+	struct idpf_txq_group	*txq_grps;
+	u32			txq_desc_count;
+	u32			complq_desc_count;
+	u32			txq_model;
+	u16			num_txq;
+	u16			num_complq;
+	u16			num_txq_grp;
 
-/**
- * struct idpf_vgrp - Handle for queue and vector resources
- * @q_grp: Queue resources
- * @intr_grp: Interrupt resources
- */
-struct idpf_vgrp {
-	struct idpf_q_grp q_grp;
-	struct idpf_intr_grp intr_grp;
+	u16			num_rxq_grp;
+	u32			rxq_model;
+	struct idpf_rxq_group	*rxq_grps;
+	u16			num_rxq;
+	u16			num_bufq;
+	u32			rxq_desc_count;
+	u32			bufq_desc_count[IDPF_MAX_BUFQS_PER_RXQ_GRP];
+	u8			num_bufqs_per_qgrp;
+	bool			base_rxd;
+	u32			bufq_size[IDPF_MAX_BUFQS_PER_RXQ_GRP];
+
 };
 
 struct idpf_fsteer_fltr {
@@ -517,7 +490,7 @@ struct idpf_fsteer_fltr {
 
 /**
  * struct idpf_vport - Handle for netdevices and queue resources
- * @dflt_grp: Queue and interrupt resource group
+ * @dflt_qv_rsrc: Default queue and vector resources
  * @txqs: Array to store the copy of TX queues for the fast path access
  * @num_txq: Number of allocated TX queues for fast path access
  * @compln_clean_budget: Work budget for completion clean
@@ -565,7 +538,7 @@ struct idpf_fsteer_fltr {
 #endif
  */
 struct idpf_vport {
-	struct idpf_vgrp dflt_grp;
+	struct idpf_q_vec_rsrc dflt_qv_rsrc;
 	struct idpf_queue **txqs;
 	u16 num_txq;
 	u32 compln_clean_budget;
@@ -1383,7 +1356,8 @@ void idpf_mbx_task(struct work_struct *work);
 void idpf_vc_event_task(struct work_struct *work);
 void idpf_dev_ops_init(struct idpf_adapter *adapter);
 void idpf_vf_dev_ops_init(struct idpf_adapter *adapter);
-void idpf_vport_adjust_qs(struct idpf_vport *vport);
+void idpf_vport_adjust_qs(struct idpf_vport *vport,
+			  struct idpf_q_vec_rsrc *rsrc);
 int idpf_intr_req(struct idpf_adapter *adapter);
 void idpf_mb_intr_rel_irq(struct idpf_adapter *adapter);
 void idpf_intr_rel(struct idpf_adapter *adapter);
@@ -1398,9 +1372,9 @@ int idpf_req_rel_vector_indexes(struct idpf_adapter *adapter,
 				u16 *q_vector_idxs,
 				struct idpf_vector_info *vec_info);
 int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
-				 struct idpf_vgrp *vgrp);
+				 struct idpf_q_vec_rsrc *rsrc);
 void idpf_vport_dealloc_vec_indexes(struct idpf_vport *vport,
-				    struct idpf_vgrp *vgrp);
+				    struct idpf_q_vec_rsrc *rsrc);
 void idpf_set_ethtool_ops(struct net_device *netdev);
 #if IS_ENABLED(CONFIG_ETHTOOL_NETLINK) && defined(HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT)
 u8 idpf_vport_get_hsplit(const struct idpf_vport *vport);
@@ -1435,10 +1409,6 @@ void idpf_attach_and_open(struct idpf_adapter *adapter);
 int idpf_check_reset_complete(struct idpf_adapter *adapter);
 int idpf_reset_recover(struct idpf_adapter *adapter);
 bool idpf_is_reset_detected(struct idpf_adapter *adapter);
-int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
-			      struct idpf_queue_id_reg_info *chunks);
-int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
-			struct idpf_queue_id_reg_info *chunks);
 int idpf_check_supported_desc_ids(struct idpf_vport *vport);
 void idpf_vport_intr_write_itr(struct idpf_q_vector *q_vector,
 			       u16 itr, bool tx);

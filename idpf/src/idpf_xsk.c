@@ -760,7 +760,7 @@ bool idpf_xsk_any_rxq_ena(struct idpf_vport *vport)
 {
 	int i;
 
-	for (i = 0; i < vport->dflt_grp.q_grp.num_rxq; i++) {
+	for (i = 0; i < vport->dflt_qv_rsrc.num_rxq; i++) {
 		if (xsk_get_pool_from_qid(vport->netdev, i))
 			return true;
 	}
@@ -928,17 +928,17 @@ static bool idpf_rx_singleq_buf_hw_alloc_zc_all(struct idpf_queue *rxq,
 /**
  * idpf_rx_buf_hw_alloc_zc_all - allocate a number of Rx buffers
  * @vport: current vport
- * @q_grp: Queue resources
+ * @rsrc: pointer to queue and vector resources
  * @rxq: Rx queue
  */
 void idpf_rx_buf_hw_alloc_zc_all(struct idpf_vport *vport,
-				 struct idpf_q_grp *q_grp,
+				 struct idpf_q_vec_rsrc *rsrc,
 				 struct idpf_queue *rxq)
 {
 	int i, desc_cnt;
 	bool err;
 
-	if (!idpf_is_queue_model_split(q_grp->rxq_model)) {
+	if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
 		err = idpf_rx_singleq_buf_hw_alloc_zc_all(rxq,
 							  rxq->desc_count - 1);
 		if (err)
@@ -947,7 +947,7 @@ void idpf_rx_buf_hw_alloc_zc_all(struct idpf_vport *vport,
 		return;
 	}
 
-	for (i = 0; i < q_grp->num_bufqs_per_qgrp; i++) {
+	for (i = 0; i < rsrc->num_bufqs_per_qgrp; i++) {
 		struct idpf_queue *rxbufq;
 
 		rxbufq = &rxq->rxq_grp->splitq.bufq_sets[i].bufq;
