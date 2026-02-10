@@ -14,7 +14,7 @@ int idpf_xsk_handle_pool_change(struct idpf_vport *vport);
 int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget);
 int idpf_rx_singleq_clean_zc(struct idpf_queue *rxq, int budget);
 void idpf_rx_buf_hw_alloc_zc_all(struct idpf_vport *vport,
-				 struct idpf_q_grp *q_grp,
+				 struct idpf_q_vec_rsrc *rsrc,
 				 struct idpf_queue *rxq);
 int idpf_rx_update_bufq_desc_zc(struct idpf_rx_buf *buf,
 				struct idpf_queue *bufq,
