@@ -127,10 +127,12 @@ void idpf_init_vc_xn_completion(struct idpf_vc_xn_manager *vcxn_mngr);
 void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr);
 int idpf_get_reg_intr_vecs(struct idpf_vport *vport,
 			   struct idpf_vec_regs *reg_vals);
-int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_grp *q_grp,
+int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 			struct idpf_queue_id_reg_info *chunks);
-int idpf_vport_queue_ids_init(struct idpf_q_grp *q_grp,
+int idpf_vport_queue_ids_init(struct idpf_q_vec_rsrc *rsrc,
 			      struct idpf_queue_id_reg_info *chunks);
+int idpf_vport_init_queue_reg_chunks(struct idpf_vport_config *vport_config,
+				     struct virtchnl2_queue_reg_chunks *schunks);
 
 bool idpf_vport_is_cap_ena(struct idpf_vport *vport, u16 flag);
 bool idpf_sideband_flow_type_ena(struct idpf_vport *vport, u32 flow_type);
@@ -152,28 +154,29 @@ int idpf_send_destroy_vport_msg(struct idpf_vport *vport);
 int idpf_send_enable_vport_msg(struct idpf_vport *vport);
 int idpf_send_disable_vport_msg(struct idpf_vport *vport);
 
-void idpf_vport_adjust_qs(struct idpf_vport *vport);
+void idpf_vport_adjust_qs(struct idpf_vport *vport,
+			  struct idpf_q_vec_rsrc *rsrc);
 int idpf_vport_alloc_max_qs(struct idpf_adapter *adapter,
 			    struct idpf_vport_max_q *max_q);
 void idpf_vport_dealloc_max_qs(struct idpf_adapter *adapter,
 			       struct idpf_vport_max_q *max_q);
 int idpf_send_config_queues_msg(struct idpf_vport *vport,
-				struct idpf_q_grp *q_grp);
+				struct idpf_q_vec_rsrc *rsrc);
 int idpf_send_enable_queues_msg(struct idpf_vport *vport,
 				struct idpf_queue_id_reg_info *chunks);
 int idpf_send_disable_queues_msg(struct idpf_vport *vport,
-				 struct idpf_vgrp *vgrp,
+				 struct idpf_q_vec_rsrc *rsrc,
 				 struct idpf_queue_id_reg_info *chunks);
 
 int idpf_vport_alloc_vec_indexes(struct idpf_vport *vport,
-				 struct idpf_vgrp *vgrp);
+				 struct idpf_q_vec_rsrc *rsrc);
 int idpf_get_vec_ids(struct idpf_adapter *adapter,
 		     u16 *vecids, int num_vecids,
 		     struct virtchnl2_vector_chunks *chunks);
 int idpf_send_alloc_vectors_msg(struct idpf_adapter *adapter, u16 num_vectors);
 int idpf_send_dealloc_vectors_msg(struct idpf_adapter *adapter);
 int idpf_send_map_unmap_queue_vector_msg(struct idpf_vport *vport,
-					 struct idpf_vgrp *vgrp, bool map);
+					 struct idpf_q_vec_rsrc *rsrc, bool map);
 
 int idpf_add_del_mac_filters(struct idpf_vport *vport,
 			     struct idpf_netdev_priv *np,
