@@ -40,8 +40,8 @@ int idpf_ptp_get_caps(struct idpf_adapter *adapter)
 	struct idpf_ptp_secondary_mbx *scnd_mbx;
 	struct idpf_ptp *ptp = adapter->ptp;
 	enum idpf_ptp_access access_type;
+	int reply_sz, ret = 0;
 	u32 temp_offset;
-	int reply_sz;
 
 	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	recv_ptp_caps_msg = kzalloc(sizeof(struct virtchnl2_ptp_get_caps),
@@ -54,9 +54,12 @@ int idpf_ptp_get_caps(struct idpf_adapter *adapter)
 
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
 	if (reply_sz < 0)
-		return reply_sz;
+		ret = reply_sz;
 	else if (reply_sz != sizeof(*recv_ptp_caps_msg))
-		return -EIO;
+		ret = -EIO;
+
+	if (ret)
+		goto get_caps_out;
 
 	ptp->caps = le32_to_cpu(recv_ptp_caps_msg->caps);
 	ptp->base_incval = le64_to_cpu(recv_ptp_caps_msg->base_incval);
@@ -115,7 +118,7 @@ cross_tstamp:
 discipline_clock:
 	access_type = ptp->adj_dev_clk_time_access;
 	if (access_type != IDPF_PTP_DIRECT)
-		return 0;
+		goto get_caps_out;
 
 	clk_adj_offsets = recv_ptp_caps_msg->clk_adj_offsets;
 
@@ -145,9 +148,10 @@ discipline_clock:
 	temp_offset = le32_to_cpu(clk_adj_offsets.phy_clk_shadj_h);
 	ptp->dev_clk_regs.phy_shadj_h = idpf_get_reg_addr(adapter, temp_offset);
 
+get_caps_out:
 	kfree(recv_ptp_caps_msg);
 
-	return 0;
+	return ret;
 }
 
 /**
