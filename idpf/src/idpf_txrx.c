@@ -280,15 +280,14 @@ static void idpf_tx_desc_rel(struct idpf_queue *txq, bool bufq)
  */
 static void idpf_tx_desc_rel_all(struct idpf_q_vec_rsrc *rsrc)
 {
-	int i, j;
 
 	if (!rsrc->txq_grps)
 		return;
 
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
 		struct idpf_txq_group *txq_grp = &rsrc->txq_grps[i];
 
-		for (j = 0; j < txq_grp->num_txq; j++)
+		for (unsigned int j = 0; j < txq_grp->num_txq; j++)
 			idpf_tx_desc_rel(txq_grp->txqs[j], true);
 
 		if (idpf_is_queue_model_split(rsrc->txq_model))
@@ -413,13 +412,12 @@ static int idpf_tx_desc_alloc_all(struct idpf_vport *vport,
 {
 	bool is_splitq = idpf_is_queue_model_split(rsrc->txq_model);
 	int err = 0;
-	int i, j;
 
 	/* Setup buffer queues. In single queue model buffer queues and
 	 * completion queues will be same.
 	 */
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
-		for (j = 0; j < rsrc->txq_grps[i].num_txq; j++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
+		for (unsigned int j = 0; j < rsrc->txq_grps[i].num_txq; j++) {
 			struct idpf_queue *txq = rsrc->txq_grps[i].txqs[j];
 
 			err = idpf_tx_desc_alloc(txq, true);
@@ -968,16 +966,16 @@ static int idpf_rx_map_buffer_rings(struct idpf_q_vec_rsrc *rsrc)
 int idpf_rx_bufs_init_all(struct idpf_q_vec_rsrc *rsrc)
 {
 	bool split = idpf_is_queue_model_split(rsrc->rxq_model);
-	int i, j, err;
+	int err;
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		struct idpf_rxq_group *rx_qgrp = &rsrc->rxq_grps[i];
 
 		/* Allocate bufs for the rxq itself in singleq */
 		if (!split) {
 			int num_rxq = rx_qgrp->singleq.num_rxq;
 
-			for (j = 0; j < num_rxq; j++) {
+			for (unsigned int j = 0; j < num_rxq; j++) {
 				struct idpf_queue *q;
 
 				q = rx_qgrp->singleq.rxqs[j];
@@ -990,7 +988,7 @@ int idpf_rx_bufs_init_all(struct idpf_q_vec_rsrc *rsrc)
 		}
 
 		/* Otherwise, allocate bufs for the buffer queues */
-		for (j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
+		for (unsigned int j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
 			struct idpf_queue *q;
 
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
@@ -1040,17 +1038,16 @@ static int idpf_rx_desc_alloc(struct idpf_queue *q, bool is_bufq)
 static void idpf_txq_group_rel(struct idpf_q_vec_rsrc *rsrc)
 {
 	bool split;
-	int i, j;
 
 	if (!rsrc->txq_grps)
 		return;
 
 	split = idpf_is_queue_model_split(rsrc->txq_model);
 
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
 		struct idpf_txq_group *txq_grp = &rsrc->txq_grps[i];
 
-		for (j = 0; j < txq_grp->num_txq; j++) {
+		for (unsigned int j = 0; j < txq_grp->num_txq; j++) {
 			if (!txq_grp->txqs[j])
 				continue;
 
@@ -1140,23 +1137,22 @@ static void idpf_rx_desc_rel_all(struct idpf_q_vec_rsrc *rsrc)
 {
 	struct idpf_rxq_group *rx_qgrp;
 	u16 num_rxq;
-	int i, j;
 
 	if (!rsrc->rxq_grps)
 		return;
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		rx_qgrp = &rsrc->rxq_grps[i];
 
 		if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
-			for (j = 0; j < rx_qgrp->singleq.num_rxq; j++)
+			for (unsigned int j = 0; j < rx_qgrp->singleq.num_rxq; j++)
 				idpf_rxq_rel(rsrc, rx_qgrp->singleq.rxqs[j]);
 
 			continue;
 		}
 
 		num_rxq = rx_qgrp->splitq.num_rxq_sets;
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			idpf_rxq_rel(rsrc, &rx_qgrp->splitq.rxq_sets[j]->rxq);
 #ifdef HAVE_XDP_BUFF_RXQ
 
@@ -1168,7 +1164,7 @@ static void idpf_rx_desc_rel_all(struct idpf_q_vec_rsrc *rsrc)
 		if (!rx_qgrp->splitq.bufq_sets)
 			continue;
 
-		for (j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
+		for (unsigned int j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
 			struct idpf_bufq_set *bufq_set =
 				&rx_qgrp->splitq.bufq_sets[j];
 
@@ -1186,17 +1182,17 @@ static void idpf_rx_desc_rel_all(struct idpf_q_vec_rsrc *rsrc)
 static int idpf_rx_desc_alloc_all(struct idpf_q_vec_rsrc *rsrc)
 {
 	struct idpf_rxq_group *rx_qgrp;
-	int i, j, err;
 	u16 num_rxq;
+	int err;
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		rx_qgrp = &rsrc->rxq_grps[i];
 		if (idpf_is_queue_model_split(rsrc->rxq_model))
 			num_rxq = rx_qgrp->splitq.num_rxq_sets;
 		else
 			num_rxq = rx_qgrp->singleq.num_rxq;
 
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			struct idpf_queue *q;
 
 			if (idpf_is_queue_model_split(rsrc->rxq_model))
@@ -1216,7 +1212,7 @@ static int idpf_rx_desc_alloc_all(struct idpf_q_vec_rsrc *rsrc)
 		if (!idpf_is_queue_model_split(rsrc->rxq_model))
 			continue;
 
-		for (j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
+		for (unsigned int j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
 			struct idpf_queue *q;
 
 			q = &rx_qgrp->splitq.bufq_sets[j].bufq;
@@ -1246,12 +1242,11 @@ err_out:
  */
 static void idpf_rxq_sw_queue_rel(struct idpf_q_vec_rsrc *rsrc, struct idpf_rxq_group *rx_qgrp)
 {
-	int i, j;
 
-	for (i = 0; i < rx_qgrp->splitq.num_bufq_sets; i++) {
+	for (unsigned int i = 0; i < rx_qgrp->splitq.num_bufq_sets; i++) {
 		struct idpf_bufq_set *bufq_set = &rx_qgrp->splitq.bufq_sets[i];
 
-		for (j = 0; j < bufq_set->num_refillqs; j++) {
+		for (unsigned int j = 0; j < bufq_set->num_refillqs; j++) {
 			kfree(bufq_set->refillqs[j].ring);
 			bufq_set->refillqs[j].ring = NULL;
 		}
@@ -1266,19 +1261,16 @@ static void idpf_rxq_sw_queue_rel(struct idpf_q_vec_rsrc *rsrc, struct idpf_rxq_
  */
 static void idpf_rxq_group_rel(struct idpf_q_vec_rsrc *rsrc)
 {
-	int i;
-
 	if (!rsrc->rxq_grps)
 		return;
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		struct idpf_rxq_group *rx_qgrp = &rsrc->rxq_grps[i];
 		u16 num_rxq;
-		int j;
 
 		if (idpf_is_queue_model_split(rsrc->rxq_model)) {
 			num_rxq = rx_qgrp->splitq.num_rxq_sets;
-			for (j = 0; j < num_rxq; j++) {
+			for (unsigned int j = 0; j < num_rxq; j++) {
 				kfree(rx_qgrp->splitq.rxq_sets[j]);
 				rx_qgrp->splitq.rxq_sets[j] = NULL;
 			}
@@ -1288,7 +1280,7 @@ static void idpf_rxq_group_rel(struct idpf_q_vec_rsrc *rsrc)
 			rx_qgrp->splitq.bufq_sets = NULL;
 		} else {
 			num_rxq = rx_qgrp->singleq.num_rxq;
-			for (j = 0; j < num_rxq; j++) {
+			for (unsigned int j = 0; j < num_rxq; j++) {
 				kfree(rx_qgrp->singleq.rxqs[j]);
 				rx_qgrp->singleq.rxqs[j] = NULL;
 			}
@@ -1411,7 +1403,6 @@ void idpf_vport_calc_num_q_desc(struct idpf_vport *vport,
 	u8 num_bufqs = rsrc->num_bufqs_per_qgrp;
 	u32 num_req_txq_desc, num_req_rxq_desc;
 	u16 idx = vport->idx;
-	int i;
 
 	config_data =  &vport->adapter->vport_config[idx]->user_config;
 	num_req_txq_desc = config_data->num_req_txq_desc;
@@ -1439,7 +1430,7 @@ void idpf_vport_calc_num_q_desc(struct idpf_vport *vport,
 	else
 		rsrc->rxq_desc_count = IDPF_DFLT_RX_Q_DESC_COUNT;
 
-	for (i = 0; i < num_bufqs; i++) {
+	for (unsigned int i = 0; i < num_bufqs; i++) {
 		if (!rsrc->bufq_desc_count[i])
 			rsrc->bufq_desc_count[i] =
 				IDPF_RX_BUFQ_DESC_COUNT(rsrc->rxq_desc_count,
@@ -1571,7 +1562,6 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 {
 	struct idpf_adapter *adapter = vport->adapter;
 	bool flow_sch_en, split;
-	int i;
 
 	rsrc->txq_grps = kcalloc(rsrc->num_txq_grp, sizeof(*rsrc->txq_grps),
 				 GFP_KERNEL);
@@ -1582,9 +1572,8 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 	flow_sch_en = !idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS,
 				       VIRTCHNL2_CAP_SPLITQ_QSCHED);
 
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
 		struct idpf_txq_group *tx_qgrp = &rsrc->txq_grps[i];
-		int j;
 
 		tx_qgrp->vport = vport;
 		tx_qgrp->num_txq = num_txq_per_grp;
@@ -1594,14 +1583,14 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 		if (!tx_qgrp->txqs)
 			goto err_alloc;
 
-		for (j = 0; j < tx_qgrp->num_txq; j++) {
+		for (unsigned int j = 0; j < tx_qgrp->num_txq; j++) {
 			tx_qgrp->txqs[j] = kzalloc(sizeof(*tx_qgrp->txqs[j]),
 						   GFP_KERNEL);
 			if (!tx_qgrp->txqs[j])
 				goto err_alloc;
 		}
 
-		for (j = 0; j < tx_qgrp->num_txq; j++) {
+		for (unsigned int j = 0; j < tx_qgrp->num_txq; j++) {
 			struct idpf_queue *q = tx_qgrp->txqs[j];
 
 			u64_stats_init(&q->stats_sync);
@@ -1797,7 +1786,7 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 {
 	
 	bool rsc = false;
-	int i, k, err = 0;
+	int err = 0;
 	struct idpf_vport_user_config_data *config_data =
 		&vport->adapter->vport_config[vport->idx]->user_config;
 
@@ -1810,14 +1799,13 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 	if (!rsrc->rxq_grps)
 		return -ENOMEM;
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		struct idpf_rxq_group *rx_qgrp = &rsrc->rxq_grps[i];
-		int j;
 
 		rx_qgrp->vport = vport;
 		if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
 			rx_qgrp->singleq.num_rxq = num_rxq;
-			for (j = 0; j < num_rxq; j++) {
+			for (unsigned int j = 0; j < num_rxq; j++) {
 				rx_qgrp->singleq.rxqs[j] = kzalloc(sizeof(*rx_qgrp->singleq.rxqs[j]),
 								   GFP_KERNEL);
 				if (!rx_qgrp->singleq.rxqs[j]) {
@@ -1829,7 +1817,7 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 		}
 		rx_qgrp->splitq.num_rxq_sets = num_rxq;
 
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			rx_qgrp->splitq.rxq_sets[j] = kzalloc(sizeof(struct idpf_rxq_set),
 							      GFP_KERNEL);
 			if (!rx_qgrp->splitq.rxq_sets[j]) {
@@ -1847,7 +1835,7 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 		}
 		rx_qgrp->splitq.num_bufq_sets = rsrc->num_bufqs_per_qgrp;
 
-		for (j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
+		for (unsigned int j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
 			struct idpf_bufq_set *bufq_set =
 				&rx_qgrp->splitq.bufq_sets[j];
 			int swq_size = sizeof(struct idpf_sw_queue);
@@ -1880,7 +1868,7 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 				err = -ENOMEM;
 				goto err_alloc;
 			}
-			for (k = 0; k < bufq_set->num_refillqs; k++) {
+			for (unsigned int k = 0; k < bufq_set->num_refillqs; k++) {
 				struct idpf_sw_queue *refillq =
 					&bufq_set->refillqs[k];
 
@@ -1899,7 +1887,7 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 		}
 
 skip_splitq_rx_init:
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			struct idpf_queue *q;
 
 			if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
@@ -1908,7 +1896,7 @@ skip_splitq_rx_init:
 			}
 
 			q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
-			for (k = 0; k < rsrc->num_bufqs_per_qgrp; k++) {
+			for (unsigned int k = 0; k < rsrc->num_bufqs_per_qgrp; k++) {
 				rx_qgrp->splitq.rxq_sets[j]->refillq[k] =
 				      &rx_qgrp->splitq.bufq_sets[k].refillqs[j];
 			}
@@ -5641,11 +5629,10 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_q_vec_rsrc *rsrc)
 	struct idpf_txq_group *tx_qgrp;
 	struct idpf_rxq_group *rx_qgrp;
 	struct idpf_queue *q, *bufq;
-	int qv_idx, bufq_vidx = 0;
+	int bufq_vidx = 0;
 	u16 q_index;
-	int i, j;
 
-	for (i = 0, qv_idx = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0, qv_idx = 0; i < rsrc->num_rxq_grp; i++) {
 		u16 num_rxq;
 
 		rx_qgrp = &rsrc->rxq_grps[i];
@@ -5654,7 +5641,7 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_q_vec_rsrc *rsrc)
 		else
 			num_rxq = rx_qgrp->singleq.num_rxq;
 
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			if (qv_idx >= rsrc->num_q_vectors)
 				qv_idx = 0;
 
@@ -5670,7 +5657,7 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_q_vec_rsrc *rsrc)
 		}
 
 		if (idpf_is_queue_model_split(rsrc->rxq_model)) {
-			for (j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
+			for (unsigned int j = 0; j < rsrc->num_bufqs_per_qgrp; j++) {
 				bufq = &rx_qgrp->splitq.bufq_sets[j].bufq;
 				bufq->q_vector = &rsrc->q_vectors[bufq_vidx];
 				q_index = bufq->q_vector->num_bufq;
@@ -5685,7 +5672,7 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_q_vec_rsrc *rsrc)
 	/* In splitq, we want to map the vectors for TX to the complqs as they
 	 * will do the cleaning and reporting.
 	 */
-	for (i = 0, qv_idx = 0; i < num_txq_grp; i++) {
+	for (unsigned int i = 0, qv_idx = 0; i < num_txq_grp; i++) {
 		u16 num_txq;
 
 		tx_qgrp = &rsrc->txq_grps[i];
@@ -5702,7 +5689,7 @@ static void idpf_vport_intr_map_vector_to_qs(struct idpf_q_vec_rsrc *rsrc)
 			q->q_vector->num_txq++;
 			qv_idx++;
 		} else {
-			for (j = 0; j < num_txq; j++) {
+			for (unsigned int j = 0; j < num_txq; j++) {
 				if (qv_idx >= rsrc->num_q_vectors)
 					qv_idx = 0;
 
