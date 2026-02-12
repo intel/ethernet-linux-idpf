@@ -717,7 +717,7 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	struct idpf_vport *vport;
 	struct idpf_q_vec_rsrc *rsrc;
 	u32 new_rx_count, new_tx_count;
-	int i, err = 0;
+	int err = 0;
 	u16 idx;
 
 	idpf_vport_ctrl_lock(adapter);
@@ -795,7 +795,7 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	/* Since we adjusted the RX completion queue count, the RX buffer queue
 	 * descriptor count needs to be adjusted as well
 	 */
-	for (i = 0; i < rsrc->num_bufqs_per_qgrp; i++)
+	for (unsigned int i = 0; i < rsrc->num_bufqs_per_qgrp; i++)
 		rsrc->bufq_desc_count[i] =
 			IDPF_RX_BUFQ_DESC_COUNT(new_rx_count,
 						rsrc->num_bufqs_per_qgrp);
@@ -1477,7 +1477,6 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 {
 	struct idpf_port_stats *pstats = &vport->port_stats;
 	struct idpf_q_vec_rsrc *rsrc = &vport->dflt_qv_rsrc;
-	int i, j;
 
 	/* zero out port stats since they're actually tracked in per
 	 * queue stats; this is only for reporting
@@ -1500,14 +1499,14 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 	u64_stats_set(&pstats->tx_lso_bytes, 0);
 	u64_stats_set(&pstats->tx_lso_segs_tot, 0);
 
-	for (i = 0; i < IDPF_MAX_SEGS; i++) {
+	for (unsigned int i = 0; i < IDPF_MAX_SEGS; i++) {
 		u64_stats_set(&pstats->rsc_seg[i], 0);
 		u64_stats_set(&pstats->lso_seg[i], 0);
 	}
 
 	u64_stats_update_end(&pstats->stats_sync);
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		struct idpf_rxq_group *rxq_grp = &rsrc->rxq_grps[i];
 		u16 num_rxq;
 
@@ -1516,7 +1515,7 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 		else
 			num_rxq = rxq_grp->singleq.num_rxq;
 
-		for (j = 0; j < num_rxq; j++) {
+		for (unsigned int j = 0; j < num_rxq; j++) {
 			u64 hw_csum_err, hsplit, hsplit_hbo, bad_descs;
 			u64 rsc_pkts, rsc_bytes, rsc_segs_tot, k;
 			u64 page_recycles = 0, page_reallocs = 0;
@@ -1575,10 +1574,10 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 		}
 	}
 
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
 		struct idpf_txq_group *txq_grp = &rsrc->txq_grps[i];
 
-		for (j = 0; j < txq_grp->num_txq; j++) {
+		for (unsigned int j = 0; j < txq_grp->num_txq; j++) {
 			u64 linearize, qbusy, skb_drops, dma_map_errs;
 			struct idpf_queue *txq = txq_grp->txqs[j];
 			u64 lso_pkts, lso_bytes, lso_segs_tot;
@@ -1643,7 +1642,6 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
 	unsigned int total = 0;
-	unsigned int i, j;
 	bool is_splitq;
 	u16 qtype;
 
@@ -1668,10 +1666,10 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 
 	qtype = VIRTCHNL2_QUEUE_TYPE_TX;
 	rsrc = &vport->dflt_qv_rsrc;
-	for (i = 0; i < rsrc->num_txq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq_grp; i++) {
 		struct idpf_txq_group *txq_grp = &rsrc->txq_grps[i];
 
-		for (j = 0; j < txq_grp->num_txq; j++, total++) {
+		for (unsigned int j = 0; j < txq_grp->num_txq; j++, total++) {
 			struct idpf_queue *txq = txq_grp->txqs[j];
 
 			if (!txq) {
@@ -1697,7 +1695,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 
 	is_splitq = idpf_is_queue_model_split(rsrc->rxq_model);
 
-	for (i = 0; i < rsrc->num_rxq_grp; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
 		struct idpf_rxq_group *rxq_grp = &rsrc->rxq_grps[i];
 		u16 num_rxq;
 
@@ -1708,7 +1706,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 		else
 			num_rxq = rxq_grp->singleq.num_rxq;
 
-		for (j = 0; j < num_rxq; j++, total++) {
+		for (unsigned int j = 0; j < num_rxq; j++, total++) {
 			struct idpf_queue *rxq;
 
 			if (is_splitq)
@@ -1722,7 +1720,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 		}
 	}
 
-	for (; i < vport_config->max_q.max_rxq; i++)
+	for (unsigned int i = rsrc->num_rxq_grp; i < vport_config->max_q.max_rxq; i++)
 		idpf_add_empty_queue_stats(&data, VIRTCHNL2_QUEUE_TYPE_RX);
 
 	rcu_read_unlock();
@@ -2001,7 +1999,7 @@ static int idpf_set_coalesce(struct net_device *netdev,
 	struct idpf_q_coalesce *q_coal;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
-	int i, err = 0;
+	int err = 0;
 
 	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
 
@@ -2012,14 +2010,14 @@ static int idpf_set_coalesce(struct net_device *netdev,
 		goto unlock_mutex;
 
 	rsrc = &vport->dflt_qv_rsrc;
-	for (i = 0; i < rsrc->num_txq; i++) {
+	for (unsigned int i = 0; i < rsrc->num_txq; i++) {
 		q_coal = &user_config->q_coalesce[i];
 		err = idpf_set_q_coalesce(vport, q_coal, ec, i, false);
 		if (err)
 			goto unlock_mutex;
 	}
 
-	for (i = 0; i < rsrc->num_rxq; i++) {
+	for (unsigned int i = 0; i < rsrc->num_rxq; i++) {
 		q_coal = &user_config->q_coalesce[i];
 		err = idpf_set_q_coalesce(vport, q_coal, ec, i, true);
 		if (err)
