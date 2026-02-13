@@ -58,7 +58,7 @@
 /* any of the features that need to alter module_init */
 #if !defined(HAVE_XARRAY_API)
 
-static int __init kc_module_init_impl(void)
+static inline int __init kc_module_init_impl(void)
 {
 #ifdef HAVE_XARRAY_API
 #else
