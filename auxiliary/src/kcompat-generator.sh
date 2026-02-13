@@ -83,7 +83,11 @@ function gen-cleanup() {
 	rcuh='include/linux/rcupdate.h'
 	gen NEED_DEFINE_FREE if macro DEFINE_FREE absent in "$ch"
 	gen NEED___DEFINE_CLASS_IS_CONDITIONAL if macro __DEFINE_CLASS_IS_CONDITIONAL absent in "$ch"
-	gen NEED_DEFINE_GUARD_MUTEX if invocation of macro DEFINE_GUARD absent or lacks mutex_lock in "$mh"
+	# Check for mutex guards in both old and new APIs
+	HAVE_MUTEX_GUARDS=0
+	check invocation of macro DEFINE_LOCK_GUARD_1 matches mutex in "$mh" && HAVE_MUTEX_GUARDS=1
+	check invocation of macro DEFINE_GUARD matches mutex in "$mh" && HAVE_MUTEX_GUARDS=1
+	gen NEED_DEFINE_GUARD_MUTEX if string "$HAVE_MUTEX_GUARDS" equals 0
 	gen NEED_LOCK_GUARD_FOR_RCU if invocation of macro DEFINE_LOCK_GUARD_0 absent or lacks rcu in "$rcuh"
 	gen NEED_DEFINE_FREE_KFREE if invocation of macro DEFINE_FREE absent or lacks kfree in "$slabh"
 	gen NEED_DEFINE_FREE_KVFREE if invocation of macro DEFINE_FREE absent or lacks kvfree in "$slabh"
