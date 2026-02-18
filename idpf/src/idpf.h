@@ -493,10 +493,8 @@ struct idpf_fsteer_fltr {
  * @dflt_qv_rsrc: Default queue and vector resources
  * @txqs: Array to store the copy of TX queues for the fast path access
  * @num_txq: Number of allocated TX queues for fast path access
- * @compln_clean_budget: Work budget for completion clean
  * @tw_ts_gran_s: TX timing wheel granularity
  * @tw_horizon: TX timing wheel horizon
- * @crc_enable: Enable CRC insertion offload
 #ifdef HAVE_XDP_SUPPORT
  * @num_xdp_txq: Number of XDP TX queues
  * @num_xdp_rxq: Number of XDP RX queues
@@ -518,15 +516,17 @@ struct idpf_fsteer_fltr {
  * @netdev: Associated net_device. Each vport should have one and only one
  *          associated netdev.
  * @flags: See enum idpf_vport_flags
- * @vport_type: Default SRIOV, SIOV, etc.
+ * @compln_clean_budget: Work budget for completion clean
  * @vport_id: Device given vport identifier
+ * @vport_type: Default SRIOV, SIOV, etc.
  * @idx: Software index in adapter vports struct
- * @default_vport: Use this vport if one isn't specified
  * @max_mtu: device given max possible MTU
  * @default_mac_addr: device will give a default MAC to use
  * @rx_itr_profile: RX profiles for Dynamic Interrupt Moderation
  * @tx_itr_profile: TX profiles for Dynamic Interrupt Moderation
  * @port_stats: per port csum, header split, and other offload stats
+ * @default_vport: Use this vport if one isn't specified
+ * @crc_enable: Enable CRC insertion offload
  * @link_up: True if link is up
  * @sw_marker_wq: Workqueue for marker packets
  * @tx_tstamp_caps: Capabilities negotiated for TX timestamping
@@ -540,10 +540,8 @@ struct idpf_vport {
 	struct idpf_q_vec_rsrc dflt_qv_rsrc;
 	struct idpf_queue **txqs;
 	u16 num_txq;
-	u32 compln_clean_budget;
 	u16 tw_ts_gran_s;
 	u64 tw_horizon;
-	bool crc_enable;
 #ifdef HAVE_XDP_SUPPORT
 	int num_xdp_txq;
 	int num_xdp_rxq;
@@ -566,15 +564,19 @@ struct idpf_vport {
 	struct idpf_adapter *adapter;
 	struct net_device *netdev;
 	DECLARE_BITMAP(flags, IDPF_VPORT_FLAGS_NBITS);
-	u16 vport_type;
+	u32 compln_clean_budget;
 	u32 vport_id;
+	u16 vport_type;
 	u16 idx;
-	bool default_vport;
+
 	u16 max_mtu;
 	u8 default_mac_addr[ETH_ALEN];
 	u16 rx_itr_profile[IDPF_DIM_PROFILE_SLOTS];
 	u16 tx_itr_profile[IDPF_DIM_PROFILE_SLOTS];
+
 	struct idpf_port_stats port_stats;
+	bool default_vport;
+	bool crc_enable;
 	bool link_up;
 	/* Everything below this will NOT be copied during soft reset */
 	wait_queue_head_t sw_marker_wq;
