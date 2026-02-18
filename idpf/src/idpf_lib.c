@@ -1940,10 +1940,6 @@ void idpf_init_task(struct work_struct *work)
 		goto unwind_vports;
 	}
 
-	err = idpf_send_get_rx_ptype_msg(vport);
-	if (err)
-		goto unwind_vports;
-
 	index = vport->idx;
 	vport_config = adapter->vport_config[index];
 	init_waitqueue_head(&vport->sw_marker_wq);
