@@ -165,7 +165,8 @@ static void idpf_vf_trigger_reset(struct idpf_adapter *adapter,
 	int err;
 
 	if (trig_cause == IDPF_HR_FUNC_RESET) {
-		err = idpf_send_mb_msg(adapter, VIRTCHNL2_OP_RESET_VF, 0, NULL, 0);
+		err = idpf_send_mb_msg(adapter, adapter->hw.asq,
+				       VIRTCHNL2_OP_RESET_VF, 0, NULL, 0);
 		if (err)
 			dev_err(idpf_adapter_to_dev(adapter),
 				"Failed to send Reset VF\n");
