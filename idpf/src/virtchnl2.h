@@ -441,6 +441,7 @@ enum virtchnl2_event_codes {
  * @VIRTCHNL2_QUEUE_TYPE_P2P_RX_BUFFER: P2P RX buffer queue type.
  * @VIRTCHNL2_QUEUE_TYPE_MBX_TX: TX mailbox queue type.
  * @VIRTCHNL2_QUEUE_TYPE_MBX_RX: RX mailbox queue type.
+ * @VIRTCHNL2_QUEUE_TYPE_CNTR_NOTIF: RX queue to receive counter updates.
  *
  * Transmit and Receive queue types are valid in single as well as split queue
  * models. With Split Queue model, 2 additional types are introduced -
@@ -467,6 +468,7 @@ enum virtchnl2_queue_type {
 	 */
 	VIRTCHNL2_QUEUE_TYPE_CPF_MBX_TX		= 12,
 	VIRTCHNL2_QUEUE_TYPE_CPF_MBX_RX		= 13,
+	VIRTCHNL2_QUEUE_TYPE_CNTR_NOTIF		= 14,
 };
 
 /* Interrupt throttling rate index */
