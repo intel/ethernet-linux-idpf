@@ -1784,7 +1784,7 @@ static int idpf_rxq_init(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 				u16 num_rxq)
 {
-	
+	struct idpf_adapter *adapter = vport->adapter;
 	bool rsc = false;
 	int err = 0;
 	struct idpf_vport_user_config_data *config_data =
@@ -1892,6 +1892,7 @@ skip_splitq_rx_init:
 
 			if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
 				q = rx_qgrp->singleq.rxqs[j];
+				q->rx_ptype_lkup = adapter->singleq_pt_lkup;
 				goto setup_rxq;
 			}
 
@@ -1907,6 +1908,7 @@ skip_splitq_rx_init:
 			}
 			idpf_queue_assign(RSC_EN, q, rsc);
 			q->rxq_grp = rx_qgrp;
+			q->rx_ptype_lkup = adapter->splitq_pt_lkup;
 
 setup_rxq:
 			idpf_rxq_init(vport, rsrc, q, (i * num_rxq) + j);
@@ -3960,7 +3962,7 @@ int idpf_rx_process_skb_fields(struct idpf_queue *rxq,
 
 	skb->protocol = eth_type_trans(skb, rxq->vport->netdev);
 
-	decoded = rxq->vport->rx_ptype_lkup[rx_ptype];
+	decoded = rxq->rx_ptype_lkup[rx_ptype];
 #ifdef IDPF_ADD_PROBES
 	u64_stats_update_begin(&rxq->vport->port_stats.stats_sync);
 	u64_stats_inc(&rxq->vport->ptype_stats[rx_ptype]);

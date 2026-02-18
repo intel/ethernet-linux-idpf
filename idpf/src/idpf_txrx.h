@@ -889,6 +889,7 @@ struct idpf_queue {
 	bool crc_enable;
 	u8 tx_min_pkt_len;
 
+	struct idpf_rx_ptype_decoded *rx_ptype_lkup;
 	struct xarray reinject_timers;
 } ____cacheline_internodealigned_in_smp;
 

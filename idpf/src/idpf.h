@@ -510,7 +510,6 @@ struct idpf_fsteer_fltr {
 #endif
  * @xdp_prepare_tx_desc: Prepare XDP TX descriptor
 #endif
- * @rx_ptype_lkup: Lookup table for ptypes on RX
 #ifdef IDPF_ADD_PROBES
  * @ptype_stats: Ptype statistics
 #endif
@@ -558,7 +557,6 @@ struct idpf_vport {
 				    u16 idx, u32 size,
 				    struct idpf_tx_splitq_params *params);
 #endif /* HAVE_XDP_SUPPORT */
-	struct idpf_rx_ptype_decoded rx_ptype_lkup[IDPF_RX_MAX_PTYPE];
 #ifdef IDPF_ADD_PROBES
 	u64_stats_t ptype_stats[IDPF_RX_MAX_PTYPE];
 #endif /* IDPF_ADD_PROBES */
@@ -861,6 +859,8 @@ struct idpf_iommu_bypass {
  * @netdevs: Associated Vport netdevs
  * @vport_params_recvd: Vport params received
  * @vport_ids: Array of device given vport identifiers
+ * @singleq_pt_lkup: Lookup table for singleq RX ptypes
+ * @splitq_pt_lkup: Lookup table for splitq RX ptypes
  * @vport_config: Vport config parameters
  * @max_vports: Maximum vports that can be allocated
  * @num_alloc_vports: Current number of vports allocated
@@ -944,6 +944,9 @@ struct idpf_adapter {
 	struct net_device **netdevs;
 	struct virtchnl2_create_vport **vport_params_recvd;
 	u32 *vport_ids;
+
+	struct idpf_rx_ptype_decoded *singleq_pt_lkup;
+	struct idpf_rx_ptype_decoded *splitq_pt_lkup;
 
 	struct idpf_vport_config **vport_config;
 	u16 max_vports;
