@@ -334,7 +334,6 @@ static int idpf_vdcm_dev_set_vector_signal(struct idpf_vdcm *ivdm, int vector,
 
 	if (ivdm->ctx[vector].trigger) {
 		kfree(free_irq(irq, &ivdm->ctx[vector]));
-		kfree(ivdm->ctx[vector].name);
 		eventfd_ctx_put(ivdm->ctx[vector].trigger);
 		ivdm->ctx[vector].trigger = NULL;
 		ivdm->ctx[vector].name = NULL;
