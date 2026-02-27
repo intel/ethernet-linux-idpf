@@ -225,9 +225,15 @@ static void idpf_shutdown(struct pci_dev *pdev)
 {
 	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
 
+	set_bit(IDPF_REMOVE_IN_PROG, adapter->flags);
+
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
+
+	idpf_vport_init_lock(adapter);
 	idpf_vc_core_deinit(adapter);
+	idpf_vport_init_unlock(adapter);
+
 	idpf_deinit_dflt_mbx(adapter);
 
 	if (system_state == SYSTEM_POWER_OFF)
