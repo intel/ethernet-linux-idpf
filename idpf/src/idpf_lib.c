@@ -463,6 +463,11 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 	if (err)
 		goto free_vecids;
 
+	if (IS_SIMICS_DEVICE(adapter->hw.subsystem_device_id)) {
+		kfree(vecids);
+		return 0;
+	}
+
 	err = idpf_mb_intr_init(adapter);
 	if (err)
 		goto deinit_vec_stack;
