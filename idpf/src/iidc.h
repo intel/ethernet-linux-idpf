@@ -223,6 +223,14 @@ enum iidc_function_type {
 struct iidc_core_dev_info {
 	struct pci_dev *pdev; /* PCI device of corresponding to main function */
 	struct auxiliary_device *adev;
+	/* Current active RDMA protocol */
+	enum iidc_rdma_protocol rdma_protocol;
+	/* Opaque pointer for core driver specific data tracking. This memory
+	 * will be alloc'd and freed by the core driver and used for
+	 * private data accessible only to the specific auxiliary driver.
+	 */
+	void *iidc_priv;
+
 	/* KVA / Linear address corresponding to BAR0 of underlying
 	 * pci_device.
 	 */
@@ -241,8 +249,6 @@ struct iidc_core_dev_info {
 
 	enum iidc_function_type ftype;
 	u16 vport_id;
-	/* Current active RDMA protocol */
-	enum iidc_rdma_protocol rdma_protocol;
 
 	struct iidc_qos_params qos_info;
 	struct net_device *netdev;
@@ -263,11 +269,6 @@ struct iidc_core_dev_info {
 	u8 rdma_ports[2];
 	u8 bond_aa; /* is 1 if the bond is a supported active-active mode */
 	u8 rdma_port_bitmap; /* bitmap of port's link on active-active bond */
-	/* Opaque pointer for core driver specific data tracking. This memory
-	 * will be alloc'd and freed by the core driver and used for
-	 * private data accessible only to the specific auxiliary driver.
-	 */
-	void *iidc_priv;
 };
 
 struct iidc_auxiliary_dev {
