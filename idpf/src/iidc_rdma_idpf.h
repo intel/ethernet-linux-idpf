@@ -22,7 +22,7 @@ struct iidc_rdma_vport_auxiliary_dev {
 struct iidc_rdma_vport_auxiliary_drv {
 	struct auxiliary_driver adrv;
 	void (*event_handler)(struct iidc_rdma_vport_dev_info *vdev,
-			      struct iidc_rdma_event *event);
+			      struct iidc_event *event);
 };
 
 struct iidc_rdma_lan_mapped_mem_region {
