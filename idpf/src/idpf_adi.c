@@ -450,25 +450,25 @@ static u32 idpf_adi_read_reg32(struct idpf_adi *adi, size_t offs)
 
 	switch (offs) {
 	case VF_ATQBAL:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQBAL(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ATQBAL(priv->mbx_id)));
 	case VF_ATQBAH:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQBAH(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ATQBAH(priv->mbx_id)));
 	case VF_ATQLEN:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQLEN(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ATQLEN(priv->mbx_id)));
 	case VF_ATQH:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQH(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ATQH(priv->mbx_id)));
 	case VF_ATQT:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQT(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ATQT(priv->mbx_id)));
 	case VF_ARQBAL:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQBAL(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ARQBAL(priv->mbx_id)));
 	case VF_ARQBAH:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQBAH(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ARQBAH(priv->mbx_id)));
 	case VF_ARQLEN:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQLEN(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ARQLEN(priv->mbx_id)));
 	case VF_ARQH:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQH(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ARQH(priv->mbx_id)));
 	case VF_ARQT:
-		return readl(idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQT(priv->mbx_id)));
+		return readl(idpf_get_reg_addr(adapter, PF_MBX_ARQT(priv->mbx_id)));
 	default:
 		return 0xdeadbeef;
 	}
@@ -489,34 +489,34 @@ static void idpf_adi_write_reg32(struct idpf_adi *adi, size_t offs, u32 data)
 	adapter = priv->adapter;
 	switch (offs) {
 	case VF_ATQBAL:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQBAL(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ATQBAL(priv->mbx_id)));
 		break;
 	case VF_ATQBAH:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQBAH(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ATQBAH(priv->mbx_id)));
 		break;
 	case VF_ATQLEN:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQLEN(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ATQLEN(priv->mbx_id)));
 		break;
 	case VF_ATQH:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQH(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ATQH(priv->mbx_id)));
 		break;
 	case VF_ATQT:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ATQT(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ATQT(priv->mbx_id)));
 		break;
 	case VF_ARQBAL:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQBAL(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ARQBAL(priv->mbx_id)));
 		break;
 	case VF_ARQBAH:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQBAH(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ARQBAH(priv->mbx_id)));
 		break;
 	case VF_ARQLEN:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQLEN(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ARQLEN(priv->mbx_id)));
 		break;
 	case VF_ARQH:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQH(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ARQH(priv->mbx_id)));
 		break;
 	case VF_ARQT:
-		writel(data, idpf_get_mbx_reg_addr(adapter, PF_MBX_ARQT(priv->mbx_id)));
+		writel(data, idpf_get_reg_addr(adapter, PF_MBX_ARQT(priv->mbx_id)));
 		break;
 	case VF_INT_DYN_CTL0:
 		writel(data, idpf_get_reg_addr(adapter,
