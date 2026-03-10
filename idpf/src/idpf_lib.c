@@ -3017,7 +3017,9 @@ static int idpf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
 		idpf_vport_cfg_lock(adapter);
 		vport = idpf_netdev_to_vport(netdev);
 
-		if (!idpf_is_queue_model_split(vport->dflt_grp.q_grp.txq_model))
+		if (!vport || !vport->txqs)
+			err = -ENOENT;
+		else if (!idpf_is_queue_model_split(vport->dflt_grp.q_grp.txq_model))
 			err = -EOPNOTSUPP;
 		else
 			err = idpf_offload_txtime(vport, type_data);
