@@ -113,6 +113,9 @@ static int idpf_idc_init_aux_vport_dev(struct idpf_vport *vport)
 	struct virtchnl2_create_vport *vport_msg;
 	int err;
 
+	if (vport->idx)
+		return 0;
+
 	vport_msg = (struct virtchnl2_create_vport *)
 			adapter->vport_params_recvd[vport->idx];
 
@@ -122,9 +125,6 @@ static int idpf_idc_init_aux_vport_dev(struct idpf_vport *vport)
 	vport->vdev_info = kzalloc(sizeof(*vdev_info), GFP_KERNEL);
 	if (!vport->vdev_info)
 		return -ENOMEM;
-
-	if (vport->idx)
-		return 0;
 
 	cdev_info = vport->adapter->cdev_info;
 
