@@ -119,7 +119,7 @@ static irqreturn_t idpf_mb_intr_clean(int __always_unused irq, void *data)
 
 	/* ASQ may not be set */
 	if (adapter->hw.asq) {
-		if (!(readl(idpf_get_reg_addr(adapter, adapter->hw.asq->reg.len)) &
+		if (!(readl(idpf_get_mbx_reg_addr(adapter, adapter->hw.asq->reg.len)) &
 		 adapter->hw.asq->reg.len_ena_mask)) {
 			set_bit(IDPF_CORER_IN_PROG, adapter->flags);
 			reinit_completion(&adapter->corer_done);
@@ -462,11 +462,6 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 	err = idpf_init_vector_stack(adapter);
 	if (err)
 		goto free_vecids;
-
-	if (IS_SIMICS_DEVICE(adapter->hw.subsystem_device_id)) {
-		kfree(vecids);
-		return 0;
-	}
 
 	err = idpf_mb_intr_init(adapter);
 	if (err)
