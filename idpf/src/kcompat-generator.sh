@@ -350,6 +350,7 @@ function gen-netdevice() {
 	gen HAVE_NDO_FDB_DEL_EXTACK if method ndo_fdb_del of net_device_ops matches 'struct netlink_ext_ack \\*extack' in "$ndh"
 	gen HAVE_NDO_FDB_DEL_NOTIFIED if method ndo_fdb_del of net_device_ops matches 'bool \\*notified' in "$ndh"
 	gen HAVE_NDO_GET_DEVLINK_PORT if method ndo_get_devlink_port of net_device_ops in "$ndh"
+	gen HAVE_NDO_GET_TSTAMP if method ndo_get_tstamp of net_device_ops in "$ndh"
 	gen HAVE_NDO_SETUP_TC_CHAIN_INDEX if method ndo_setup_tc of net_device_ops matches 'u32 chain_index' in "$ndh"
 	gen HAVE_NDO_SETUP_TC_REMOVE_TC_TO_NETDEV if method '(ndo_setup_tc|ndo_setup_tc_rh)' of '(net_device_ops|netdevice_ops_extended)' matches 'void \\*type_data' in "$ndh"
 	gen HAVE_NDO_UDP_TUNNEL_CALLBACK if method ndo_udp_tunnel_add of net_device_ops in "$ndh"
