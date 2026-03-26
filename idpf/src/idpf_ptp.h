@@ -298,6 +298,7 @@ void idpf_ptp_tstamp_task(struct work_struct *work);
 int idpf_tx_tstamp(struct idpf_queue *tx_q, struct sk_buff *skb,
 		   struct idpf_tx_offload_params *off);
 void idpf_tx_set_tstamp_desc(union idpf_flex_tx_ctx_desc *ctx_desc, u32 idx);
+void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter);
 
 /**
  * idpf_ptp_tstamp_extend_32b_to_64b - Convert a sub-32b nanoseconds timestamp
@@ -437,5 +438,8 @@ static inline int idpf_tx_tstamp(struct idpf_queue *tx_q, struct sk_buff *skb,
 
 static inline void
 idpf_tx_set_tstamp_desc(union idpf_flex_tx_ctx_desc *ctx_desc, u32 idx) { }
+
+static inline void
+idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter) {}
 #endif /* IS_ENABLED(CONFIG_PTP_1588_CLOCK) */
 #endif /* _IDPF_PTP_H */

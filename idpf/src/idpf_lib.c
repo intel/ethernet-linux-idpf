@@ -1627,6 +1627,9 @@ static void idpf_restore_features(struct idpf_vport *vport)
 
 	if (idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_MACFILTER))
 		idpf_restore_mac_filters(vport);
+
+	if (idpf_ptp_is_vport_rx_tstamp_ena(vport))
+		idpf_ptp_set_rx_tstamp(vport, vport->tstamp_config.rx_filter);
 }
 
 /**
