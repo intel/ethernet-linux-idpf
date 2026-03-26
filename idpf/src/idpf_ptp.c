@@ -709,7 +709,7 @@ int idpf_ptp_request_ts(struct idpf_queue *tx_q, struct sk_buff *skb,
  * @vport: Virtual port structure
  * @rx_filter: Receive timestamp filter
  */
-static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
+void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
 {
 	struct idpf_q_grp *q_grp = &vport->dflt_grp.q_grp;
 	bool enable = true, splitq;
