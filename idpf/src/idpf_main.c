@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Copyright (C) 2019-2025 Intel Corporation */
+/* Copyright (C) 2019-2026 Intel Corporation */
 
 #include "kcompat.h"
 #include <linux/aer.h>
@@ -16,7 +16,7 @@
 
 MODULE_VERSION(IDPF_DRV_VER);
 static const char idpf_driver_string[] = DRV_SUMMARY;
-static const char idpf_copyright[] = "Copyright (C) 2019-2025 Intel Corporation";
+static const char idpf_copyright[] = "Copyright (C) 2019-2026 Intel Corporation";
 MODULE_DESCRIPTION(DRV_SUMMARY);
 MODULE_LICENSE("GPL");
 
