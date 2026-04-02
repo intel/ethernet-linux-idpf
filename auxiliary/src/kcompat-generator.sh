@@ -515,6 +515,7 @@ function gen-other() {
 	gen NEED_DECLARE_STATIC_KEY_FALSE if macro DECLARE_STATIC_KEY_FALSE absent in include/linux/jump_label.h include/linux/jump_label_type.h
 	gen NEED_LOWER_16_BITS if macro lower_16_bits absent in include/linux/kernel.h
 	gen NEED_UPPER_16_BITS if macro upper_16_bits absent in include/linux/kernel.h
+	gen NEED_KTHREAD_RUN_WORKER if macro kthread_run_worker absent in include/linux/kthread.h
 	gen HAVE_LINKMODE if fun linkmode_zero in include/linux/linkmode.h
 	gen NEED_LINKMODE_SET_BIT_ARRAY if fun linkmode_set_bit_array absent in include/linux/linkmode.h
 	gen NEED_LINKMODE_ZERO if fun linkmode_zero absent in include/linux/linkmode.h
