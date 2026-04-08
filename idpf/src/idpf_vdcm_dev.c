@@ -739,6 +739,11 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 	int err;
 
 	ivdm = (struct idpf_vdcm *)vma->vm_private_data;
+
+	/* To record mmap_vma simply, each VMA contains single page */
+	if (WARN_ON(vma->vm_end - vma->vm_start != PAGE_SIZE))
+		return VM_FAULT_SIGBUS;
+
 	mutex_lock(&ivdm->vma_lock);
 
 	/*
@@ -766,18 +771,15 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 	dev_dbg(ivdm->dev, "fault address GPA:0x%lx HPA:0x%llx HVA:0x%lx",
 		vma->vm_pgoff << PAGE_SHIFT, addr, vma->vm_start);
 
-	if (io_remap_pfn_range(vma, vma->vm_start, PHYS_PFN(addr),
-			       vma->vm_end - vma->vm_start,
-			       vma->vm_page_prot)) {
-		ret = VM_FAULT_SIGBUS;
-		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
-		goto out_unlock;
-	}
-
 	mmap_vma = kzalloc(sizeof(*mmap_vma), GFP_KERNEL);
 	if (!mmap_vma) {
 		ret = VM_FAULT_OOM;
-		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+		goto out_unlock;
+	}
+
+	ret = vmf_insert_pfn(vma, vmf->address, PHYS_PFN(addr));
+	if (ret != VM_FAULT_NOPAGE) {
+		kfree(mmap_vma);
 		goto out_unlock;
 	}
 
