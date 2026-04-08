@@ -760,7 +760,9 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 	pg_off = vma->vm_pgoff &
 		 ((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
-	err = ivdm->adi->get_sparse_mmap_hpa(ivdm->adi, index, pg_off, &addr);
+	err = ivdm->adi->get_sparse_mmap_hpa(ivdm->adi, index, pg_off,
+					      vma->vm_end - vma->vm_start,
+					      &addr);
 	if (err) {
 		dev_err(ivdm->dev,
 			"failed to get HPA for memory map, err: %d.\n", err);
