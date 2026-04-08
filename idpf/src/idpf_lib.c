@@ -1139,12 +1139,12 @@ static int idpf_stop(struct net_device *netdev)
 	if (test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
 		return 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 	idpf_vport_stop(vport);
 
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return 0;
 }
@@ -1270,9 +1270,7 @@ static void idpf_vport_dealloc(struct idpf_vport *vport)
 	idpf_deinit_mac_addr(vport);
 
 	if (!test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags)) {
-		idpf_vport_cfg_lock(adapter);
 		idpf_vport_stop(vport);
-		idpf_vport_cfg_unlock(adapter);
 
 		idpf_decfg_netdev(vport);
 	}
@@ -2037,7 +2035,7 @@ static int idpf_sriov_ena(struct idpf_adapter *adapter, int num_vfs)
 }
 
 /**
- * idpf_sriov_config_vfs - Configure the requested VFs
+ * idpf_sriov_configure - Configure the requested VFs
  * @pdev: pointer to a pci_dev structure
  * @num_vfs: number of vfs to allocate
  *
@@ -2046,14 +2044,13 @@ static int idpf_sriov_ena(struct idpf_adapter *adapter, int num_vfs)
  *
  * Returns 0 on success or error code in case of any failure
  **/
-int idpf_sriov_config_vfs(struct pci_dev *pdev, int num_vfs)
+int idpf_sriov_configure(struct pci_dev *pdev, int num_vfs)
 {
 	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
 
-	lockdep_assert_held(&adapter->vport_init_lock);
-
 	if (!idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_SRIOV)) {
 		dev_info(&pdev->dev, "SR-IOV is not supported on this device\n");
+
 		return -EOPNOTSUPP;
 	}
 
@@ -2071,26 +2068,6 @@ int idpf_sriov_config_vfs(struct pci_dev *pdev, int num_vfs)
 	adapter->num_vfs = 0;
 
 	return 0;
-}
-
-/**
- * idpf_sriov_configure - Calls idpf_sriov_config_vfs to configure
- * the requested VFs
- * @pdev: pointer to a pci_dev structure
- * @num_vfs: number of vfs to allocate
- *
- * Returns 0 on success or error code in case of any failure
- **/
-int idpf_sriov_configure(struct pci_dev *pdev, int num_vfs)
-{
-	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
-	int ret;
-
-	idpf_vport_init_lock(adapter);
-	ret = idpf_sriov_config_vfs(pdev, num_vfs);
-	idpf_vport_init_unlock(adapter);
-
-	return ret;
 }
 
 /**
@@ -2223,7 +2200,7 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	int err;
 
 	idpf_detach_and_close(adapter);
-	idpf_vport_init_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 
 	dev_info(dev, "Device HW Reset initiated\n");
 
@@ -2269,7 +2246,7 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	 err = idpf_reset_recover(adapter);
 
 unlock_mutex:
-	idpf_vport_init_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	if (!err) {
 		idpf_attach_and_open(adapter);
@@ -2619,7 +2596,7 @@ static int idpf_set_features(struct net_device *netdev,
 	struct idpf_vport *vport;
 	int err = 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (idpf_is_reset_in_prog(adapter)) {
@@ -2656,7 +2633,7 @@ static int idpf_set_features(struct net_device *netdev,
 		err = idpf_set_vlan_features(vport, changed);
 
 unlock_mutex:
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
@@ -2695,7 +2672,7 @@ static int idpf_open(struct net_device *netdev)
 	if (test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
 		return 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 	err = idpf_set_real_num_queues(vport);
@@ -2705,7 +2682,7 @@ static int idpf_open(struct net_device *netdev)
 	err = idpf_vport_open(vport);
 
 unlock:
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
@@ -2723,7 +2700,7 @@ static int idpf_change_mtu(struct net_device *netdev, int new_mtu)
 	struct idpf_vport *vport;
 	int err = 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 #ifdef HAVE_NETDEVICE_MIN_MAX_MTU
@@ -2780,7 +2757,7 @@ static int idpf_change_mtu(struct net_device *netdev, int new_mtu)
 		err = idpf_initiate_soft_reset(vport, IDPF_SR_MTU_CHANGE);
 
 unlock_mutex:
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
@@ -2960,7 +2937,7 @@ static int idpf_change_tx_sch_mode(struct idpf_vport *vport,
  * @vport: virtual port data structure
  * @qopt: input parameters for ETF offload
  *
- * Caller is expected to hold vport_cfg_lock.
+ * Caller is expected to hold vport_ctrl_lock.
  *
  * Return 0 on success, error on failure.
  */
@@ -3017,7 +2994,7 @@ static int idpf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
 	case TC_SETUP_QDISC_ETF: {
 		struct idpf_vport *vport;
 
-		idpf_vport_cfg_lock(adapter);
+		idpf_vport_ctrl_lock(adapter);
 		vport = idpf_netdev_to_vport(netdev);
 
 		if (!vport || !vport->txqs)
@@ -3027,7 +3004,7 @@ static int idpf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
 		else
 			err = idpf_offload_txtime(vport, type_data);
 
-		idpf_vport_cfg_unlock(adapter);
+		idpf_vport_ctrl_unlock(adapter);
 		break;
 	}
 #endif /* HAVE_ETF_SUPPORT */
@@ -3216,7 +3193,7 @@ static int idpf_xdp(struct net_device *netdev, struct netdev_xdp *xdp)
 #endif /* HAVE_XDP_QUERY_PROG */
 	int err = 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 
 	switch (xdp->command) {
 	case XDP_SETUP_PROG:
@@ -3245,7 +3222,7 @@ static int idpf_xdp(struct net_device *netdev, struct netdev_xdp *xdp)
 		break;
 	}
 
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
@@ -3268,7 +3245,7 @@ static int idpf_set_mac(struct net_device *netdev, void *p)
 	struct idpf_vport *vport;
 	int err = 0;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (!idpf_is_cap_ena(vport->adapter, IDPF_OTHER_CAPS,
@@ -3304,7 +3281,7 @@ static int idpf_set_mac(struct net_device *netdev, void *p)
 	eth_hw_addr_set(netdev, addr->sa_data);
 
 unlock_mutex:
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
@@ -3322,7 +3299,7 @@ static int idpf_eth_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	struct idpf_vport *vport;
 	int err;
 
-	idpf_vport_cfg_lock(adapter);
+	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if ((!idpf_ptp_is_vport_tx_tstamp_ena(vport) &&
@@ -3347,7 +3324,7 @@ static int idpf_eth_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	}
 
 free_vport:
-	idpf_vport_cfg_unlock(adapter);
+	idpf_vport_ctrl_unlock(adapter);
 
 	return err;
 }
