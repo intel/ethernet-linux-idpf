@@ -1094,6 +1094,8 @@ int idpf_ptp_init(struct idpf_adapter *adapter)
 		goto free_ptp;
 	}
 
+	spin_lock_init(&adapter->ptp->read_dev_clk_lock);
+
 	err = idpf_ptp_create_clock(adapter);
 	if (err)
 		goto free_ptp;
@@ -1132,9 +1134,6 @@ int idpf_ptp_init(struct idpf_adapter *adapter)
 	}
 
 #endif /* HAVE_PTP_CANCEL_WORKER_SYNC */
-
-	spin_lock_init(&adapter->ptp->read_dev_clk_lock);
-
 	pci_dbg(adapter->pdev, "PTP init successful\n");
 
 	return 0;
