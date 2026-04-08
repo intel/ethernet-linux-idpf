@@ -732,6 +732,7 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	struct idpf_vdcm_mmap_vma *mmap_vma;
+	vm_fault_t ret = VM_FAULT_NOPAGE;
 	struct idpf_vdcm *ivdm;
 	unsigned int index;
 	u64 addr, pg_off;
@@ -740,16 +741,16 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 	ivdm = (struct idpf_vdcm *)vma->vm_private_data;
 	mutex_lock(&ivdm->vma_lock);
 
-	mmap_vma = kzalloc(sizeof(*mmap_vma), GFP_KERNEL);
-	if (!mmap_vma) {
-		mutex_unlock(&ivdm->vma_lock);
-		return VM_FAULT_OOM;
+	/*
+	 * We populate the whole VMA on fault, so we need to test whether
+	 * the VMA has already been mapped, e.g. for concurrent faults to
+	 * the same VMA. io_remap_pfn_range() will BUG_ON if it encounters
+	 * a populated PTE within the mapping range.
+	 */
+	list_for_each_entry(mmap_vma, &ivdm->vma_list, vma_next) {
+		if (mmap_vma->vma == vma)
+			goto out_unlock;
 	}
-
-	mmap_vma->vma = vma;
-	list_add(&mmap_vma->vma_next, &ivdm->vma_list);
-
-	mutex_unlock(&ivdm->vma_lock);
 
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 	pg_off = vma->vm_pgoff &
@@ -758,17 +759,34 @@ static vm_fault_t idpf_vdcm_dev_mmap_fault(struct vm_fault *vmf)
 	if (err) {
 		dev_err(ivdm->dev,
 			"failed to get HPA for memory map, err: %d.\n", err);
-		return VM_FAULT_SIGBUS;
+		ret = VM_FAULT_SIGBUS;
+		goto out_unlock;
 	}
 
 	dev_dbg(ivdm->dev, "fault address GPA:0x%lx HPA:0x%llx HVA:0x%lx",
 		vma->vm_pgoff << PAGE_SHIFT, addr, vma->vm_start);
 
 	if (io_remap_pfn_range(vma, vma->vm_start, PHYS_PFN(addr),
-			       vma->vm_end - vma->vm_start, vma->vm_page_prot))
-		return VM_FAULT_SIGBUS;
+			       vma->vm_end - vma->vm_start,
+			       vma->vm_page_prot)) {
+		ret = VM_FAULT_SIGBUS;
+		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+		goto out_unlock;
+	}
 
-	return VM_FAULT_NOPAGE;
+	mmap_vma = kzalloc(sizeof(*mmap_vma), GFP_KERNEL);
+	if (!mmap_vma) {
+		ret = VM_FAULT_OOM;
+		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+		goto out_unlock;
+	}
+
+	mmap_vma->vma = vma;
+	list_add(&mmap_vma->vma_next, &ivdm->vma_list);
+
+out_unlock:
+	mutex_unlock(&ivdm->vma_lock);
+	return ret;
 }
 
 static const struct vm_operations_struct idpf_vdcm_dev_mmap_ops = {
