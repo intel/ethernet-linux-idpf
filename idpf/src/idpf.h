@@ -877,8 +877,7 @@ struct idpf_iommu_bypass {
  * @req_tx_splitq: TX split or single queue model to request
  * @req_rx_splitq: RX split or single queue model to request
  * @crc_enable: Enable CRC insertion offload
- * @init_ctrl_lock: Lock to protect init, re-init, and deinit flow
- * @vport_cfg_lock: Lock to protect access to vports during alloc/dealloc/reset
+ * @vport_ctrl_lock: Lock to protect the vport control flow
  * @vector_lock: Lock to protect vector distribution
  * @queue_lock: Lock to protect queue distribution
 #ifdef DEVLINK_ENABLED
@@ -965,8 +964,7 @@ struct idpf_adapter {
 	bool req_tx_splitq;
 	bool req_rx_splitq;
 	bool crc_enable;
-	struct mutex vport_init_lock;
-	struct mutex vport_cfg_lock;
+	struct mutex vport_ctrl_lock;
 	struct mutex vector_lock;
 	struct mutex queue_lock;
 #ifdef DEVLINK_ENABLED
@@ -1322,46 +1320,24 @@ static inline bool idpf_is_rca_enabled(struct idpf_adapter *adapter)
 
 #endif /* CONFIG_RCA_SUPPORT */
 /**
- * idpf_vport_init_lock -Acquire the init/deinit control lock. It
- * controls and protect initialization, re-initialization and
- * deinitialization code flow and its resources.
- * @adapter: private data struct
- *
- * This lock is only used by non-datapath code to protect.
- */
-static inline void idpf_vport_init_lock(struct idpf_adapter *adapter)
-{
-	mutex_lock(&adapter->vport_init_lock);
-}
-
-/**
- * idpf_vport_init_unlock - Release the init/deinit control lock
- * @adapter: private data struct
- */
-static inline void idpf_vport_init_unlock(struct idpf_adapter *adapter)
-{
-	mutex_unlock(&adapter->vport_init_lock);
-}
-
-/**
- * idpf_vport_cfg_lock -Acquire the vport control lock
+ * idpf_vport_ctrl_lock - Acquire the vport control lock
  * @adapter: private data struct
  *
  * This lock should be used by non-datapath code to protect against vport
  * destruction.
  */
-static inline void idpf_vport_cfg_lock(struct idpf_adapter *adapter)
+static inline void idpf_vport_ctrl_lock(struct idpf_adapter *adapter)
 {
-	mutex_lock(&adapter->vport_cfg_lock);
+	mutex_lock(&adapter->vport_ctrl_lock);
 }
 
 /**
- * idpf_vport_cfg_unlock - Release the vport control lock
+ * idpf_vport_ctrl_unlock - Release the vport control lock
  * @adapter: private data struct
  */
-static inline void idpf_vport_cfg_unlock(struct idpf_adapter *adapter)
+static inline void idpf_vport_ctrl_unlock(struct idpf_adapter *adapter)
 {
-	mutex_unlock(&adapter->vport_cfg_lock);
+	mutex_unlock(&adapter->vport_ctrl_lock);
 }
 
 void idpf_statistics_task(struct work_struct *work);
