@@ -802,13 +802,20 @@ idpf_adi_get_sparse_mmap_area(struct idpf_adi *adi, u64 index,
  */
 static int
 idpf_adi_get_sparse_mmap_hpa(struct idpf_adi *adi, u32 index, u64 vm_pgoff,
-			     u64 *addr)
+			     u64 size, u64 *addr)
 {
 	struct idpf_adi_priv *priv = idpf_get_adi_priv(adi);
 	u64 reg_off;
 	u32 idx;
 
 	if (!addr || index != VFIO_PCI_BAR0_REGION_INDEX)
+		return -EINVAL;
+
+	/* Each sparse area is exactly one register page.
+	 * Reject requests that span multiple pages to avoid mapping
+	 * non-existent registers beyond the first page.
+	 */
+	if (size != PAGE_SIZE)
 		return -EINVAL;
 
 	switch (vm_pgoff) {
