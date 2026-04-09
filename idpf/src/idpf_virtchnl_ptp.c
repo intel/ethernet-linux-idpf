@@ -392,6 +392,9 @@ int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 		goto get_tstamp_caps_out;
 	}
 
+	if (!num_latches)
+		goto get_tstamp_caps_out;
+
 	size = struct_size(tstamp_caps, tx_tstamp_status, num_latches);
 	tstamp_caps = kzalloc(size, GFP_KERNEL);
 	if (!tstamp_caps) {
@@ -440,6 +443,8 @@ skip_offsets:
 
 	vport->tx_tstamp_caps = tstamp_caps;
 	kfree(rcv_tx_tstamp_caps);
+
+	INIT_WORK(&vport->tstamp_task, idpf_ptp_tstamp_task);
 
 	return 0;
 
