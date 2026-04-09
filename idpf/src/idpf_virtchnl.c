@@ -4027,8 +4027,6 @@ int idpf_vport_init(struct idpf_vport *vport, struct idpf_vport_max_q *max_q)
 		return err;
 	};
 
-	INIT_WORK(&vport->tstamp_task, idpf_ptp_tstamp_task);
-
 	return err;
 }
 
