@@ -3670,4 +3670,12 @@ void resource_set_range(struct resource *res, resource_size_t start,
 			resource_size_t size);
 #endif /* !HAVE_RESOURCE_SET_RANGE */
 
+#ifdef NEED___COUNTED_BY
+#ifdef HAVE_CONFIG_CC_HAS_COUNTED_BY
+# define __counted_by(member)		__attribute__((__counted_by__(member)))
+#else
+# define __counted_by(member)
+#endif /* HAVE_CONFIG_CC_HAS_COUNTED_BY */
+#endif /* NEED___COUNTED_BY */
+
 #endif /* _KCOMPAT_IMPL_H_ */

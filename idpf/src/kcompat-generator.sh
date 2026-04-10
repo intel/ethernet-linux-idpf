@@ -492,6 +492,8 @@ function gen-other() {
 		__STRUCT_SIZE_NEEDED=1
 	fi
 	gen NEED___STRUCT_SIZE if string "${__STRUCT_SIZE_NEEDED}" equals 1
+	gen HAVE_CONFIG_CC_HAS_COUNTED_BY if string "$(config_has CONFIG_CC_HAS_COUNTED_BY && echo 1)" equals 1
+	gen NEED___COUNTED_BY if macro __counted_by absent in "$cth"
 	gen HAVE_COMPLETION_RAW_SPINLOCK if struct completion matches 'struct swait_queue_head' in include/linux/completion.h
 	gen NEED_IS_CONSTEXPR if macro __is_constexpr absent in include/linux/const.h include/linux/minmax.h include/linux/kernel.h
 	gen NEED_DEBUGFS_LOOKUP if fun debugfs_lookup absent in include/linux/debugfs.h
