@@ -479,6 +479,7 @@ function gen-other() {
 	gen NEED_BITMAP_FROM_ARR32 if fun bitmap_from_arr32 absent in include/linux/bitmap.h
 	gen NEED_BITMAP_TO_ARR32 if fun bitmap_to_arr32 absent in include/linux/bitmap.h
 	gen NEED_ASSIGN_BIT if fun assign_bit absent in include/linux/bitops.h
+	gen NEED_BITS_TO_U32 if fun BITS_TO_U32 absent in include/linux/bitops.h
 	gen NEED_STATIC_ASSERT if macro static_assert absent in include/linux/build_bug.h
 	gen NEED____ADDRESSABLE if macro ___ADDRESSABLE absent in "$ch"
 	# special case for kernels 6.2 - 6.6 and __struct_size macro
