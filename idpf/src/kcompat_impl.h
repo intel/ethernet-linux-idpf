@@ -3043,6 +3043,10 @@ static inline void assign_bit(long nr, unsigned long *addr, bool value)
 }
 #endif /* NEED_ASSIGN_BIT */
 
+#ifdef NEED_BITS_TO_U32
+#define BITS_TO_U32(nr)		__KERNEL_DIV_ROUND_UP(nr, BITS_PER_TYPE(u32))
+#endif /* NEED_BITS_TO_U32 */
+
 /*
  * __has_builtin is supported on gcc >= 10, clang >= 3 and icc >= 21.
  * In the meantime, to support gcc < 10, we implement __has_builtin
