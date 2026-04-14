@@ -135,8 +135,11 @@ static void idpf_remove(struct pci_dev *pdev)
 	idpf_devlink_deinit(adapter);
 #endif /* DEVLINK_ENABLED */
 
-	if (adapter->num_vfs)
+	if (adapter->num_vfs) {
+		pci_lock_rescan_remove();
 		idpf_sriov_configure(pdev, 0);
+		pci_unlock_rescan_remove();
+	}
 	idpf_vc_core_deinit(adapter);
 
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
