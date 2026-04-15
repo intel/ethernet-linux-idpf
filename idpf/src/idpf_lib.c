@@ -1136,9 +1136,6 @@ static int idpf_stop(struct net_device *netdev)
 	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_vport *vport;
 
-	if (test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
-		return 0;
-
 	idpf_vport_ctrl_lock(adapter);
 	vport = idpf_netdev_to_vport(netdev);
 
