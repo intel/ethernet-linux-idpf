@@ -286,36 +286,21 @@ dma_mem_error:
 	return err;
 }
 
-/* API for virtchnl "transaction" support ("xn" for short).
- *
- * We are reusing the completion lock to serialize the accesses to the
- * transaction state for simplicity, but it could be its own separate synchro
- * as well. For now, this API is only used from within a workqueue context;
- * raw_spin_lock() is enough.
- */
+/* API for virtchnl "transaction" support ("xn" for short). */
+
 /**
  * idpf_vc_xn_lock - Request exclusive access to vc transaction
  * @xn: struct idpf_vc_xn* to access
  */
-#ifdef HAVE_COMPLETION_RAW_SPINLOCK
 #define idpf_vc_xn_lock(xn)			\
-	raw_spin_lock(&(xn)->completed.wait.lock)
-#else
-#define idpf_vc_xn_lock(xn)			\
-	spin_lock(&(xn)->completed.wait.lock)
-#endif /* HAVE_COMPLETION_RAW_SPINLOCK */
+	spin_lock(&(xn)->lock)
 
 /**
  * idpf_vc_xn_unlock - Release exclusive access to vc transaction
  * @xn: struct idpf_vc_xn* to access
  */
-#ifdef HAVE_COMPLETION_RAW_SPINLOCK
 #define idpf_vc_xn_unlock(xn)		\
-	raw_spin_unlock(&(xn)->completed.wait.lock)
-#else
-#define idpf_vc_xn_unlock(xn)		\
-	spin_unlock(&(xn)->completed.wait.lock)
-#endif /* HAVE_COMPLETION_RAW_SPINLOCK */
+	spin_unlock(&(xn)->lock)
 
 /**
  * idpf_vc_xn_release_bufs - Release reference to reply buffer(s) and
@@ -362,12 +347,11 @@ void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr)
 	for (i = 0; i < ARRAY_SIZE(vcxn_mngr->ring); i++) {
 		struct idpf_vc_xn *xn = &vcxn_mngr->ring[i];
 
-		idpf_vc_xn_lock(xn);
 		xn->state = IDPF_VC_XN_IDLE;
 		xn->idx = i;
 		idpf_vc_xn_release_bufs(xn);
+		spin_lock_init(&xn->lock);
 		reinit_completion(&xn->completed);
-		idpf_vc_xn_unlock(xn);
 	}
 
 	WRITE_ONCE(vcxn_mngr->active, true);
