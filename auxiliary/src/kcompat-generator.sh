@@ -461,6 +461,8 @@ function gen-vfio() {
 		PASID_SUPPORT=1
 	fi
 	gen HAVE_PASID_SUPPORT if string "${PASID_SUPPORT}" equals 1
+	# iommufd-based PASID passthrough
+	gen HAVE_IOMMUFD_BIND_FLAGS_PASID if anonymous enum matches IOMMUFD_BIND_FLAGS_PASID in include/linux/iommufd.h
 
 	gen HAVE_VFIO_FREE_DEV if fun vfio_free_device in include/linux/vfio.h
 	gen HAVE_LMV1_SUPPORT if macro VFIO_REGION_TYPE_MIGRATION in include/uapi/linux/vfio.h
