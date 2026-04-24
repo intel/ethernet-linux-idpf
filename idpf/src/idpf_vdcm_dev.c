@@ -812,8 +812,9 @@ int idpf_vdcm_dev_mmap(struct idpf_vdcm *ivdm, struct vm_area_struct *vma)
 
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 
-	if (index >= VFIO_PCI_NUM_REGIONS ||
+	if (index != VFIO_PCI_BAR0_REGION_INDEX ||
 	    vma->vm_end < vma->vm_start ||
+	    (vma->vm_end - vma->vm_start > IDPF_VDCM_BAR0_SIZE) ||
 	    (vma->vm_flags & VM_SHARED) == 0)
 		return -EINVAL;
 
