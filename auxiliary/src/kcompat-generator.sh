@@ -526,14 +526,16 @@ function gen-other() {
 	gen NEED_LINKMODE_ZERO if fun linkmode_zero absent in include/linux/linkmode.h
 	gen NEED_LIST_COUNT_NODES if fun list_count_nodes absent in include/linux/list.h
 
-	# On aarch64 RHEL systems, mul_u64_u64_div_u64 appears to be declared
-	# in math64 header, but is not provided by kernel
-	# so on these systems, set it to need anyway.
-	NEED_MUL_U64=0
-	if [ "$IS_ARM" ] || check fun mul_u64_u64_div_u64 absent in include/linux/math64.h ; then
-		NEED_MUL_U64=1
+	# mul_u64_u64_div_u64 was a function from Linux 5.9 until 6.19 when it was
+	# converted to a macro (wrapping the new mul_u64_add_u64_div_u64 function).
+	# On aarch64 systems the function may be declared in math64.h but not
+	# actually implemented by the kernel, so the fun check is skipped on ARM.
+	NEED_MUL_U64_U64_DIV_U64=0
+	if check macro mul_u64_u64_div_u64 absent in include/linux/math64.h &&
+	   { [ "$IS_ARM" ] || check fun mul_u64_u64_div_u64 absent in include/linux/math64.h; } ; then
+		NEED_MUL_U64_U64_DIV_U64=1
 	fi
-	gen NEED_MUL_U64_U64_DIV_U64 if string "${NEED_MUL_U64}" equals 1
+	gen NEED_MUL_U64_U64_DIV_U64 if string "${NEED_MUL_U64_U64_DIV_U64}" equals 1
 
 	gen NEED_DIV_U64_ROUND_CLOSEST if macro DIV_U64_ROUND_CLOSEST absent in include/linux/math64.h
 	gen NEED_DIV_U64_ROUND_UP if macro DIV_U64_ROUND_UP absent in include/linux/math64.h

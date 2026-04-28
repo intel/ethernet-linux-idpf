@@ -2523,6 +2523,7 @@ int _kc_pci_iov_vf_id(struct pci_dev *dev)
 #endif /* NEED_PCI_IOV_VF_ID */
 
 #ifdef NEED_MUL_U64_U64_DIV_U64
+#undef mul_u64_u64_div_u64
 u64 mul_u64_u64_div_u64(u64 a, u64 b, u64 c)
 {
 	u64 res = 0, div, rem;
