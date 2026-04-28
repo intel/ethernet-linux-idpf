@@ -1807,6 +1807,7 @@ int _kc_pci_iov_vf_id(struct pci_dev *dev);
  * 3dc167ba5729 ("sched/cputime: Improve cputime_adjust()")
  */
 #ifdef NEED_MUL_U64_U64_DIV_U64
+#undef mul_u64_u64_div_u64
 u64 mul_u64_u64_div_u64(u64 a, u64 mul, u64 div);
 #endif /* NEED_MUL_U64_U64_DIV_U64 */
 
