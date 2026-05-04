@@ -230,14 +230,13 @@ struct iidc_core_dev_info {
 	 * private data accessible only to the specific auxiliary driver.
 	 */
 	void *iidc_priv;
+	struct iidc_ver_info ver;
 
 	/* KVA / Linear address corresponding to BAR0 of underlying
 	 * pci_device.
 	 */
 	u8 __iomem *hw_addr;
 	int cdev_info_id;
-	struct iidc_ver_info ver;
-
 	/* Opaque pointer for aux driver specific data tracking. This memory
 	 * will be alloc'd and freed by the auxiliary driver and used for
 	 * private data accessible only to the specific auxiliary driver.
