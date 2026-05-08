@@ -4805,12 +4805,6 @@ bypass_hsplit:
 
 		vlan_tci = idpf_get_vlan_tci(rx_desc);
 
-		/* pad skb if needed (to make valid ethernet frame) */
-		if (eth_skb_pad(skb)) {
-			skb = NULL;
-			continue;
-		}
-
 		/* probably a little skewed due to removing CRC */
 		total_rx_bytes += skb->len;
 

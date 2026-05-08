@@ -1188,12 +1188,6 @@ static int idpf_rx_singleq_clean(struct idpf_queue *rx_q, int budget)
 			continue;
 		}
 
-		/* pad skb if needed (to make valid ethernet frame) */
-		if (eth_skb_pad(skb)) {
-			skb = NULL;
-			continue;
-		}
-
 		/* probably a little skewed due to removing CRC */
 		total_rx_bytes += skb->len;
 

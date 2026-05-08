@@ -1160,12 +1160,6 @@ int idpf_rx_splitq_clean_zc(struct idpf_queue *rxq, int budget)
 		idpf_post_buf_refill(refillq, buf_id);
 		ntc = idpf_rx_bump_ntc(rxq, ntc);
 
-		/* pad skb if needed (to make valid ethernet frame) */
-		if (eth_skb_pad(skb)) {
-			skb = NULL;
-			continue;
-		}
-
 		/* probably a little skewed due to removing CRC */
 		total_rx_bytes += skb->len;
 
@@ -1306,12 +1300,6 @@ int idpf_rx_singleq_clean_zc(struct idpf_queue *rxq, int budget)
 #define IDPF_RXD_ERR_S BIT(VIRTCHNL2_RX_BASE_DESC_QW1_ERROR_S)
 		if (unlikely(idpf_rx_singleq_test_staterr(rx_desc, IDPF_RXD_ERR_S))) {
 			dev_kfree_skb_any(skb);
-			skb = NULL;
-			continue;
-		}
-
-		/* pad skb if needed (to make valid ethernet frame) */
-		if (eth_skb_pad(skb)) {
 			skb = NULL;
 			continue;
 		}
