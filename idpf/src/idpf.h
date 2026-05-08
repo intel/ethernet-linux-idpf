@@ -54,7 +54,7 @@ struct idpf_rss_data;
 #endif /* CONFIG_IOMMU_BYPASS */
 
 #define IDPF_DRV_NAME "idpf"
-#define IDPF_DRV_VER "1.0.9"
+#define IDPF_DRV_VER "1.0.10"
 
 #define IDPF_M(m, s)	((m) << (s))
 
