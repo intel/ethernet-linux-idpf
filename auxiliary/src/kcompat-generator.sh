@@ -343,6 +343,7 @@ function gen-netdevice() {
 	ndh='include/linux/netdevice.h'
 	gen HAVE_NDO_BRIDGE_SETLINK_EXTACK if method ndo_bridge_setlink of net_device_ops matches 'struct netlink_ext_ack \\*extack' in "$ndh"
 	gen HAVE_NDO_ETH_IOCTL if fun ndo_eth_ioctl in "$ndh"
+	gen HAVE_NDO_HWTSTAMP if method ndo_hwtstamp_get of net_device_ops in "$ndh"
 	gen HAVE_NDO_EXTENDED_SET_TX_MAXRATE if method ndo_set_tx_maxrate of net_device_ops_extended in "$ndh"
 	gen HAVE_NDO_FDB_ADD_EXTACK if method ndo_fdb_add of net_device_ops matches 'struct netlink_ext_ack \\*extack' in "$ndh"
 	gen HAVE_NDO_FDB_ADD_NOTIFIED if method ndo_fdb_add of net_device_ops matches 'bool \\*notified' in "$ndh"
