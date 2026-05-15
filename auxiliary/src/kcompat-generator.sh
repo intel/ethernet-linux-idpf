@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (C) 2019-2026 Intel Corporation
 
+# SPDX-License-Identifier: GPL-2.0
+
+
+
 set -Eeuo pipefail
 
 # This file generates HAVE_ and NEED_ defines for current kernel
