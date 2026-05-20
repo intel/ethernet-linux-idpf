@@ -3000,7 +3000,7 @@ static int idpf_offload_txtime(struct idpf_vport *vport,
 static int idpf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
 			 void *type_data)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
+	struct idpf_adapter __maybe_unused *adapter = idpf_netdev_to_adapter(netdev);
 	int err = 0;
 
 	switch (type) {
