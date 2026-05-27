@@ -1294,7 +1294,7 @@ int idpf_rx_singleq_clean_zc(struct idpf_queue *rxq, int budget)
 		cleaned_count++;
 
 		/* skip if it is non EOP desc */
-		if (idpf_rx_singleq_is_non_eop(rxq, rx_desc, skb))
+		if (idpf_rx_singleq_is_non_eop(rxq, rx_desc, ntc, skb))
 			continue;
 
 #define IDPF_RXD_ERR_S BIT(VIRTCHNL2_RX_BASE_DESC_QW1_ERROR_S)

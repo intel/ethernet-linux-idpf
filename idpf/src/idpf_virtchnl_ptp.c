@@ -491,6 +491,8 @@ idpf_ptp_update_tstamp_tracker(struct idpf_ptp_vport_tx_tstamp_caps *caps,
 		status = &caps->tx_tstamp_status[i];
 		if (skb == status->skb && status->state == current_state) {
 			status->state = expected_state;
+			if (expected_state == IDPF_PTP_FREE)
+				status->skb = NULL;
 			updated = true;
 			break;
 		}
@@ -533,8 +535,13 @@ idpf_ptp_get_tstamp_value(struct idpf_vport *vport,
 						   ptp_tx_tstamp->skb,
 						   IDPF_PTP_READ_VALUE,
 						   IDPF_PTP_FREE);
-	if (!state_upd)
+	if (!state_upd) {
+		consume_skb(ptp_tx_tstamp->skb);
+		ptp_tx_tstamp->skb = NULL;
+		list_add(&ptp_tx_tstamp->list_member,
+			 &tx_tstamp_caps->latches_free);
 		return -EINVAL;
+	}
 
 	tstamp = idpf_ptp_extend_tstamp(vport, ptp_tx_tstamp->tstamp);
 	shhwtstamps.hwtstamp = ns_to_ktime(tstamp);
