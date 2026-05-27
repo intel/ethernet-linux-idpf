@@ -1202,7 +1202,7 @@ void idpf_rx_singleq_extract_fields(struct idpf_queue *rx_q,
 				    struct idpf_rx_extracted *fields);
 bool idpf_rx_singleq_is_non_eop(struct idpf_queue *rxq,
 				union virtchnl2_rx_desc *rx_desc,
-				struct sk_buff *skb);
+				u16 ntc, struct sk_buff *skb);
 #ifdef HAVE_XDP_FRAME_STRUCT
 int idpf_xmit_xdpq(struct xdp_frame *xdp, struct idpf_queue *xdpq);
 #else

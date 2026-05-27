@@ -2880,6 +2880,7 @@ static void idpf_tx_splitq_pkt_err_unmap(struct idpf_queue *txq,
 		.dev    = txq->dev,
 		.ss     = &ss,
 	};
+	struct sk_buff *skb = first->skb;
 
 	u64_stats_update_begin(&txq->stats_sync);
 	u64_stats_inc(&txq->q_stats.tx.dma_map_errs);
@@ -2890,6 +2891,9 @@ static void idpf_tx_splitq_pkt_err_unmap(struct idpf_queue *txq,
 		tx_buf = &txq->tx.bufs[idpf_tx_buf_next(tx_buf)];
 		libeth_tx_complete(tx_buf, &cp);
 	}
+
+	first->skb = NULL;
+	dev_kfree_skb_any(skb);
 
 	/* Update tail in case netdev_xmit_more was previously true. */
 	idpf_tx_buf_hw_update(txq, params->prev_ntu, false);
@@ -4385,8 +4389,10 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 		 * for rollback like we do in the standard data path.
 		 */
 		if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
-						      &buf_id)))
+						      &buf_id))) {
+			dma_unmap_single(xdpq->dev, dma, size, DMA_TO_DEVICE);
 			return IDPF_XDP_CONSUMED;
+		}
 
 		tx_params.compl_tag = buf_id;
 
@@ -5268,6 +5274,7 @@ static int idpf_vport_intr_req_irq(struct idpf_vport *vport,
 		err = request_irq(irq_num, idpf_vport_intr_clean_queues, 0,
 				  name, q_vector);
 		if (err) {
+			kfree(name);
 			netdev_err(vport->netdev,
 				   "Request_irq failed, error: %d\n", err);
 			goto free_q_irqs;

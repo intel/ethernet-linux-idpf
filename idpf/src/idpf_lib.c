@@ -161,6 +161,7 @@ static int idpf_mb_intr_req_irq(struct idpf_adapter *adapter)
 			 "Mailbox", mb_vidx);
 	err = request_irq(irq_num, adapter->irq_mb_handler, 0, name, adapter);
 	if (err) {
+		kfree(name);
 		dev_err(idpf_adapter_to_dev(adapter),
 			"IRQ request for mailbox failed, error: %d\n", err);
 		return err;
@@ -1911,9 +1912,9 @@ intr_rel:
 void idpf_init_task(struct work_struct *work)
 {
 	struct idpf_vport_config *vport_config;
+	struct idpf_vport *vport = NULL;
 	struct idpf_vport_max_q max_q;
 	struct idpf_adapter *adapter;
-	struct idpf_vport *vport;
 	u16 num_default_vports;
 	struct pci_dev *pdev;
 	bool default_vport;
@@ -2010,6 +2011,8 @@ unwind_vports:
 			if (adapter->vports[index])
 				idpf_vport_dealloc(adapter->vports[index]);
 		}
+	} else if (vport && adapter->vports[vport->idx] == vport) {
+		idpf_vport_dealloc(vport);
 	}
 
 	/* Cleanup after vc_core_init, which has no way of knowing the
@@ -2018,8 +2021,10 @@ unwind_vports:
 	if (test_and_clear_bit(IDPF_HR_DRV_LOAD, adapter->flags)) {
 		cancel_delayed_work_sync(&adapter->serv_task);
 		cancel_delayed_work_sync(&adapter->mbx_task);
+		idpf_ptp_release(adapter);
+	} else if (default_vport) {
+		idpf_ptp_release(adapter);
 	}
-	idpf_ptp_release(adapter);
 
 	clear_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 }
@@ -3164,11 +3169,13 @@ idpf_xdp_setup_prog(struct idpf_netdev_priv *np, struct bpf_prog *prog,
 	idpf_vport_adjust_qs(vport, &vport->dflt_qv_rsrc);
 	idpf_vport_calc_num_q_desc(vport, &vport->dflt_qv_rsrc);
 
-	err = idpf_vport_queue_alloc_all(vport, &vport->dflt_qv_rsrc);
-	if (err) {
-		netdev_err(vport->netdev,
-			   "Could not allocate queues for XDP\n");
-		goto release_vport_queues;
+	if (!vport_is_up) {
+		err = idpf_vport_queue_alloc_all(vport, &vport->dflt_qv_rsrc);
+		if (err) {
+			netdev_err(vport->netdev,
+				   "Could not allocate queues for XDP\n");
+			return err;
+		}
 	}
 
 	err = idpf_send_add_queues_msg(vport->adapter, vport_config,
@@ -3177,6 +3184,8 @@ idpf_xdp_setup_prog(struct idpf_netdev_priv *np, struct bpf_prog *prog,
 	if (err) {
 		netdev_err(vport->netdev,
 			   "Could not add queues for XDP, VC message sent failed\n");
+		if (vport_is_up)
+			return err;
 		goto release_vport_queues;
 	}
 
@@ -3187,7 +3196,7 @@ idpf_xdp_setup_prog(struct idpf_netdev_priv *np, struct bpf_prog *prog,
 		if (err) {
 			netdev_err(vport->netdev,
 				   "Could not re-open the vport after XDP setup\n");
-			goto release_vport_queues;
+			return err;
 		}
 	} else {
 		idpf_vport_queues_rel(vport, rsrc);
