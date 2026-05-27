@@ -1022,6 +1022,31 @@ int idpf_add_del_fsteer_filters(struct idpf_adapter *adapter,
 }
 
 /**
+ * idpf_lan_mmio_regs_rel - release LAN MMIO region mappings
+ * @adapter: Driver specific private structure
+ */
+static void idpf_lan_mmio_regs_rel(struct idpf_adapter *adapter)
+{
+	struct idpf_hw *hw = &adapter->hw;
+	int i;
+
+	if (!hw->lan_regs)
+		return;
+
+	for (i = 0; i < hw->num_lan_regs; i++) {
+		if (hw->lan_regs[i].vaddr) {
+			devm_iounmap(&adapter->pdev->dev,
+				     hw->lan_regs[i].vaddr);
+			hw->lan_regs[i].vaddr = NULL;
+		}
+	}
+
+	kfree(hw->lan_regs);
+	hw->lan_regs = NULL;
+	hw->num_lan_regs = 0;
+}
+
+/**
  * idpf_send_get_lan_memory_regions - Send virtchnl get LAN memory regions msg
  * @adapter: Driver specific private struct
  *
@@ -1069,6 +1094,7 @@ static int idpf_send_get_lan_memory_regions(struct idpf_adapter *adapter)
 	}
 
 	hw = &adapter->hw;
+	idpf_lan_mmio_regs_rel(adapter);
 	hw->lan_regs = kcalloc(num_regions, sizeof(*hw->lan_regs), GFP_KERNEL);
 	if (!hw->lan_regs) {
 		err = -ENOMEM;
@@ -1105,6 +1131,7 @@ static int idpf_calc_remaining_mmio_regs(struct idpf_adapter *adapter)
 	struct resource *second_static_reg = &adapter->dev_ops.static_reg_info[1];
 	struct idpf_hw *hw = &adapter->hw;
 
+	idpf_lan_mmio_regs_rel(adapter);
 	hw->num_lan_regs = IDPF_MMIO_MAP_FALLBACK_MAX_REMAINING;
 	hw->lan_regs = kcalloc(hw->num_lan_regs, sizeof(*hw->lan_regs),
 			       GFP_KERNEL);
@@ -1158,6 +1185,7 @@ static int idpf_map_lan_mmio_regs(struct idpf_adapter *adapter)
 		hw->lan_regs[i].vaddr = devm_ioremap(&pdev->dev, start, len);
 		if (!hw->lan_regs[i].vaddr) {
 			pci_err(pdev, "failed to allocate BAR0 region\n");
+			idpf_lan_mmio_regs_rel(adapter);
 			return -ENOMEM;
 		}
 	}
@@ -2879,13 +2907,17 @@ int idpf_send_get_set_rss_key_msg(struct idpf_adapter *adapter,
 	}
 	if (!get)
 		return 0;
-	if (reply_sz < sizeof(struct virtchnl2_rss_key))
+	if (reply_sz < sizeof(struct virtchnl2_rss_key)) {
+		kfree(recv_rk);
 		return -EIO;
+	}
 
 	key_size = min_t(u16, NETDEV_RSS_KEY_LEN,
 			 le16_to_cpu(recv_rk->key_len));
-	if (reply_sz < key_size)
+	if (reply_sz < struct_size(recv_rk, key, key_size)) {
+		kfree(recv_rk);
 		return -EIO;
+	}
 
 	/* key len didn't change, reuse existing buf */
 	if (rss_data->rss_key_size == key_size)
@@ -3537,31 +3569,36 @@ restart:
 		msleep(task_delay);
 	}
 
-	if (idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_LAN_MEMORY_REGIONS)) {
-		if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV)
+	if (!adapter->hw.lan_regs) {
+		if (idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS,
+				    VIRTCHNL2_CAP_LAN_MEMORY_REGIONS)) {
+			if (adapter->pdev->device == IDPF_DEV_ID_VF_SIOV)
+				err = idpf_calc_remaining_mmio_regs(adapter);
+			else
+				err = idpf_send_get_lan_memory_regions(adapter);
+			if (err) {
+				dev_err(&adapter->pdev->dev,
+					"Failed to get LAN memory regions: %d\n",
+					err);
+				return -EINVAL;
+			}
+		} else {
+			/* Fallback to mapping the remaining regions of the entire BAR */
 			err = idpf_calc_remaining_mmio_regs(adapter);
-		else
-		err = idpf_send_get_lan_memory_regions(adapter);
-		if (err) {
-			dev_err(&adapter->pdev->dev, "Failed to get LAN memory regions: %d\n",
-				err);
-			return -EINVAL;
+			if (err) {
+				dev_err(&adapter->pdev->dev,
+					"Failed to allocate BAR0 region(s): %d\n",
+					err);
+				return -ENOMEM;
+			}
 		}
-	} else {
-		/* Fallback to mapping the remaining regions of the entire BAR */
-		err = idpf_calc_remaining_mmio_regs(adapter);
+
+		err = idpf_map_lan_mmio_regs(adapter);
 		if (err) {
-			dev_err(&adapter->pdev->dev, "Failed to allocate BAR0 region(s): %d\n",
-				err);
+			dev_err(&adapter->pdev->dev,
+				"Failed to map BAR0 region(s): %d\n", err);
 			return -ENOMEM;
 		}
-	}
-
-	err = idpf_map_lan_mmio_regs(adapter);
-	if (err) {
-		dev_err(&adapter->pdev->dev, "Failed to map BAR0 region(s): %d\n",
-			err);
-		return -ENOMEM;
 	}
 
 	if (adapter->dev_ops.reg_ops.oicr_reset_reg_init)
@@ -3619,7 +3656,7 @@ restart:
 		if (err) {
 			dev_err(&adapter->pdev->dev, "Failed to get VLAN capabilities: %d\n",
 				err);
-			goto err_intr_req;
+			goto intr_rel;
 		}
 	}
 
@@ -3774,8 +3811,6 @@ unsigned int idpf_fsteer_max_rules(struct idpf_vport *vport)
  */
 void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 {
-	struct idpf_hw *hw = &adapter->hw;
-
 	if (!test_bit(IDPF_VC_CORE_INIT, adapter->flags))
 		return;
 
@@ -3790,10 +3825,7 @@ void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 	cancel_delayed_work_sync(&adapter->serv_task);
 
 	idpf_vport_params_buf_rel(adapter);
-
-	kfree(hw->lan_regs);
-	hw->lan_regs = NULL;
-	hw->num_lan_regs = 0;
+	idpf_lan_mmio_regs_rel(adapter);
 
 	kfree(adapter->vports);
 	adapter->vports = NULL;

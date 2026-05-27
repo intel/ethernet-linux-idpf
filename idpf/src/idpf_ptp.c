@@ -1168,6 +1168,8 @@ void idpf_ptp_release(struct idpf_adapter *adapter)
 	if (ptp->clock) {
 #ifndef HAVE_PTP_CANCEL_WORKER_SYNC
 		kthread_cancel_delayed_work_sync(&adapter->ptp->work);
+		kthread_destroy_worker(ptp->kworker);
+		ptp->kworker = NULL;
 #else /* HAVE_PTP_CANCEL_WORKER_SYNC */
 		ptp_cancel_worker_sync(adapter->ptp->clock);
 #endif /* HAVE_PTP_CANCEL_WORKER_SYNC */

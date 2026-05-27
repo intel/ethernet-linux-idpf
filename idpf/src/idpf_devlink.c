@@ -188,6 +188,10 @@ static void idpf_destroy_sf(struct idpf_sf *sf)
 		 * associated config can also be freed.
 		 */
 		idpf_vport_dealloc(sf->vport);
+		kfree(adapter->vport_config[idx]->user_config.q_coalesce);
+#ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
+		kfree(adapter->vport_config[idx]->affinity_config);
+#endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
 		kfree(adapter->vport_config[idx]);
 		adapter->vport_config[idx] = NULL;
 	}

@@ -501,8 +501,6 @@ err_mbx_wq_alloc:
 err_serv_wq_alloc:
 	destroy_workqueue(adapter->init_wq);
 err_wq_alloc:
-	kfree(adapter->vcxn_mngr);
-	adapter->vcxn_mngr = NULL;
 #ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
 	pci_disable_pcie_error_reporting(pdev);
 #endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
@@ -512,6 +510,11 @@ err_disable_ptm:
 #endif /* CONFIG_PCIE_PTM */
 	pci_release_mem_regions(pdev);
 err_free:
+	if (adapter->vcxn_mngr) {
+		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
+		kfree(adapter->vcxn_mngr);
+		adapter->vcxn_mngr = NULL;
+	}
 #ifdef DEVLINK_ENABLED
 	devlink_free(priv_to_devlink(adapter));
 #else

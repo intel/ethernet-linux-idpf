@@ -117,6 +117,7 @@ static void idpf_tx_singleq_dma_map_error(struct idpf_queue *txq,
 		.dev	= txq->dev,
 		.ss	= &ss,
 	};
+	bool is_gso = skb_is_gso(skb);
 
 	u64_stats_update_begin(&txq->stats_sync);
 	u64_stats_inc(&txq->q_stats.tx.dma_map_errs);
@@ -135,7 +136,7 @@ static void idpf_tx_singleq_dma_map_error(struct idpf_queue *txq,
 		idx--;
 	}
 
-	if (skb_is_gso(skb)) {
+	if (is_gso) {
 		union idpf_tx_flex_desc *tx_desc;
 
 		/* If we failed a DMA mapping for a TSO packet, we will have
@@ -148,6 +149,9 @@ static void idpf_tx_singleq_dma_map_error(struct idpf_queue *txq,
 			idx = txq->desc_count;
 		idx--;
 	}
+
+	first->skb = NULL;
+	dev_kfree_skb_any(skb);
 
 	/* Update tail in case netdev_xmit_more was previously true */
 	idpf_tx_buf_hw_update(txq, idx, false);
@@ -604,18 +608,19 @@ static bool idpf_tx_singleq_clean_all(struct idpf_q_vector *q_vec, int budget,
  * idpf_rx_singleq_is_non_eop - process handling of non-EOP buffers
  * @rxq: Rx ring being processed
  * @rx_desc: Rx descriptor for current buffer
+ * @ntc: Current next-to-clean index for the in-progress packet
  * @skb: Current socket buffer containing buffer in progress
  */
 bool idpf_rx_singleq_is_non_eop(struct idpf_queue *rxq,
 				union virtchnl2_rx_desc *rx_desc,
-				struct sk_buff *skb)
+				u16 ntc, struct sk_buff *skb)
 {
 	/* if we are the last buffer then there is nothing else to do */
 	if (likely(idpf_rx_singleq_test_staterr(rx_desc, IDPF_RXD_EOF_SINGLEQ)))
 		return false;
 
 	/* place skb in next buffer to be received */
-	rxq->rx.bufs[rxq->next_to_clean].skb = skb;
+	rxq->rx.bufs[ntc].skb = skb;
 
 	return true;
 }
@@ -1177,7 +1182,7 @@ static int idpf_rx_singleq_clean(struct idpf_queue *rx_q, int budget)
 		cleaned_count++;
 
 		/* skip if it is non EOP desc */
-		if (idpf_rx_singleq_is_non_eop(rx_q, rx_desc, skb))
+		if (idpf_rx_singleq_is_non_eop(rx_q, rx_desc, ntc, skb))
 			continue;
 
 #define IDPF_RXD_ERR_S BIT(VIRTCHNL2_RX_BASE_DESC_QW1_ERROR_S)
