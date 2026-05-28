@@ -149,6 +149,7 @@ function gen-devlink() {
 	gen NEED_DEVLINK_FMSG_DUMP_SKB if fun devlink_fmsg_dump_skb absent in "$dh"
 	gen NEED_DEVLINK_FMSG_PUT if macro devlink_fmsg_put absent in "$dh"
 	gen NEED_DEVLINK_HEALTH_DEFAULT_AUTO_RECOVER if fun devlink_health_reporter_create matches auto_recover in "$dh"
+	gen NEED_DEVLINK_PARAMS_VALIDATE_VAL_PTR if method validate of devlink_param lacks 'param_value \\*' in "$dh"
 	gen NEED_DEVLINK_REGION_CREATE_OPS if fun devlink_region_create lacks 'struct devlink_region_ops \\*ops' in "$dh"
 	gen NEED_DEVLINK_RESOURCES_UNREGISTER_NO_RESOURCE if fun devlink_resources_unregister matches 'struct devlink_resource \\*' in "$dh"
 	gen NEED_DEVLINK_TO_DEV if fun devlink_to_dev absent in "$dh"
