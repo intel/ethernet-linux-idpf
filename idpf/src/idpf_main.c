@@ -20,94 +20,6 @@ static const char idpf_copyright[] = "Copyright (C) 2019-2026 Intel Corporation"
 MODULE_DESCRIPTION(DRV_SUMMARY);
 MODULE_LICENSE("GPL");
 
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-static int iommu_bypass;
-module_param(iommu_bypass, int, 0644);
-MODULE_PARM_DESC(iommu_bypass, " iommu bypass");
-
-/**
- * idpf_deinit_iommu_bypass
- * @adapter: pointer to adapter struct
- */
-static void idpf_deinit_iommu_bypass(struct idpf_adapter *adapter)
-{
-	if (adapter->iommu_byp.iodom)
-		iommu_unmap(adapter->iommu_byp.iodom,
-			    adapter->iommu_byp.bypass_iova_addr,
-			    adapter->iommu_byp.bypass_size);
-	if (adapter->iommu_byp.ddev) {
-		struct platform_device *ldev =
-			container_of(adapter->iommu_byp.ddev,
-				     struct platform_device, dev);
-		platform_device_unregister(ldev);
-	}
-}
-
-/**
- * idpf_init_iommu_bypass - configure IDPF in IOMMU bypass mode
- * @adapter: pointer to adapter struct
- * @pdev: PCI device information struct
- *
- * Returns 0 on success, negative on failure
- */
-static int idpf_init_iommu_bypass(struct idpf_adapter *adapter,
-				  struct pci_dev *pdev)
-{
-	struct platform_device *ldev = NULL;
-	struct iommu_domain *iodom = NULL;
-	struct sysinfo inf;
-	int err = 0;
-
-	ldev = platform_device_alloc("iommu_bypass", PLATFORM_DEVID_NONE);
-	if (!ldev)
-		goto iommu_bypass_fail;
-
-	err = platform_device_add(ldev);
-	if (err)
-		goto iommu_bypass_fail;
-
-	adapter->iommu_byp.ddev = &ldev->dev;
-	adapter->iommu_byp.ddev->cma_area = pdev->dev.cma_area;
-	adapter->iommu_byp.ddev->dma_coherent = true;
-
-	err = dma_set_mask_and_coherent(adapter->iommu_byp.ddev, DMA_BIT_MASK(64));
-	if (err)
-		err = dma_set_mask_and_coherent(adapter->iommu_byp.ddev,
-						DMA_BIT_MASK(32));
-	if (err)
-		goto iommu_bypass_fail;
-
-	si_meminfo(&inf);
-	adapter->iommu_byp.bypass_size = inf.totalram << (PAGE_SHIFT + 1);
-	adapter->iommu_byp.bypass_phys_addr = memstart_addr;
-	adapter->iommu_byp.bypass_iova_addr = adapter->iommu_byp.bypass_phys_addr;
-	iodom = iommu_get_domain_for_dev(&pdev->dev);
-	if (iodom) {
-		err = iommu_map(iodom, adapter->iommu_byp.bypass_iova_addr,
-				adapter->iommu_byp.bypass_phys_addr,
-				adapter->iommu_byp.bypass_size,
-				IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE,
-				GFP_KERNEL);
-		if (err)
-			goto iommu_bypass_fail;
-		dev_info(&pdev->dev,
-			 "IOMMU bypass enabled. WARNING: driver reload may be unstable\n");
-		adapter->iommu_byp.iodom = iodom;
-	} else {
-		dev_info(&pdev->dev, "IOMMU disabled\n");
-	}
-
-	return err;
-
-iommu_bypass_fail:
-	idpf_deinit_iommu_bypass(adapter);
-
-	return err;
-}
-
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 /**
  * idpf_remove - Device removal routine
  * @pdev: PCI device information struct
@@ -204,11 +116,6 @@ destroy_wqs:
 #endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
 	pci_release_mem_regions(pdev);
 
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-	idpf_deinit_iommu_bypass(adapter);
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 	pci_set_drvdata(pdev, NULL);
 #ifdef DEVLINK_ENABLED
 	devlink_free(priv_to_devlink(adapter));
@@ -419,17 +326,6 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	pr_info("%s - version %s\n", idpf_driver_string, IDPF_DRV_VER);
 	pr_info("%s\n", idpf_copyright);
 
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-	if (iommu_bypass) {
-		if (idpf_init_iommu_bypass(adapter, pdev)) {
-			kfree(adapter);
-			return -EINVAL;
-		}
-	}
-
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 	adapter->pdev = pdev;
 	adapter->drv_name = IDPF_DRV_NAME;
 	adapter->drv_ver = IDPF_DRV_VER;

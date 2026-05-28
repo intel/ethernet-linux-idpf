@@ -1594,13 +1594,6 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 			struct idpf_queue *q = tx_qgrp->txqs[j];
 
 			u64_stats_init(&q->stats_sync);
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-			if (adapter->iommu_byp.ddev)
-				q->dev = adapter->iommu_byp.ddev;
-			else
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 			q->dev = idpf_adapter_to_dev(adapter);
 			q->netdev = vport->netdev;
 			q->vport = vport;
@@ -1641,13 +1634,6 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 			goto err_alloc;
 
 		u64_stats_init(&tx_qgrp->complq->stats_sync);
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-		if (adapter->iommu_byp.ddev)
-			tx_qgrp->complq->dev = adapter->iommu_byp.ddev;
-		else
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 		tx_qgrp->complq->dev = idpf_adapter_to_dev(adapter);
 		tx_qgrp->complq->netdev = vport->netdev;
 		tx_qgrp->complq->desc_count = rsrc->complq_desc_count;
@@ -1728,13 +1714,6 @@ static void __idpf_rxq_init(struct idpf_vport *vport, struct idpf_queue *q)
 	struct idpf_adapter *adapter = vport->adapter;
 
 	u64_stats_init(&q->stats_sync);
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-	if (adapter->iommu_byp.ddev)
-		q->dev = adapter->iommu_byp.ddev;
-	else
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 	q->dev = idpf_adapter_to_dev(adapter);
 	q->vport = vport;
 	q->rx_buffer_low_watermark = IDPF_LOW_WATERMARK;

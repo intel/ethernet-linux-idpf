@@ -46,12 +46,6 @@ struct idpf_rss_data;
 #ifdef HAVE_UDP_ENC_RX_OFFLOAD
 #include <net/udp_tunnel.h>
 #endif
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-#include <linux/iommu.h>
-#include <linux/platform_device.h>
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 
 #define IDPF_DRV_NAME "idpf"
 #define IDPF_DRV_VER "1.0.12"
@@ -809,19 +803,6 @@ struct idpf_vport_config {
 	DECLARE_BITMAP(flags, IDPF_VPORT_CONFIG_FLAGS_NBITS);
 };
 
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-struct idpf_iommu_bypass {
-	struct iommu_domain *iodom;
-	struct device *ddev;
-	u64 bypass_iova_addr;
-	phys_addr_t bypass_phys_addr;
-	size_t bypass_size;
-};
-
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
-
 #define idpf_for_each_vport(adapter, i) \
 	for ((i) = 0; (i) < (adapter)->num_alloc_vports; (i)++)
 
@@ -905,11 +886,6 @@ struct idpf_iommu_bypass {
  */
 struct idpf_adapter {
 	struct pci_dev *pdev;
-#ifdef CONFIG_IOMMU_BYPASS
-#ifdef CONFIG_ARM64
-	struct idpf_iommu_bypass iommu_byp;
-#endif /* CONFIG_ARM64 */
-#endif /* CONFIG_IOMMU_BYPASS */
 	const char *drv_name;
 	const char *drv_ver;
 	u32 virt_ver_maj;
