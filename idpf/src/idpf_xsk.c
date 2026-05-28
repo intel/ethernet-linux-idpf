@@ -1250,7 +1250,7 @@ int idpf_rx_singleq_clean_zc(struct idpf_queue *rxq, int budget)
 		if (!pkt_len)
 			break;
 
-		rx_buf = &rxq->rx.bufs[rxq->next_to_clean];
+		rx_buf = &rxq->rx.bufs[ntc];
 		if (!rx_buf->xdp)
 			break;
 
