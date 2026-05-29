@@ -790,6 +790,7 @@ struct idpf_sw_queue {
  * @desc_ring: Descriptor ring memory
  * @buf_pool_size: Total number of idpf_tx_buf
  * @xdp_prog: BPF program. Used only for RX completion queue
+ * @xdp_tx_lock: serializes concurrent XDP TX producers on this queue
 #ifdef HAVE_XDP_BUFF_RXQ
  * @xdp_rxq: XDP RX queue. Used for XDP memory model setting
 #endif
@@ -877,6 +878,7 @@ struct idpf_queue {
 	u32 buf_pool_size;
 
 	struct bpf_prog *xdp_prog;
+	spinlock_t xdp_tx_lock; /* serialises concurrent XDP TX producers */
 #ifdef HAVE_XDP_BUFF_RXQ
 	struct xdp_rxq_info xdp_rxq;
 #endif /* HAVE_XDP_BUFF_RXQ */

@@ -1594,6 +1594,7 @@ static int idpf_txq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 			struct idpf_queue *q = tx_qgrp->txqs[j];
 
 			u64_stats_init(&q->stats_sync);
+			spin_lock_init(&q->xdp_tx_lock);
 			q->dev = idpf_adapter_to_dev(adapter);
 			q->netdev = vport->netdev;
 			q->vport = vport;
@@ -4360,17 +4361,14 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 #endif
 {
 	struct idpf_tx_splitq_params tx_params = { };
-	u16 ntu = xdpq->next_to_use;
 	struct idpf_tx_buf *tx_buf;
 	dma_addr_t dma;
 	void *data;
 	u32 buf_id;
 	u32 size;
+	u16 ntu;
 
 	if (unlikely(!xdp))
-		return IDPF_XDP_CONSUMED;
-
-	if (unlikely(!IDPF_DESC_UNUSED(xdpq)))
 		return IDPF_XDP_CONSUMED;
 
 #ifdef HAVE_XDP_FRAME_STRUCT
@@ -4384,15 +4382,19 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 	if (dma_mapping_error(xdpq->dev, dma))
 		return IDPF_XDP_CONSUMED;
 
+	spin_lock_bh(&xdpq->xdp_tx_lock);
+	if (unlikely(!IDPF_DESC_UNUSED(xdpq)))
+		goto err_unmap_dma;
+
+	ntu = xdpq->next_to_use;
+
 	if (unlikely(idpf_queue_has(FLOW_SCH_EN, xdpq))) {
 		/* Xdp only uses a single buffer. No need to save refillq state
 		 * for rollback like we do in the standard data path.
 		 */
 		if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
-						      &buf_id))) {
-			dma_unmap_single(xdpq->dev, dma, size, DMA_TO_DEVICE);
-			return IDPF_XDP_CONSUMED;
-		}
+						      &buf_id)))
+			goto err_unmap_dma;
 
 		tx_params.compl_tag = buf_id;
 
@@ -4403,7 +4405,7 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 		if (idpf_tx_splitq_need_re(xdpq)) {
 			tx_params.eop_cmd |= IDPF_TXD_FLEX_FLOW_CMD_RE;
 			xdpq->txq_grp->num_completions_pending++;
-			xdpq->tx.last_re = xdpq->next_to_use;
+			xdpq->tx.last_re = ntu;
 		}
 	} else {
 		buf_id = ntu;
@@ -4443,8 +4445,15 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 	tx_buf->rs_idx = ntu;
 	idpf_tx_buf_next(tx_buf) = IDPF_TXBUF_NULL;
 	xdpq->next_to_use = idpf_tx_splitq_bump_ntu(xdpq, ntu);
+	spin_unlock_bh(&xdpq->xdp_tx_lock);
 
 	return IDPF_XDP_TX;
+
+err_unmap_dma:
+	spin_unlock_bh(&xdpq->xdp_tx_lock);
+	dma_unmap_single(xdpq->dev, dma, size, DMA_TO_DEVICE);
+
+	return IDPF_XDP_CONSUMED;
 }
 
 #ifdef HAVE_XDP_FRAME_STRUCT
