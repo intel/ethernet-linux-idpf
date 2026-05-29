@@ -7,8 +7,6 @@
 
 static DEFINE_IDA(idpf_idc_ida);
 
-#define IDPF_IDC_MAX_ADEV_NAME_LEN	15
-
 /**
  * idpf_idc_init - Called to initialize IDC
  * @adapter: driver private data structure
@@ -40,6 +38,7 @@ static void idpf_vport_adev_release(struct device *dev)
 	struct iidc_rdma_vport_auxiliary_dev *iadev;
 
 	iadev = container_of(dev, struct iidc_rdma_vport_auxiliary_dev, adev.dev);
+	kfree((void *)iadev->adev.name);
 	kfree(iadev);
 	iadev = NULL;
 }
@@ -55,7 +54,6 @@ static int idpf_plug_vport_aux_dev(struct iidc_rdma_core_dev_info *cdev_info,
 				   struct iidc_rdma_vport_dev_info *vdev_info)
 {
 	struct iidc_rdma_vport_auxiliary_dev *iadev;
-	char name[IDPF_IDC_MAX_ADEV_NAME_LEN];
 	struct auxiliary_device *adev;
 	int ret;
 
@@ -75,8 +73,12 @@ static int idpf_plug_vport_aux_dev(struct iidc_rdma_core_dev_info *cdev_info,
 	adev->id = ret;
 	adev->dev.release = idpf_vport_adev_release;
 	adev->dev.parent = &cdev_info->pdev->dev;
-	sprintf(name, "%04x.rdma.vdev", cdev_info->pdev->vendor);
-	adev->name = name;
+	adev->name = kasprintf(GFP_KERNEL, "%04x.rdma.vdev",
+			       cdev_info->pdev->vendor);
+	if (!adev->name) {
+		ret = -ENOMEM;
+		goto err_adev_name;
+	}
 
 	ret = auxiliary_device_init(adev);
 	if (ret)
@@ -89,8 +91,14 @@ static int idpf_plug_vport_aux_dev(struct iidc_rdma_core_dev_info *cdev_info,
 	return 0;
 
 err_aux_dev_add:
+	ida_free(&idpf_idc_ida, adev->id);
+	vdev_info->adev = NULL;
 	auxiliary_device_uninit(adev);
+	/* The .release callback has freed adev->name and iadev. */
+	return ret;
 err_aux_dev_init:
+	kfree((void *)adev->name);
+err_adev_name:
 	ida_free(&idpf_idc_ida, adev->id);
 err_ida_alloc:
 	vdev_info->adev = NULL;
@@ -155,15 +163,14 @@ void idpf_idc_vdev_mtu_event(struct iidc_rdma_vport_dev_info *vdev_info,
 	struct iidc_rdma_event event = { };
 	struct auxiliary_device *adev;
 
-	if (!vdev_info)
-		/* RDMA is not enabled */
+	if (!vdev_info || !vdev_info->adev)
 		return;
 
+	adev = vdev_info->adev;
 	set_bit(event_type, event.type);
 
-	device_lock(&vdev_info->adev->dev);
-	adev = vdev_info->adev;
-	if (!adev || !adev->dev.driver)
+	device_lock(&adev->dev);
+	if (!adev->dev.driver)
 		goto unlock;
 	iadrv = container_of(adev->dev.driver,
 			     struct iidc_rdma_vport_auxiliary_drv,
@@ -183,6 +190,7 @@ static void idpf_core_adev_release(struct device *dev)
 	struct iidc_rdma_core_auxiliary_dev *iadev;
 
 	iadev = container_of(dev, struct iidc_rdma_core_auxiliary_dev, adev.dev);
+	kfree((void *)iadev->adev.name);
 	kfree(iadev);
 	iadev = NULL;
 }
@@ -196,7 +204,6 @@ static void idpf_core_adev_release(struct device *dev)
 static int idpf_plug_core_aux_dev(struct iidc_rdma_core_dev_info *cdev_info)
 {
 	struct iidc_rdma_core_auxiliary_dev *iadev;
-	char name[IDPF_IDC_MAX_ADEV_NAME_LEN];
 	struct auxiliary_device *adev;
 	int adev_id;
 	int ret;
@@ -218,14 +225,18 @@ static int idpf_plug_core_aux_dev(struct iidc_rdma_core_dev_info *cdev_info)
 	adev->id = adev_id;
 	adev->dev.release = idpf_core_adev_release;
 	adev->dev.parent = &cdev_info->pdev->dev;
-	sprintf(name, "%04x.rdma.core", cdev_info->pdev->vendor);
-	adev->name = name;
-	/* iadev is owned by the auxiliary device */
-	iadev = NULL;
+	adev->name = kasprintf(GFP_KERNEL, "%04x.rdma.core",
+			       cdev_info->pdev->vendor);
+	if (!adev->name) {
+		ret = -ENOMEM;
+		goto err_adev_name;
+	}
 
 	ret = auxiliary_device_init(adev);
 	if (ret)
 		goto err_aux_dev_init;
+	/* auxiliary_device_uninit() owns tearing down the container now. */
+	iadev = NULL;
 
 	ret = auxiliary_device_add(adev);
 	if (ret)
@@ -234,8 +245,16 @@ static int idpf_plug_core_aux_dev(struct iidc_rdma_core_dev_info *cdev_info)
 	return 0;
 
 err_aux_dev_add:
+	ida_free(&idpf_idc_ida, adev_id);
+	cdev_info->adev = NULL;
 	auxiliary_device_uninit(adev);
+	/* The .release callback has freed adev->name and the iadev that
+	 * adev is embedded in.
+	 */
+	return ret;
 err_aux_dev_init:
+	kfree((void *)adev->name);
+err_adev_name:
 	ida_free(&idpf_idc_ida, adev_id);
 err_ida_alloc:
 	cdev_info->adev = NULL;
