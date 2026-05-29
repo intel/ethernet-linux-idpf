@@ -1530,7 +1530,6 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 		u64_stats_set(&pstats->rsc_seg[i], 0);
 		u64_stats_set(&pstats->lso_seg[i], 0);
 	}
-
 	u64_stats_update_end(&pstats->stats_sync);
 
 	for (unsigned int i = 0; i < rsrc->num_rxq_grp; i++) {
@@ -1645,8 +1644,7 @@ static void idpf_collect_queue_stats(struct idpf_vport *vport)
 
 			for (k = 0; k < IDPF_MAX_SEGS; k++)
 				u64_stats_add(&pstats->lso_seg[k], segs[k]);
-
-			u64_stats_update_begin(&pstats->stats_sync);
+			u64_stats_update_end(&pstats->stats_sync);
 		}
 	}
 }

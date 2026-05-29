@@ -218,9 +218,18 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		(enum idpf_tx_desc_dtype_value)0, 0, { }, { }
 	};
 	union idpf_tx_flex_desc *tx_desc = NULL;
-	u16 ntu = xdpq->next_to_use;
+	bool done;
+	u16 ntu;
 	struct xdp_desc desc;
 	dma_addr_t dma;
+
+	spin_lock_bh(&xdpq->xdp_tx_lock);
+
+	/* Read the producer index and re-validate the descriptor budget under
+	 * the lock so a concurrent XDP TX producer cannot make either stale.
+	 */
+	ntu = xdpq->next_to_use;
+	budget = min_t(int, budget, IDPF_DESC_UNUSED(xdpq));
 
 	while (likely(budget-- > 0)) {
 		struct idpf_tx_buf *tx_buf;
@@ -231,15 +240,17 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 
 		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
 		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
-						 desc.len);
+					 desc.len);
 
 		if (idpf_queue_has(FLOW_SCH_EN, xdpq)) {
 			/* Xdp only uses a single buffer. No need to save refillq state
 			 * for rollback like we do in the standard data path.
 			 */
 			if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
-							      &buf_id)))
-				return IDPF_XDP_CONSUMED;
+						      &buf_id))) {
+				done = IDPF_XDP_CONSUMED;
+				goto out_unlock;
+			}
 
 			tx_parms.compl_tag = buf_id;
 		} else {
@@ -273,7 +284,6 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		ntu++;
 		if (ntu == xdpq->desc_count)
 			ntu = 0;
-
 	}
 
 	if (likely(tx_desc)) {
@@ -283,7 +293,12 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		xsk_tx_release(xdpq->xsk_pool);
 	}
 
-	return budget > 0;
+	done = budget > 0;
+
+out_unlock:
+	spin_unlock_bh(&xdpq->xdp_tx_lock);
+
+	return done;
 }
 
 /**
@@ -299,10 +314,19 @@ static bool
 idpf_xmit_singleq_zc(struct idpf_queue *xdpq, int budget)
 {
 	struct idpf_base_tx_desc *tx_desc = NULL;
-	u16 ntu = xdpq->next_to_use;
+	bool done;
+	u16 ntu;
 	struct xdp_desc desc;
 	dma_addr_t dma;
 	u64 td_cmd;
+
+	spin_lock_bh(&xdpq->xdp_tx_lock);
+
+	/* Read the producer index and re-validate the descriptor budget under
+	 * the lock so a concurrent XDP TX producer cannot make either stale.
+	 */
+	ntu = xdpq->next_to_use;
+	budget = min_t(int, budget, IDPF_DESC_UNUSED(xdpq));
 
 	while (likely(budget-- > 0)) {
 		struct idpf_tx_buf *tx_buf;
@@ -314,7 +338,7 @@ idpf_xmit_singleq_zc(struct idpf_queue *xdpq, int budget)
 
 		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
 		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
-						 desc.len);
+					 desc.len);
 		tx_buf->bytes = desc.len;
 
 		tx_desc = IDPF_BASE_TX_DESC(xdpq, ntu);
@@ -340,7 +364,10 @@ idpf_xmit_singleq_zc(struct idpf_queue *xdpq, int budget)
 		xsk_tx_release(xdpq->xsk_pool);
 	}
 
-	return budget > 0;
+	done = budget > 0;
+	spin_unlock_bh(&xdpq->xdp_tx_lock);
+
+	return done;
 }
 
 /**
