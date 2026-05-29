@@ -343,9 +343,9 @@ static int idpf_dl_port_fn_state_set(struct devlink *unused,
 		NL_SET_ERR_MSG_MOD(extack, "No more free vport slot");
 		return -ENOMEM;
 	}
-	INIT_WORK(&adapter->init_task.work, idpf_init_task);
-	schedule_work(&adapter->init_task.work);
-	flush_work(&adapter->init_task.work);
+	cancel_delayed_work_sync(&adapter->init_task);
+	queue_delayed_work(adapter->init_wq, &adapter->init_task, 0);
+	flush_delayed_work(&adapter->init_task);
 	if (!adapter->vports[next_vport]) {
 		NL_SET_ERR_MSG_MOD(extack, "vport allocation failed");
 		return -ENOMEM;
