@@ -524,21 +524,21 @@ static void idpf_adi_write_reg32(struct idpf_adi *adi, size_t offs, u32 data)
 		break;
 	case VF_QRX_TAIL_EXT(0) ... VF_QRX_TAIL_EXT(255):
 		index = (offs - VF_QRX_TAIL_EXT(0)) / 4;
-		if (index > priv->qinfo.num_rxqs)
+		if (index >= priv->qinfo.num_rxqs)
 			goto err;
 		index = priv->qinfo.rxq[index].qid;
 		writel(data, idpf_get_reg_addr(adapter, PF_QRX_TAIL(index)));
 		break;
 	case VF_QRXB_TAIL(0) ... VF_QRXB_TAIL(255):
 		index = (offs - VF_QRXB_TAIL(0)) / 4;
-		if (index > priv->qinfo.num_bufqs)
+		if (index >= priv->qinfo.num_bufqs)
 			goto err;
 		index = priv->qinfo.bufq[index].qid;
 		writel(data, idpf_get_reg_addr(adapter, PF_QRX_BUFFQ_TAIL(index)));
 		break;
 	case VF_QTX_TAIL_EXT(0) ... VF_QTX_TAIL_EXT(255):
 		index = (offs - VF_QTX_TAIL_EXT(0)) / 4;
-		if (index > priv->qinfo.num_txqs)
+		if (index >= priv->qinfo.num_txqs)
 			goto err;
 		index = priv->qinfo.txq[index].qid;
 		writel(data, idpf_get_reg_addr(adapter, PF_QTX_COMM_DBELL(index)));
