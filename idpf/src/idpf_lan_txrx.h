@@ -117,19 +117,21 @@ enum idpf_rss_hash {
 enum idpf_tx_desc_dtype_value {
 	IDPF_TX_DESC_DTYPE_DATA				= 0,
 	IDPF_TX_DESC_DTYPE_CTX				= 1,
+	/* DTYPE 2: host re-injection context */
 	IDPF_TX_DESC_DTYPE_REINJECT_CTX			= 2,
+	/* DTYPE 3: flex-data */
 	IDPF_TX_DESC_DTYPE_FLEX_DATA			= 3,
 	IDPF_TX_DESC_DTYPE_FLEX_L2TAG1_CTX		= 4,
 	IDPF_TX_DESC_DTYPE_FLEX_TSO_CTX			= 5,
 	IDPF_TX_DESC_DTYPE_FLEX_TSYN_L2TAG1		= 6,
 	IDPF_TX_DESC_DTYPE_FLEX_L2TAG1_L2TAG2		= 7,
+	/* DTYPE 8:  parse-tag variant of LSO+L2TAG2 ctx */
 	IDPF_TX_DESC_DTYPE_FLEX_TSO_L2TAG2_PARSTAG_CTX	= 8,
-	IDPF_TX_DESC_DTYPE_FLEX_HOSTSPLIT_SA_TSO_CTX	= 9,
-	IDPF_TX_DESC_DTYPE_FLEX_HOSTSPLIT_SA_CTX	= 10,
+	/* DTYPE 9, 10 are reserved */
+	/* DTYPE 11: L2 tag2 context */
 	IDPF_TX_DESC_DTYPE_FLEX_L2TAG2_CTX		= 11,
 	IDPF_TX_DESC_DTYPE_FLEX_FLOW_SCHE		= 12,
-	IDPF_TX_DESC_DTYPE_FLEX_HOSTSPLIT_TSO_CTX	= 13,
-	IDPF_TX_DESC_DTYPE_FLEX_HOSTSPLIT_CTX		= 14,
+	/* DTYPE 13, 14 are reserved */
 	/* DESC_DONE - HW has completed write-back of descriptor */
 	IDPF_TX_DESC_DTYPE_DESC_DONE			= 15,
 };
@@ -370,58 +372,5 @@ union idpf_flex_tx_ctx_desc {
 			__le16 miss_txq_id;
 		} qw1;
 	} reinjection_pkt;
-};
-
-/* Host Split Context Descriptors */
-struct idpf_flex_tx_hs_ctx_desc {
-	union {
-		struct {
-			__le32 host_fnum_tlen;
-#define IDPF_TXD_FLEX_CTX_TLEN_S	0
-/* see IDPF_TXD_FLEX_CTX_TLEN_M for mask definition */
-#define IDPF_TXD_FLEX_CTX_FNUM_S	18
-#define IDPF_TXD_FLEX_CTX_FNUM_M	0x7FF
-#define IDPF_TXD_FLEX_CTX_HOST_S	29
-#define IDPF_TXD_FLEX_CTX_HOST_M	0x7
-			__le16 ftype_mss_rt;
-#define IDPF_TXD_FLEX_CTX_MSS_RT_0	0
-#define IDPF_TXD_FLEX_CTX_MSS_RT_M	0x3FFF
-#define IDPF_TXD_FLEX_CTX_FTYPE_S	14
-#define IDPF_TXD_FLEX_CTX_FTYPE_VF	0
-#define IDPF_TXD_FLEX_CTX_FTYPE_VDEV	BIT(14)
-#define IDPF_TXD_FLEX_CTX_FTYPE_PF	BIT(15)
-			u8 hdr_len;
-			u8 ptag;
-		} tso;
-		struct {
-			u8 flex0[2];
-			__le16 host_fnum_ftype;
-			u8 flex1[3];
-			u8 ptag;
-		} no_tso;
-	} qw0;
-
-	__le64 qw1_cmd_dtype;
-#define IDPF_TXD_FLEX_CTX_QW1_PASID_S		16
-#define IDPF_TXD_FLEX_CTX_QW1_PASID_M		0xFFFFF
-#define IDPF_TXD_FLEX_CTX_QW1_PASID_VALID_S	36
-#define IDPF_TXD_FLEX_CTX_QW1_PASID_VALID	\
-	BIT_ULL(IDPF_TXD_FLEX_CTX_QW1_PASID_VALID_S)
-#define IDPF_TXD_FLEX_CTX_QW1_TPH_S		37
-#define IDPF_TXD_FLEX_CTX_QW1_TPH		\
-	BIT_ULL(IDPF_TXD_FLEX_CTX_QW1_TPH_S)
-#define IDPF_TXD_FLEX_CTX_QW1_PFNUM_S		38
-#define IDPF_TXD_FLEX_CTX_QW1_PFNUM_M		0xF
-/* The following are only valid for DTYPE = 0x09 and DTYPE = 0x0A */
-#define IDPF_TXD_FLEX_CTX_QW1_SAIDX_S		42
-#define IDPF_TXD_FLEX_CTX_QW1_SAIDX_M		0x1FFFFF
-#define IDPF_TXD_FLEX_CTX_QW1_SAIDX_VAL_S	63
-#define IDPF_TXD_FLEX_CTX_QW1_SAIDX_VALID	\
-	BIT_ULL(IDPF_TXD_FLEX_CTX_QW1_SAIDX_VAL_S)
-/* The following are only valid for DTYPE = 0x0D and DTYPE = 0x0E */
-#define IDPF_TXD_FLEX_CTX_QW1_FLEX0_S		48
-#define IDPF_TXD_FLEX_CTX_QW1_FLEX0_M		0xFF
-#define IDPF_TXD_FLEX_CTX_QW1_FLEX1_S		56
-#define IDPF_TXD_FLEX_CTX_QW1_FLEX1_M		0xFF
 };
 #endif /* _IDPF_LAN_TXRX_H_ */
