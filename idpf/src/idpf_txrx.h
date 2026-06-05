@@ -37,7 +37,7 @@ LIBETH_SQE_CHECK_PRIV(u32);
 #ifdef DEVLINK_ENABLED
 #define IDPF_MAX_DYNAMIC_VPORT			925
 #endif /* DEVLINK_ENABLED */
-#define IDPF_MIN_TXQ_DESC			64
+#define IDPF_MIN_TXQ_DESC			128
 #define IDPF_MIN_RXQ_DESC			64
 #define IDPF_MIN_TXQ_COMPLQ_DESC		256
 /* Number of descriptors in a queue should be a multiple of 32. RX queue
