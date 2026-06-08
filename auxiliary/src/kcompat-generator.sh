@@ -205,6 +205,7 @@ function gen-ethtool() {
 	gen HAVE_ETHTOOL_EXTENDED_RINGPARAMS if method get_ringparam of ethtool_ops matches 'struct kernel_ethtool_ringparam \\*' in "$eth"
 	gen HAVE_ETHTOOL_FEC_HIST if method get_fec_stats of ethtool_ops matches 'struct ethtool_fec_hist \\*' in "$eth"
 	gen HAVE_ETHTOOL_GET_FEC_STATS_OPS if struct ethtool_ops matches '\\*get_fec_stats' in "$eth"
+	gen HAVE_ETHTOOL_GET_RX_RING_COUNT if struct ethtool_ops matches '\\*get_rx_ring_count' in "$eth"
 	gen HAVE_ETHTOOL_GET_TS_STATS if struct ethtool_ops matches '\\*get_ts_stats' in "$eth"
 	gen HAVE_ETHTOOL_KEEE if struct ethtool_keee in "$eth"
 	gen HAVE_ETHTOOL_KERNEL_TS_INFO if struct kernel_ethtool_ts_info in "$eth"
