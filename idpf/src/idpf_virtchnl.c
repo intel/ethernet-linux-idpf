@@ -3764,6 +3764,7 @@ unsigned int idpf_fsteer_max_rules(struct idpf_vport *vport)
  */
 void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 {
+	struct idpf_hw *hw = &adapter->hw;
 	bool remove_in_prog;
 
 	if (!test_bit(IDPF_VC_CORE_INIT, adapter->flags))
@@ -3784,6 +3785,10 @@ void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 	cancel_delayed_work_sync(&adapter->serv_task);
 
 	idpf_vport_params_buf_rel(adapter);
+
+	kfree(hw->lan_regs);
+	hw->lan_regs = NULL;
+	hw->num_lan_regs = 0;
 
 	kfree(adapter->vports);
 	adapter->vports = NULL;
