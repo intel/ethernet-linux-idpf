@@ -415,7 +415,10 @@ static u32 idpf_get_rxfh_indir_size(struct net_device *netdev)
  * @netdev: network interface device structure
  * @rxfh: pointer to param struct (indir, key, hfunc)
  *
- * Reads the indirection table directly from the hardware. Always returns 0.
+ * RSS LUT and key information are read from the driver's cached copy. When
+ * rxhash is off, the RSS LUT is displayed as zeros.
+ *
+ * Return: 0 on success, -errno otherwise.
  */
 #if defined(HAVE_ETHTOOL_RXFH_PARAM)
 static int idpf_get_rxfh(struct net_device *netdev,
@@ -430,16 +433,19 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_rss_data *rss_data;
 	struct idpf_adapter *adapter;
+	struct idpf_vport *vport;
 #ifdef HAVE_ETHTOOL_RXFH_PARAM
 	u32 *indir = rxfh->indir;
 	u8 *key = rxfh->key;
 #endif /* HAVE_ETHTOOL_RXFH_PARAM */
+	bool rxhash_ena;
 	int err = 0;
 	u16 i;
 
 	adapter = np->adapter;
 
 	idpf_vport_ctrl_lock(adapter);
+	vport = idpf_netdev_to_vport(netdev);
 
 	if (!idpf_is_cap_ena_all(adapter, IDPF_RSS_CAPS, IDPF_CAP_RSS)) {
 		err = -EOPNOTSUPP;
@@ -447,8 +453,7 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 	}
 
 	rss_data = &adapter->vport_config[np->vport_idx]->user_config.rss_data;
-	if (!test_bit(IDPF_VPORT_UP, np->state))
-		goto unlock_mutex;
+	rxhash_ena = idpf_is_feature_ena(vport, NETIF_F_RXHASH);
 #if defined(HAVE_ETHTOOL_RXFH_PARAM)
 	rxfh->hfunc = ETH_RSS_HASH_TOP;
 #elif defined(HAVE_RXFH_HASHFUNC)
@@ -460,7 +465,7 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 
 	if (indir) {
 		for (i = 0; i < rss_data->rss_lut_size; i++)
-			indir[i] = rss_data->rss_lut[i];
+			indir[i] = rxhash_ena ? rss_data->rss_lut[i] : 0;
 	}
 
 unlock_mutex:
@@ -512,8 +517,6 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 	}
 
 	rss_data = &adapter->vport_config[vport->idx]->user_config.rss_data;
-	if (!test_bit(IDPF_VPORT_UP, np->state))
-		goto unlock_mutex;
 
 #if defined(HAVE_ETHTOOL_RXFH_PARAM) || defined(HAVE_RXFH_HASHFUNC)
 	if (hfunc != ETH_RSS_HASH_NO_CHANGE &&
@@ -531,7 +534,8 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 			rss_data->rss_lut[lut] = indir[lut];
 	}
 
-	err = idpf_config_rss(vport, rss_data);
+	if (test_bit(IDPF_VPORT_UP, np->state))
+		err = idpf_config_rss(vport, rss_data);
 
 unlock_mutex:
 	idpf_vport_ctrl_unlock(adapter);
