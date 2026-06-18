@@ -2843,6 +2843,21 @@ static inline int pci_enable_ptm(struct pci_dev *dev, u8 *granularity)
 #endif /* CONFIG_PCIE_PTM */
 #endif /* NEED_PCI_ENABLE_PTM */
 
+#if defined(NEED_PCI_ENABLE_PTM_GRANULARITY) || defined(NEED_PCI_ENABLE_PTM)
+/* NEED_PCI_ENABLE_PTM_GRANULARITY
+ *
+ * commit aa8671af0c38 ("PCI/PTM: Drop pci_enable_ptm() granularity parameter")
+ * removed the granularity parameter from pci_enable_ptm(). Implement a kcompat
+ * version for older kernels.
+ */
+static inline int _kc_pci_enable_ptm(struct pci_dev *dev)
+{
+	return pci_enable_ptm(dev, NULL);
+}
+
+#define pci_enable_ptm _kc_pci_enable_ptm
+#endif /* NEED_PCI_ENABLE_PTM_GRANULARITY || NEED_PCI_ENABLE_PTM */
+
 #ifdef NEED_PCI_DISABLE_PTM
 /* NEED_PCI_DISABLE_PTM
  *

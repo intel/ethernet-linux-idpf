@@ -366,7 +366,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 #if IS_ENABLED(CONFIG_PCIE_PTM)
-	err = pci_enable_ptm(pdev, NULL);
+	err = pci_enable_ptm(pdev);
 	if (err)
 		dev_info(dev, "PCIe PTM not supported by PCIe bus/controller\n");
 
