@@ -407,6 +407,7 @@ function gen-pci() {
 	gen NEED_PCIE_PTM_ENABLED if fun pcie_ptm_enabled absent in "$pcih"
 	gen NEED_PCI_DISABLE_PTM if fun pci_disable_ptm absent in "$pcih"
 	gen NEED_PCI_ENABLE_PTM if fun pci_enable_ptm absent in "$pcih"
+	gen NEED_PCI_ENABLE_PTM_GRANULARITY if fun pci_enable_ptm matches 'u8 \\*granularity' in "$pcih"
 }
 
 function gen-ptp() {
