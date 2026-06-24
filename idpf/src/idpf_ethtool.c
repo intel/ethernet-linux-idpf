@@ -465,7 +465,8 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 
 	if (indir) {
 		for (i = 0; i < rss_data->rss_lut_size; i++)
-			indir[i] = rxhash_ena ? rss_data->rss_lut[i] : 0;
+			indir[i] = (rxhash_ena && rss_data->rss_lut) ?
+				   rss_data->rss_lut[i] : 0;
 	}
 
 unlock_mutex:
@@ -530,6 +531,11 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 		memcpy(rss_data->rss_key, key, rss_data->rss_key_size);
 
 	if (indir) {
+		if (!rss_data->rss_lut) {
+			err = -EOPNOTSUPP;
+			goto unlock_mutex;
+		}
+
 		for (lut = 0; lut < rss_data->rss_lut_size; lut++)
 			rss_data->rss_lut[lut] = indir[lut];
 	}
