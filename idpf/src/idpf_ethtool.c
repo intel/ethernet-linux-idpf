@@ -8,6 +8,28 @@
 #include "idpf_virtchnl.h"
 
 #ifdef SIOCETHTOOL
+#ifdef HAVE_ETHTOOL_GET_RX_RING_COUNT
+/**
+ * idpf_get_rx_ring_count - get RX ring count
+ * @netdev: network interface device structure
+ *
+ * Return: number of RX rings.
+ */
+static u32 idpf_get_rx_ring_count(struct net_device *netdev)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
+	struct idpf_vport *vport;
+	u32 num_rxq;
+
+	idpf_vport_ctrl_lock(adapter);
+	vport = idpf_netdev_to_vport(netdev);
+	num_rxq = vport->dflt_qv_rsrc.num_rxq;
+	idpf_vport_ctrl_unlock(adapter);
+
+	return num_rxq;
+}
+#endif /* HAVE_ETHTOOL_GET_RX_RING_COUNT */
+
 #ifdef ETHTOOL_GRXRINGS
 /**
  * idpf_get_rxnfc - command to get RX flow classification rules
@@ -40,9 +62,11 @@ static int idpf_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd,
 	user_config = &vport_config->user_config;
 
 	switch (cmd->cmd) {
+#ifndef HAVE_ETHTOOL_GET_RX_RING_COUNT
 	case ETHTOOL_GRXRINGS:
 		cmd->data = vport->dflt_qv_rsrc.num_rxq;
 		break;
+#endif /* !HAVE_ETHTOOL_GET_RX_RING_COUNT */
 	case ETHTOOL_GRXCLSRLCNT:
 		cmd->rule_cnt = user_config->num_fsteer_fltrs;
 		cmd->data = idpf_fsteer_max_rules(vport);
@@ -2317,6 +2341,9 @@ static const struct ethtool_ops idpf_ethtool_ops = {
 	.get_rxnfc		= idpf_get_rxnfc,
 	.set_rxnfc		= idpf_set_rxnfc,
 #endif /* ETHTOOL_GRXRINGS */
+#ifdef HAVE_ETHTOOL_GET_RX_RING_COUNT
+	.get_rx_ring_count	= idpf_get_rx_ring_count,
+#endif /* HAVE_ETHTOOL_GET_RX_RING_COUNT */
 #ifndef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
 #if defined(ETHTOOL_GRSSH) && defined(ETHTOOL_SRSSH)
 	.get_rxfh_key_size	= idpf_get_rxfh_key_size,
