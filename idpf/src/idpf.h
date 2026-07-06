@@ -1311,23 +1311,27 @@ static inline bool idpf_is_rca_enabled(struct idpf_adapter *adapter)
 #endif /* CONFIG_RCA_SUPPORT */
 /**
  * idpf_vport_ctrl_lock - Acquire the vport control lock
- * @adapter: private data struct
+ * @netdev: Network interface device structure
  *
  * This lock should be used by non-datapath code to protect against vport
  * destruction.
  */
-static inline void idpf_vport_ctrl_lock(struct idpf_adapter *adapter)
+static inline void idpf_vport_ctrl_lock(struct net_device *netdev)
 {
-	mutex_lock(&adapter->vport_ctrl_lock);
+	struct idpf_netdev_priv *np = netdev_priv(netdev);
+
+	mutex_lock(&np->adapter->vport_ctrl_lock);
 }
 
 /**
  * idpf_vport_ctrl_unlock - Release the vport control lock
- * @adapter: private data struct
+ * @netdev: Network interface device structure
  */
-static inline void idpf_vport_ctrl_unlock(struct idpf_adapter *adapter)
+static inline void idpf_vport_ctrl_unlock(struct net_device *netdev)
 {
-	mutex_unlock(&adapter->vport_ctrl_lock);
+	struct idpf_netdev_priv *np = netdev_priv(netdev);
+
+	mutex_unlock(&np->adapter->vport_ctrl_lock);
 }
 
 void idpf_statistics_task(struct work_struct *work);

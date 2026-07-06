@@ -17,14 +17,13 @@
  */
 static u32 idpf_get_rx_ring_count(struct net_device *netdev)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_vport *vport;
 	u32 num_rxq;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	num_rxq = vport->dflt_qv_rsrc.num_rxq;
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return num_rxq;
 }
@@ -47,7 +46,6 @@ static int idpf_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd,
 			  u32 *rule_locs)
 #endif
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_vport_user_config_data *user_config;
 	struct idpf_vport_config *vport_config;
@@ -56,7 +54,7 @@ static int idpf_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd,
 	unsigned int cnt = 0;
 	int err = 0;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	vport_config = np->adapter->vport_config[np->vport_idx];
 	user_config = &vport_config->user_config;
@@ -105,7 +103,7 @@ static int idpf_get_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd,
 		break;
 	}
 
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -375,10 +373,9 @@ out:
  */
 static int idpf_set_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	int ret = -EOPNOTSUPP;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	switch (cmd->cmd) {
 	case ETHTOOL_SRXCLSRLINS:
 		ret = idpf_add_flow_steer(netdev, cmd);
@@ -390,7 +387,7 @@ static int idpf_set_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd)
 		break;
 	}
 
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 	return ret;
 }
 #endif /* ETHTOOL_GRXRINGS */
@@ -468,7 +465,7 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 
 	adapter = np->adapter;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (!idpf_is_cap_ena_all(adapter, IDPF_RSS_CAPS, IDPF_CAP_RSS)) {
@@ -494,7 +491,7 @@ static int idpf_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 	}
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -534,7 +531,7 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 	int err = 0;
 	u16 lut;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	if (!idpf_is_cap_ena_all(adapter, IDPF_RSS_CAPS, IDPF_CAP_RSS)) {
 		err = -EOPNOTSUPP;
@@ -568,7 +565,7 @@ static int idpf_set_rxfh(struct net_device *netdev, const u32 *indir,
 		err = idpf_config_rss(vport, rss_data);
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -622,7 +619,6 @@ static void idpf_get_channels(struct net_device *netdev,
 static int idpf_set_channels(struct net_device *netdev,
 			     struct ethtool_channels *ch)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_vport_config *vport_config;
 	unsigned int num_req_tx_q;
 	unsigned int num_req_rx_q;
@@ -637,7 +633,7 @@ static int idpf_set_channels(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	idx = vport->idx;
@@ -681,7 +677,7 @@ static int idpf_set_channels(struct net_device *netdev,
 	}
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -706,10 +702,9 @@ static void idpf_get_ringparam(struct net_device *netdev,
 			       struct ethtool_ringparam *ring)
 #endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_vport *vport;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	ring->rx_max_pending = IDPF_MAX_RXQ_DESC;
@@ -723,7 +718,7 @@ static void idpf_get_ringparam(struct net_device *netdev,
 #endif /* CONFIG_ETHTOOL_NETLINK && HAVE_ETHTOOL_SUPPORT_TCP_DATA_SPLIT */
 #endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 }
 
 /**
@@ -746,7 +741,6 @@ static int idpf_set_ringparam(struct net_device *netdev,
 			      struct ethtool_ringparam *ring)
 #endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_vport_user_config_data *config_data;
 	struct idpf_vport *vport;
 	struct idpf_q_vec_rsrc *rsrc;
@@ -754,7 +748,7 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	int err = 0;
 	u16 idx;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	rsrc = &vport->dflt_qv_rsrc;
 
@@ -837,7 +831,7 @@ static int idpf_set_ringparam(struct net_device *netdev,
 	err = idpf_initiate_soft_reset(vport, IDPF_SR_Q_DESC_CHANGE);
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -1195,7 +1189,6 @@ static u32 idpf_get_priv_flags(struct net_device *netdev)
  **/
 static int idpf_set_priv_flags(struct net_device *netdev, u32 flags)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	DECLARE_BITMAP(change_flags, __IDPF_USER_FLAGS_NBITS);
 	DECLARE_BITMAP(orig_flags, __IDPF_USER_FLAGS_NBITS);
 	struct idpf_vport_user_config_data *user_data;
@@ -1206,7 +1199,7 @@ static int idpf_set_priv_flags(struct net_device *netdev, u32 flags)
 	if (flags > BIT(IDPF_PRIV_FLAGS_STR_LEN))
 		return -EINVAL;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	user_data = &vport->adapter->vport_config[vport->idx]->user_config;
@@ -1253,7 +1246,7 @@ static int idpf_set_priv_flags(struct net_device *netdev, u32 flags)
 		err = idpf_initiate_soft_reset(vport, IDPF_SR_HSPLIT_CHANGE);
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -1679,11 +1672,11 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	bool is_splitq;
 	u16 qtype;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (!test_bit(IDPF_VPORT_UP, np->state)) {
-		idpf_vport_ctrl_unlock(adapter);
+		idpf_vport_ctrl_unlock(netdev);
 		return;
 	}
 
@@ -1759,7 +1752,7 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 
 	rcu_read_unlock();
 
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 	if (!IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
 		return;
 	/* Schedule the workqueue to get the latest statistics on the next
@@ -1816,12 +1809,11 @@ static int idpf_get_q_coalesce(struct net_device *netdev,
 			       u32 q_num)
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
-	struct idpf_adapter *adapter = np->adapter;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
 	int err = 0;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (!test_bit(IDPF_VPORT_UP, np->state))
@@ -1847,7 +1839,7 @@ static int idpf_get_q_coalesce(struct net_device *netdev,
 	}
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -2029,7 +2021,6 @@ static int idpf_set_coalesce(struct net_device *netdev,
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_vport_user_config_data *user_config;
-	struct idpf_adapter *adapter = np->adapter;
 	struct idpf_q_coalesce *q_coal;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
@@ -2037,7 +2028,7 @@ static int idpf_set_coalesce(struct net_device *netdev,
 
 	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
 	if (!test_bit(IDPF_VPORT_UP, np->state))
@@ -2059,7 +2050,7 @@ static int idpf_set_coalesce(struct net_device *netdev,
 	}
 
 unlock_mutex:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -2076,7 +2067,6 @@ unlock_mutex:
 static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 				   struct ethtool_coalesce *ec)
 {
-	struct idpf_adapter *adapter = idpf_netdev_to_adapter(netdev);
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_vport_user_config_data *user_config;
 	struct idpf_q_coalesce *q_coal;
@@ -2084,7 +2074,7 @@ static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 	struct idpf_vport *vport;
 	int err = 0;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	rsrc = &vport->dflt_qv_rsrc;
 	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
@@ -2100,7 +2090,7 @@ static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 		err = idpf_set_q_coalesce(vport, q_coal, ec, q_num, true);
 
 vport_unlock:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 
 	return err;
 }
@@ -2267,12 +2257,11 @@ static void idpf_get_ts_stats(struct net_device *netdev,
 			      struct ethtool_ts_stats *ts_stats)
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
-	struct idpf_adapter *adapter = np->adapter;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
 	unsigned int start;
 
-	idpf_vport_ctrl_lock(adapter);
+	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	rsrc = &vport->dflt_qv_rsrc;
 
@@ -2310,7 +2299,7 @@ static void idpf_get_ts_stats(struct net_device *netdev,
 	}
 
 exit:
-	idpf_vport_ctrl_unlock(adapter);
+	idpf_vport_ctrl_unlock(netdev);
 }
 
 #endif /* HAVE_ETHTOOL_GET_TS_STATS */
