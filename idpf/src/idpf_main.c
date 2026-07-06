@@ -599,7 +599,7 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 
 	idpf_detach_and_close(adapter);
 	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
-	idpf_vport_ctrl_lock(adapter);
+	mutex_lock(&adapter->vport_ctrl_lock);
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
@@ -608,7 +608,7 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);
 
-	idpf_vport_ctrl_unlock(adapter);
+	mutex_unlock(&adapter->vport_ctrl_lock);
 }
 
 /**
@@ -683,13 +683,13 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 		return;
 	}
 
-	idpf_vport_ctrl_lock(adapter);
+	mutex_lock(&adapter->vport_ctrl_lock);
 
 	err = idpf_check_reset_complete(adapter);
 	if (err) {
 		dev_err(&adapter->pdev->dev, "The driver was unable to contact the device's firmware.  Check that the FW is running. Driver state=%u\n",
 			adapter->state);
-		idpf_vport_ctrl_unlock(adapter);
+		mutex_unlock(&adapter->vport_ctrl_lock);
 		return;
 	}
 
@@ -698,7 +698,7 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 	if (err)
 		dev_err(&adapter->pdev->dev, "Failed to recover after PCI reset\n");
 
-	idpf_vport_ctrl_unlock(adapter);
+	mutex_unlock(&adapter->vport_ctrl_lock);
 
 	/* Wait for all init_task WQs to complete */
 	flush_delayed_work(&adapter->init_task);
