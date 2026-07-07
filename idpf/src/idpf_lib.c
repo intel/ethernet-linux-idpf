@@ -63,6 +63,9 @@ void idpf_deinit_vector_stack(struct idpf_adapter *adapter)
 /**
  * idpf_mb_intr_rel_irq - Free the IRQ association with the OS
  * @adapter: adapter structure
+ *
+ * This will also disable interrupt mode and queue up the mailbox task. The
+ * mailbox task will reschedule itself if not in interrupt mode.
  */
 void idpf_mb_intr_rel_irq(struct idpf_adapter *adapter)
 {
@@ -71,6 +74,7 @@ void idpf_mb_intr_rel_irq(struct idpf_adapter *adapter)
 	kfree(free_irq(adapter->msix_entries[0].vector, adapter));
 	kfree(adapter->mb_vector.name);
 	adapter->mb_vector.name = NULL;
+	queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task, 0);
 }
 
 /**
@@ -84,11 +88,6 @@ void idpf_intr_rel(struct idpf_adapter *adapter)
 
 	idpf_mb_intr_rel_irq(adapter);
 	pci_free_irq_vectors(adapter->pdev);
-	/* Need the mbx_task in polling mode to send dealloc vectors message
-	 * when not called during a reset.
-	 */
-	if (!test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags))
-		queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task, 0);
 	idpf_send_dealloc_vectors_msg(adapter);
 	idpf_deinit_vector_stack(adapter);
 	kfree(adapter->msix_entries);
@@ -1588,8 +1587,14 @@ void idpf_statistics_task(struct work_struct *work)
 void idpf_mbx_task(struct work_struct *work)
 {
 	struct idpf_adapter *adapter;
+	struct idpf_ctlq_info *arq;
 
 	adapter = container_of(work, struct idpf_adapter, mbx_task.work);
+
+	/* Bail if the mailbox is down */
+	arq = adapter->hw.arq;
+	if (!arq)
+		return;
 
 	if (test_bit(IDPF_MB_INTR_MODE, adapter->flags))
 		idpf_mb_irq_enable(adapter);
@@ -1597,7 +1602,7 @@ void idpf_mbx_task(struct work_struct *work)
 		queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task,
 				   msecs_to_jiffies(300));
 
-	idpf_recv_mb_msg(adapter, adapter->hw.arq);
+	idpf_recv_mb_msg(adapter, arq);
 }
 
 /**

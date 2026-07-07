@@ -3383,14 +3383,20 @@ int idpf_init_dflt_mbx(struct idpf_adapter *adapter)
  */
 void idpf_deinit_dflt_mbx(struct idpf_adapter *adapter)
 {
+	struct idpf_ctlq_info *asq = adapter->hw.asq;
+	struct idpf_ctlq_info *arq = adapter->hw.arq;
+
 	idpf_mb_intr_rel_irq(adapter);
-	cancel_delayed_work_sync(&adapter->mbx_task);
-	if (adapter->hw.arq && adapter->hw.asq) {
-		idpf_mb_clean(adapter, adapter->hw.asq, true);
-		idpf_ctlq_deinit(&adapter->hw);
-	}
+	/* Clear the mailbox pointers before cancelling the mailbox task to
+	 * prevent it from re-arming itself.
+	 */
 	adapter->hw.arq = NULL;
 	adapter->hw.asq = NULL;
+	cancel_delayed_work_sync(&adapter->mbx_task);
+	if (arq && asq) {
+		idpf_mb_clean(adapter, asq, true);
+		idpf_ctlq_deinit(&adapter->hw);
+	}
 }
 
 /**
