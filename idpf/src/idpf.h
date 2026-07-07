@@ -150,6 +150,7 @@ enum idpf_state {
  * @IDPF_MB_INTR_MODE: Mailbox in interrupt mode
  * @IDPF_VC_CORE_INIT: virtchnl core has been init
  * @IDPF_CORER_IN_PROG: CORER is in progress
+ * @IDPF_PCI_CB_RESET: Reset via the PCI callbacks
  * @IDPF_FLAGS_NBITS: Must be last
  */
 enum idpf_flags {
@@ -160,6 +161,7 @@ enum idpf_flags {
 	IDPF_MB_INTR_MODE,
 	IDPF_VC_CORE_INIT,
 	IDPF_CORER_IN_PROG,
+	IDPF_PCI_CB_RESET,
 	IDPF_FLAGS_NBITS,
 };
 
