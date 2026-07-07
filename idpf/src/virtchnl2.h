@@ -726,6 +726,7 @@ VIRTCHNL2_CHECK_STRUCT_VAR_LEN(80, virtchnl2_oem_config_rx_queues_ext, qinfo);
  * @type: See enum virtchnl2_queue_type.
  * @queue_id: Queue ID.
  * @quanta_profile_idx: Quanta profile index.
+ * @tc_id: Traffic class id. Values: <0,7>.
  * @pad3: Padding.
  *
  */
@@ -733,7 +734,8 @@ struct virtchnl2_oem_txq_ext_info {
 	__le32 type;
 	__le32 queue_id;
 	u8 quanta_profile_idx;
-	u8 pad3[7];
+	u8 tc_id;
+	u8 pad3[6];
 };
 VIRTCHNL2_CHECK_STRUCT_LEN(16, virtchnl2_oem_txq_ext_info);
 
