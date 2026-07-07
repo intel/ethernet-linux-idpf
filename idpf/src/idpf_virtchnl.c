@@ -3775,22 +3775,17 @@ unsigned int idpf_fsteer_max_rules(struct idpf_vport *vport)
 void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 {
 	struct idpf_hw *hw = &adapter->hw;
-	bool remove_in_prog;
 
 	if (!test_bit(IDPF_VC_CORE_INIT, adapter->flags))
 		return;
 
-	/* Avoid transaction timeouts when called during reset */
-	remove_in_prog = test_bit(IDPF_REMOVE_IN_PROG, adapter->flags);
-	if (!remove_in_prog)
-		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_ptp_release(adapter);
 	idpf_deinit_task(adapter);
 	idpf_rel_rx_pt_lkup(adapter);
 	idpf_idc_deinit_core_aux_device(adapter);
 	idpf_intr_rel(adapter);
-	if (remove_in_prog)
-		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
+
+	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 
 	cancel_delayed_work_sync(&adapter->serv_task);
 

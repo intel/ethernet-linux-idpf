@@ -136,7 +136,8 @@ static void idpf_shutdown(struct pci_dev *pdev)
 
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
-
+	if (adapter->vcxn_mngr)
+		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_vc_core_deinit(adapter);
 
 	idpf_deinit_dflt_mbx(adapter);
@@ -382,6 +383,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	pci_enable_pcie_error_reporting(pdev);
 #endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
 	pci_set_master(pdev);
+	pci_save_state(pdev);
 	pci_set_drvdata(pdev, adapter);
 
 	if (!adapter->vcxn_mngr) {
@@ -595,42 +597,47 @@ bool idpf_is_reset_detected(struct idpf_adapter *adapter)
  */
 static void idpf_reset_prepare(struct idpf_adapter *adapter)
 {
-	idpf_idc_issue_reset_event(adapter->cdev_info);
-
-	idpf_detach_and_close(adapter);
-	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
-	mutex_lock(&adapter->vport_ctrl_lock);
+	pci_dbg(adapter->pdev, "resetting\n");
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
+	cancel_delayed_work_sync(&adapter->init_task);
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
-	dev_info(idpf_adapter_to_dev(adapter), "Device FLR Reset initiated\n");
-
+	idpf_detach_and_close(adapter);
+	idpf_idc_issue_reset_event(adapter->cdev_info);
+	mutex_lock(&adapter->vport_ctrl_lock);
 	idpf_vc_core_deinit(adapter);
 	idpf_deinit_dflt_mbx(adapter);
-
 	mutex_unlock(&adapter->vport_ctrl_lock);
 }
 
 /**
  * idpf_pci_err_detected - PCI error detected, about to attempt recovery
  * @pdev: PCI device struct
- * @err: err detected
+ * @state: PCI channel state
  *
- * Return PCI_ERS_RESULT_DISCONNECT if we can't recover,
- * PCI_ERS_RESULT_NEED_RESET otherwise.
+ * Return PCI_ERS_RESULT_NEED_RESET to attempt recovery,
+ * PCI_ERS_RESULT_DISCONNECT if recovery is not possible.
  */
 static pci_ers_result_t
-idpf_pci_err_detected(struct pci_dev *pdev, pci_channel_state_t err)
+idpf_pci_err_detected(struct pci_dev *pdev, pci_channel_state_t state)
 {
 	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
 
-	if (!adapter) {
-		dev_err(&pdev->dev, "%s: unrecoverable device error %d\n",
-			__func__, err);
-		return PCI_ERS_RESULT_DISCONNECT;
-	}
+	/* Shutdown the mailbox if PCI I/O is in a bad state to avoid MBX
+	 * timeouts during the prepare stage.
+	 */
+	if (pci_channel_offline(pdev) && adapter->vcxn_mngr)
+		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 
 	idpf_reset_prepare(adapter);
+
+	if (state == pci_channel_io_perm_failure)
+		return PCI_ERS_RESULT_DISCONNECT;
+
+	/* When called due to PCI error, driver will have to force PFR on
+	 * resume, in order to complete the recovery via the event task.
+	 */
+	set_bit(IDPF_PCI_CB_RESET, adapter->flags);
 
 	return PCI_ERS_RESULT_NEED_RESET;
 }
@@ -645,28 +652,18 @@ static pci_ers_result_t
 idpf_pci_err_slot_reset(struct pci_dev *pdev)
 {
 	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
-	pci_ers_result_t res;
-	int err;
 
-	err = pci_enable_device_mem(pdev);
-	if (err) {
-		dev_err(&pdev->dev, "Failed to re-enable PCI device after reset %d\n",
-			err);
-		res = PCI_ERS_RESULT_DISCONNECT;
-		goto clear_status;
-	}
+	pci_restore_state(pdev);
 	pci_set_master(pdev);
-	if (readl(adapter->reset_reg.rstat) != 0xFFFFFFFF)
-		res = PCI_ERS_RESULT_RECOVERED;
-	else
-		res = PCI_ERS_RESULT_DISCONNECT;
+	pci_wake_from_d3(pdev, false);
 
-clear_status:
-	err = pci_aer_clear_nonfatal_status(pdev);
-	if (err)
-		dev_err(&pdev->dev, "Failed to clear pci aer status %d\n", err);
+	/* RSTAT register cannot have all bits set during normal operation
+	 * on current HW.
+	 */
+	if (readl(adapter->reset_reg.rstat) == 0xFFFFFFFF)
+		return PCI_ERS_RESULT_DISCONNECT;
 
-	return res;
+	return PCI_ERS_RESULT_RECOVERED;
 }
 
 /**
@@ -676,37 +673,17 @@ clear_status:
 static void idpf_pci_err_resume(struct pci_dev *pdev)
 {
 	struct idpf_adapter *adapter = pci_get_drvdata(pdev);
-	int err;
 
-	if (!adapter) {
-		dev_err(&pdev->dev, "Failed to resume after PCI reset\n");
-		return;
-	}
+	/* Trigger a reset, following PCI error, to allow recovery via the
+	 * regular reset handling path.
+	 */
+	if (test_and_set_bit(IDPF_PCI_CB_RESET, adapter->flags))
+		adapter->dev_ops.reg_ops.trigger_reset(adapter,
+						       IDPF_HR_FUNC_RESET);
 
-	mutex_lock(&adapter->vport_ctrl_lock);
-
-	err = idpf_check_reset_complete(adapter);
-	if (err) {
-		dev_err(&adapter->pdev->dev, "The driver was unable to contact the device's firmware.  Check that the FW is running. Driver state=%u\n",
-			adapter->state);
-		mutex_unlock(&adapter->vport_ctrl_lock);
-		return;
-	}
-
-	err = idpf_reset_recover(adapter);
-
-	if (err)
-		dev_err(&adapter->pdev->dev, "Failed to recover after PCI reset\n");
-
-	mutex_unlock(&adapter->vport_ctrl_lock);
-
-	/* Wait for all init_task WQs to complete */
-	flush_delayed_work(&adapter->init_task);
-
-	if (!err) {
-		idpf_attach_and_open(adapter);
-		idpf_idc_init(adapter);
-	}
+	queue_delayed_work(adapter->vc_event_wq,
+			   &adapter->vc_event_task,
+			   msecs_to_jiffies(300));
 }
 
 #ifdef HAVE_PCI_ERROR_HANDLER_RESET_PREPARE
@@ -725,6 +702,7 @@ static void idpf_pci_err_reset_prepare(struct pci_dev *pdev)
  */
 static void idpf_pci_err_reset_done(struct pci_dev *pdev)
 {
+	pci_dbg(pdev, "reset done\n");
 	idpf_pci_err_resume(pdev);
 }
 
