@@ -4435,6 +4435,7 @@ int idpf_xmit_xdpq(struct xdp_buff *xdp, struct idpf_queue *xdpq)
 
 	tx_buf->type = LIBETH_SQE_XDP_TX;
 	tx_buf->rs_idx = ntu;
+	idpf_tx_buf_next(tx_buf) = IDPF_TXBUF_NULL;
 	xdpq->next_to_use = idpf_tx_splitq_bump_ntu(xdpq, ntu);
 
 	return IDPF_XDP_TX;
