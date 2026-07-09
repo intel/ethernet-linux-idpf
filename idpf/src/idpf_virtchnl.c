@@ -121,13 +121,14 @@ static void idpf_recv_event_msg(struct idpf_adapter *adapter,
  * idpf_mb_clean - Reclaim the send mailbox queue entries
  * @adapter: driver specific private structure
  * @asq: send control queue info
+ * @deinit: release all buffers before destroying the queue
  *
- * Reclaim the send mailbox queue entries to be used to send further messages
+ * This is a helper function to clean the send mailbox queue entries
  *
  * Return: 0 on success, negative on failure
  */
 static int idpf_mb_clean(struct idpf_adapter *adapter,
-			 struct idpf_ctlq_info *asq)
+			 struct idpf_ctlq_info *asq, bool deinit)
 {
 	u16 i, num_q_msg = IDPF_DFLT_MBX_Q_LEN;
 	struct idpf_ctlq_msg **q_msg;
@@ -138,7 +139,10 @@ static int idpf_mb_clean(struct idpf_adapter *adapter,
 	if (!q_msg)
 		return -ENOMEM;
 
-	err = idpf_ctlq_clean_sq(asq, &num_q_msg, q_msg);
+	if (deinit)
+		err = idpf_ctlq_clean_sq_force(asq, &num_q_msg, q_msg);
+	else
+		err = idpf_ctlq_clean_sq(asq, &num_q_msg, q_msg);
 	if (err)
 		goto err_kfree;
 
@@ -236,7 +240,7 @@ int idpf_send_mb_msg(struct idpf_adapter *adapter, struct idpf_ctlq_info *asq,
 	if (idpf_is_reset_detected(adapter))
 		return 0;
 
-	err = idpf_mb_clean(adapter, asq);
+	err = idpf_mb_clean(adapter, asq, false);
 	if (err)
 		return err;
 
@@ -3382,7 +3386,7 @@ void idpf_deinit_dflt_mbx(struct idpf_adapter *adapter)
 	idpf_mb_intr_rel_irq(adapter);
 	cancel_delayed_work_sync(&adapter->mbx_task);
 	if (adapter->hw.arq && adapter->hw.asq) {
-		idpf_mb_clean(adapter, adapter->hw.asq);
+		idpf_mb_clean(adapter, adapter->hw.asq, true);
 		idpf_ctlq_deinit(&adapter->hw);
 	}
 	adapter->hw.arq = NULL;
