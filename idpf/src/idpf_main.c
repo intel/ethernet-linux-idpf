@@ -375,7 +375,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	if (err) {
 		pci_err(pdev, "DMA configuration failed: %pe\n", ERR_PTR(err));
-		goto err_free;
+		goto err_disable_ptm;
 	}
 
 #ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
@@ -389,7 +389,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 					     GFP_KERNEL);
 		if (!adapter->vcxn_mngr) {
 			err = -ENOMEM;
-			goto err_free;
+			goto err_wq_alloc;
 		}
 	}
 
@@ -409,11 +409,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!adapter->init_wq) {
 		dev_err(dev, "Failed to allocate init workqueue\n");
 		err = -ENOMEM;
-#ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
 		goto err_wq_alloc;
-#else
-		goto err_free;
-#endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
 	}
 
 	adapter->serv_wq = alloc_workqueue("%s-%s-service",
@@ -502,13 +498,17 @@ err_mbx_wq_alloc:
 	destroy_workqueue(adapter->serv_wq);
 err_serv_wq_alloc:
 	destroy_workqueue(adapter->init_wq);
-#ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
 err_wq_alloc:
+	kfree(adapter->vcxn_mngr);
+	adapter->vcxn_mngr = NULL;
+#ifdef HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING
 	pci_disable_pcie_error_reporting(pdev);
 #endif /* HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING */
+err_disable_ptm:
 #if IS_ENABLED(CONFIG_PCIE_PTM)
 	pci_disable_ptm(pdev);
 #endif /* CONFIG_PCIE_PTM */
+	pci_release_mem_regions(pdev);
 err_free:
 #ifdef DEVLINK_ENABLED
 	devlink_free(priv_to_devlink(adapter));
