@@ -1522,23 +1522,14 @@ static struct rtnl_link_stats64 *idpf_get_stats64(struct net_device *netdev,
 #endif /* !HAVE_VOID_NDO_GET_STATS64 */
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
-	struct idpf_adapter *adapter = np->adapter;
 
 	/* Not supported on EMR */
-	if (IS_EMR_DEVICE(adapter->hw.subsystem_device_id))
+	if (IS_EMR_DEVICE(np->adapter->hw.subsystem_device_id))
 		goto out;
 	spin_lock_bh(&np->stats_lock);
 	*stats = np->netstats;
 	spin_unlock_bh(&np->stats_lock);
 
-	/* For Simics only provide netstats */
-	if (IS_SIMICS_DEVICE(adapter->hw.subsystem_device_id))
-		goto out;
-
-	if (!idpf_is_resource_rel_in_prog(adapter) &&
-	    test_bit(IDPF_VPORT_UP, np->state))
-		mod_delayed_work(adapter->stats_wq, &adapter->stats_task,
-				 msecs_to_jiffies(300));
 out:
 #ifndef HAVE_VOID_NDO_GET_STATS64
 
@@ -1577,8 +1568,12 @@ void idpf_statistics_task(struct work_struct *work)
 						&vport->port_stats);
 	}
 
+	/* Don't re-arm in teardown path */
+	if (idpf_is_resource_rel_in_prog(adapter))
+		return;
+
 	queue_delayed_work(adapter->stats_wq, &adapter->stats_task,
-			   msecs_to_jiffies(10000));
+			   msecs_to_jiffies(1000));
 }
 
 /**
