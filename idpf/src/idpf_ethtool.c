@@ -1664,7 +1664,6 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 				   u64 *data)
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
-	struct idpf_adapter *adapter = np->adapter;
 	struct idpf_vport_config *vport_config;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
@@ -1753,14 +1752,6 @@ static void idpf_get_ethtool_stats(struct net_device *netdev,
 	rcu_read_unlock();
 
 	idpf_vport_ctrl_unlock(netdev);
-	if (!IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
-		return;
-	/* Schedule the workqueue to get the latest statistics on the next
-	 * .get_ethtool_stats request.
-	 */
-	if (!idpf_is_resource_rel_in_prog(adapter))
-		mod_delayed_work(adapter->stats_wq, &adapter->stats_task,
-				 msecs_to_jiffies(300));
 }
 
 static struct idpf_queue *idpf_find_rxq(const struct idpf_q_vec_rsrc *rsrc,
