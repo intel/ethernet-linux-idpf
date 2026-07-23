@@ -116,7 +116,7 @@ static void idpf_ctlq_shutdown(struct idpf_hw *hw, struct idpf_ctlq_info *cq)
  * idpf_ctlq_add - add one control queue
  * @hw: pointer to hardware struct
  * @qinfo: info for queue to be created
- * @cq_out: (output) double pointer to control queue to be created
+ * @cq_out: double pointer to control queue to be created
  *
  * Allocate and initialize a control queue and add it to the control queue list.
  * The cq parameter will be allocated/initialized and passed back to the caller
@@ -371,11 +371,11 @@ err_unlock:
  * __idpf_ctlq_clean_sq - helper function to reclaim descriptors on HW write
  * back for the requested queue
  * @cq: pointer to the specific Control queue
- * @clean_count: (input|output) number of descriptors to clean as input, and
+ * @clean_count: number of descriptors to clean as input, and
  * number of descriptors actually cleaned as output
- * @msg_status: (output) pointer to msg pointer array to be populated; needs
+ * @msg_status: pointer to msg pointer array to be populated; needs
  * to be allocated by caller
- * @force: (input) clean descriptors which were not done yet. Use with caution
+ * @force: clean descriptors which were not done yet. Use with caution
  * in kernel mode only
  *
  * Returns an array of message pointers associated with the cleaned
@@ -445,9 +445,9 @@ static int __idpf_ctlq_clean_sq(struct idpf_ctlq_info *cq, u16 *clean_count,
  * idpf_ctlq_clean_sq_force - reclaim all descriptors on HW write back for the
  * requested queue. Use only in kernel mode.
  * @cq: pointer to the specific Control queue
- * @clean_count: (input|output) number of descriptors to clean as input, and
+ * @clean_count: number of descriptors to clean as input, and
  * number of descriptors actually cleaned as output
- * @msg_status: (output) pointer to msg pointer array to be populated; needs
+ * @msg_status: pointer to msg pointer array to be populated; needs
  * to be allocated by caller
  *
  * Returns an array of message pointers associated with the cleaned
@@ -466,9 +466,9 @@ int idpf_ctlq_clean_sq_force(struct idpf_ctlq_info *cq, u16 *clean_count,
  * idpf_ctlq_clean_sq - reclaim send descriptors on HW write back for the
  * requested queue
  * @cq: pointer to the specific Control queue
- * @clean_count: (input|output) number of descriptors to clean as input, and
+ * @clean_count: number of descriptors to clean as input, and
  * number of descriptors actually cleaned as output
- * @msg_status: (output) pointer to msg pointer array to be populated; needs
+ * @msg_status: pointer to msg pointer array to be populated; needs
  * to be allocated by caller
  *
  * Returns an array of message pointers associated with the cleaned
@@ -487,7 +487,7 @@ int idpf_ctlq_clean_sq(struct idpf_ctlq_info *cq, u16 *clean_count,
  * idpf_ctlq_post_rx_buffs - post buffers to descriptor ring
  * @hw: pointer to hw struct
  * @cq: pointer to control queue handle
- * @buff_count: (input|output) input is number of buffers caller is trying to
+ * @buff_count: input is number of buffers caller is trying to
  * return; output is number of buffers that were not posted
  * @buffs: array of pointers to dma mem structs to be given to hardware
  *
@@ -615,9 +615,9 @@ post_buffs_out:
 /**
  * idpf_ctlq_recv - receive control queue message call back
  * @cq: pointer to control queue handle to receive on
- * @num_q_msg: (input|output) input number of messages that should be received;
+ * @num_q_msg: input number of messages that should be received;
  * output number of messages actually received
- * @q_msg: (output) array of received control queue messages on this q;
+ * @q_msg: array of received control queue messages on this q;
  * needs to be pre-allocated by caller for as many messages as requested
  *
  * Called by interrupt handler or polling mechanism. Caller is expected
