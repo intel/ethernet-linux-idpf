@@ -178,7 +178,7 @@ void idpf_idc_vdev_mtu_event(struct iidc_rdma_vport_dev_info *vdev_info,
 	if (iadrv->event_handler)
 		iadrv->event_handler(vdev_info, &event);
 unlock:
-	device_unlock(&vdev_info->adev->dev);
+	device_unlock(&adev->dev);
 }
 
 /**
@@ -293,12 +293,14 @@ void idpf_idc_issue_reset_event(struct iidc_rdma_core_dev_info *cdev_info)
 		/* RDMA is not enabled */
 		return;
 
+	adev = cdev_info->adev;
+	if (!adev)
+		return;
+
 	set_bit(event_type, event.type);
 
-	device_lock(&cdev_info->adev->dev);
-
-	adev = cdev_info->adev;
-	if (!adev || !adev->dev.driver)
+	device_lock(&adev->dev);
+	if (!adev->dev.driver)
 		goto unlock;
 
 	iadrv = container_of(adev->dev.driver,
@@ -307,7 +309,7 @@ void idpf_idc_issue_reset_event(struct iidc_rdma_core_dev_info *cdev_info)
 	if (iadrv->event_handler)
 		iadrv->event_handler(cdev_info, &event);
 unlock:
-	device_unlock(&cdev_info->adev->dev);
+	device_unlock(&adev->dev);
 }
 
 /**
