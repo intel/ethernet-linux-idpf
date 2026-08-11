@@ -1577,6 +1577,39 @@ void idpf_statistics_task(struct work_struct *work)
 }
 
 /**
+ * idpf_stats_task_stop - Cancel the statistics task
+ * @adapter: Driver specific private structure
+ *
+ * The task re-arms itself, so drain anything it queued on its way out.
+ */
+void idpf_stats_task_stop(struct idpf_adapter *adapter)
+{
+	if (!IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
+		return;
+
+	cancel_delayed_work_sync(&adapter->stats_task);
+	while (delayed_work_pending(&adapter->stats_task))
+		cancel_delayed_work_sync(&adapter->stats_task);
+}
+
+/**
+ * idpf_stats_task_start - Queue the statistics task
+ * @adapter: Driver specific private structure
+ *
+ * Does nothing while the resources are being released.
+ */
+void idpf_stats_task_start(struct idpf_adapter *adapter)
+{
+	if (!IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
+		return;
+
+	if (idpf_is_resource_rel_in_prog(adapter))
+		return;
+
+	queue_delayed_work(adapter->stats_wq, &adapter->stats_task, 0);
+}
+
+/**
  * idpf_mbx_task - Delayed task to handle mailbox responses
  * @work: work_struct handle
  */
@@ -2106,8 +2139,7 @@ void idpf_deinit_task(struct idpf_adapter *adapter)
 	/* Once the stats_task is cancelled here, dont schedule it in
 	 * .ndo_get_stats64 or .get_ethtool_stats callbacks.
 	 */
-	if (IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
-		cancel_delayed_work_sync(&adapter->stats_task);
+	idpf_stats_task_stop(adapter);
 
 	if (!adapter->vports)
 		return;

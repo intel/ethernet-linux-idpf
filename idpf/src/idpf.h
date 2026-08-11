@@ -1409,6 +1409,8 @@ void idpf_xdp_flush(struct net_device *dev);
 #endif /* HAVE_XDP_SUPPORT */
 int idpf_sriov_configure(struct pci_dev *pdev, int num_vfs);
 int idpf_sriov_config_vfs(struct pci_dev *pdev, int num_vfs);
+void idpf_stats_task_stop(struct idpf_adapter *adapter);
+void idpf_stats_task_start(struct idpf_adapter *adapter);
 /**
  * idpf_is_feature_ena - Determine if a particular feature is enabled
  * @vport: Vport to check
