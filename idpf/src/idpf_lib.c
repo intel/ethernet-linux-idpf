@@ -1294,7 +1294,6 @@ static void idpf_vport_dealloc(struct idpf_vport *vport)
 
 	idpf_vport_rel(vport);
 
-	adapter->vports[i] = NULL;
 	adapter->next_vport = idpf_get_free_slot(adapter);
 }
 
@@ -2619,6 +2618,9 @@ static int idpf_vport_manage_rss_lut(struct idpf_vport *vport)
 	u16 idx = vport->idx;
 	int lut_size;
 
+	if (!vport->link_up)
+		return 0;
+
 	rss_data = &vport->adapter->vport_config[idx]->user_config.rss_data;
 	lut_size = rss_data->rss_lut_size * sizeof(u32);
 
@@ -3009,7 +3011,7 @@ static int idpf_offload_txtime(struct idpf_vport *vport,
 	if (!idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_EDT))
 		return -EOPNOTSUPP;
 
-	if (qopt->queue < 0 || qopt->queue > vport->num_txq)
+	if (qopt->queue < 0 || qopt->queue >= vport->num_txq)
 		return -EINVAL;
 
 	config_data = &adapter->vport_config[vport->idx]->user_config;
