@@ -3884,7 +3884,7 @@ static int idpf_rx_rsc(struct idpf_queue *rxq, struct sk_buff *skb,
 
 	u64_stats_update_begin(&rxq->stats_sync);
 	u64_stats_inc(&rxq->q_stats.rx.rsc_pkts);
-	rsc_seg_stat = min_t(u16, IDPF_MAX_SEGS, rsc_segments) - 1;
+	rsc_seg_stat = clamp_t(u16, rsc_segments, 1, IDPF_MAX_SEGS) - 1;
 	u64_stats_inc(&rxq->q_stats.rx.segs[rsc_seg_stat]);
 	u64_stats_add(&rxq->q_stats.rx.rsc_segs_tot, rsc_segments);
 	u64_stats_add(&rxq->q_stats.rx.rsc_bytes, skb->data_len);
