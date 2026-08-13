@@ -2010,12 +2010,15 @@ static int idpf_set_coalesce(struct net_device *netdev,
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_vport_user_config_data *user_config;
+	struct idpf_vport_config *vport_config;
 	struct idpf_q_coalesce *q_coal;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
 	int err = 0;
+	u16 num_txq;
 
-	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
+	vport_config = np->adapter->vport_config[np->vport_idx];
+	user_config = &vport_config->user_config;
 
 	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
@@ -2024,7 +2027,19 @@ static int idpf_set_coalesce(struct net_device *netdev,
 		goto unlock_mutex;
 
 	rsrc = &vport->dflt_qv_rsrc;
-	for (unsigned int i = 0; i < rsrc->num_txq; i++) {
+	num_txq = rsrc->num_txq;
+#ifdef HAVE_XDP_SUPPORT
+	if (idpf_xdp_is_prog_ena(vport))
+		num_txq -= vport->num_xdp_txq;
+#endif /* HAVE_XDP_SUPPORT */
+
+	if (num_txq > vport_config->max_q.max_txq ||
+	    rsrc->num_rxq > vport_config->max_q.max_rxq) {
+		err = -EINVAL;
+		goto unlock_mutex;
+	}
+
+	for (unsigned int i = 0; i < num_txq; i++) {
 		q_coal = &user_config->q_coalesce[i];
 		err = idpf_set_q_coalesce(vport, q_coal, ec, i, false);
 		if (err)
@@ -2058,6 +2073,7 @@ static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 {
 	struct idpf_netdev_priv *np = netdev_priv(netdev);
 	struct idpf_vport_user_config_data *user_config;
+	struct idpf_vport_config *vport_config;
 	struct idpf_q_coalesce *q_coal;
 	struct idpf_q_vec_rsrc *rsrc;
 	struct idpf_vport *vport;
@@ -2066,7 +2082,14 @@ static int idpf_set_per_q_coalesce(struct net_device *netdev, u32 q_num,
 	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 	rsrc = &vport->dflt_qv_rsrc;
-	user_config = &np->adapter->vport_config[np->vport_idx]->user_config;
+	vport_config = np->adapter->vport_config[np->vport_idx];
+	user_config = &vport_config->user_config;
+	if (q_num >= max(vport_config->max_q.max_txq,
+			 vport_config->max_q.max_rxq)) {
+		err = -EINVAL;
+		goto vport_unlock;
+	}
+
 	q_coal = &user_config->q_coalesce[q_num];
 
 	if (q_num < vport->num_txq) {
