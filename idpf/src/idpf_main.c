@@ -107,6 +107,9 @@ destroy_wqs:
 	mutex_destroy(&adapter->vport_ctrl_lock);
 	mutex_destroy(&adapter->vector_lock);
 	mutex_destroy(&adapter->queue_lock);
+#ifdef DEVLINK_ENABLED
+	mutex_destroy(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
 
 #if IS_ENABLED(CONFIG_PCIE_PTM)
 	pci_disable_ptm(pdev);
@@ -337,6 +340,12 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	mutex_init(&adapter->vport_ctrl_lock);
 	mutex_init(&adapter->vector_lock);
 	mutex_init(&adapter->queue_lock);
+#ifdef DEVLINK_ENABLED
+	/* Taken from mailbox receive context, so it must be live before the
+	 * mailbox starts and stay live until after it is cancelled.
+	 */
+	mutex_init(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
 
 	INIT_DELAYED_WORK(&adapter->init_task, idpf_init_task);
 	INIT_DELAYED_WORK(&adapter->serv_task, idpf_service_task);

@@ -1272,6 +1272,14 @@ static void idpf_vport_dealloc(struct idpf_vport *vport)
 	struct idpf_adapter *adapter = vport->adapter;
 	unsigned int i = vport->idx;
 
+#ifdef DEVLINK_ENABLED
+	mutex_lock(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
+	adapter->vports[i] = NULL;
+#ifdef DEVLINK_ENABLED
+	mutex_unlock(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
+
 	idpf_idc_deinit_vport_aux_device(vport->vdev_info);
 
 	idpf_deinit_mac_addr(vport);
