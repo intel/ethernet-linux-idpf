@@ -96,7 +96,13 @@ static void idpf_recv_event_msg(struct idpf_adapter *adapter,
 
 	switch (event) {
 	case VIRTCHNL2_EVENT_LINK_CHANGE:
+#ifdef DEVLINK_ENABLED
+		mutex_lock(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
 		idpf_handle_event_link(adapter, v2e);
+#ifdef DEVLINK_ENABLED
+		mutex_unlock(&adapter->sf_mutex);
+#endif /* DEVLINK_ENABLED */
 		break;
 	case VIRTCHNL2_EVENT_START_RESET_ADI:
 		adi_id = le16_to_cpu(v2e->adi_id);

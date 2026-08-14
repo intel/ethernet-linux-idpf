@@ -404,7 +404,6 @@ void idpf_devlink_deinit(struct idpf_adapter *adapter)
 	idpf_destroy_sf_list(adapter);
 	flush_delayed_work(&adapter->cleanup_task);
 	devlink_unregister(priv_to_devlink(adapter));
-	mutex_destroy(&adapter->sf_mutex);
 }
 
 /**
@@ -422,7 +421,6 @@ void idpf_devlink_init(struct idpf_adapter *adapter, struct device *dev)
 	devlink_register(priv_to_devlink(adapter));
 #endif
 	INIT_LIST_HEAD(&adapter->sf_list);
-	mutex_init(&adapter->sf_mutex);
 	INIT_DELAYED_WORK(&adapter->cleanup_task, idpf_cleanup_task);
 	adapter->sf_id = 0;
 }
