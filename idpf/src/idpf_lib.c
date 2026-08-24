@@ -2626,10 +2626,10 @@ static int idpf_vport_manage_rss_lut(struct idpf_vport *vport)
 	u16 idx = vport->idx;
 	int lut_size;
 
-	if (!vport->link_up)
+	rss_data = &vport->adapter->vport_config[idx]->user_config.rss_data;
+	if (!rss_data->rss_lut || !rss_data->cached_lut)
 		return 0;
 
-	rss_data = &vport->adapter->vport_config[idx]->user_config.rss_data;
 	lut_size = rss_data->rss_lut_size * sizeof(u32);
 
 	if (ena) {
