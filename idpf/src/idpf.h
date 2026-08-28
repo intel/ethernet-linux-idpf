@@ -99,7 +99,6 @@ struct idpf_rss_data;
 #define IDPF_NUM_CHUNKS_PER_MSG(struct_sz, chunk_sz)   \
 	((IDPF_CTLQ_MAX_BUF_LEN - (struct_sz)) / (chunk_sz))
 
-#define IDPF_HARD_RESET_TIMEOUT_MSEC	(120 * 1000)
 #define IDPF_CORER_TIMEOUT_MSEC		(120 * 1000)
 #define IDPF_RESET_POLL_COUNT		(2 * 1000)
 
@@ -1005,28 +1004,6 @@ static inline bool idpf_xdp_is_prog_ena(struct idpf_vport *vport)
 static inline struct idpf_queue *idpf_get_related_xdp_queue(struct idpf_queue *rxq)
 {
 	return rxq->vport->txqs[rxq->idx + rxq->vport->xdp_txq_offset];
-}
-
-/**
- * idpf_wait_for_hard_reset - Wait until the hard reset is completed
- * @adapter: pointer to the adapter under hard reset
- *
- * Returns zero if the hard reset is completed, or -EBUSY in case of timeout.
- */
-static inline int idpf_wait_for_hard_reset(struct idpf_adapter *adapter)
-{
-	int timeout = IDPF_HARD_RESET_TIMEOUT_MSEC;
-	int delay_msec = 100;
-
-	while (test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags)) {
-		if (timeout <= 0)
-			return -EBUSY;
-
-		msleep(delay_msec);
-		timeout -= delay_msec;
-	}
-
-	return 0;
 }
 
 #endif /* HAVE_XDP_SUPPORT */
