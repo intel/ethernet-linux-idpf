@@ -754,29 +754,6 @@ int idpf_recv_mb_msg(struct idpf_adapter *adapter, struct idpf_ctlq_info *arq)
 }
 
 /**
- * idpf_show_mbx_info - display MBX descriptor info
- * @adapter: Driver private data structure
- */
-static inline void idpf_show_mbx_info(struct idpf_adapter *adapter)
-{
-	struct idpf_intr_reg *intr = &adapter->mb_vector.intr_reg;
-	u32 dyn_ctl = le32_to_cpu(adapter->caps.mailbox_dyn_ctl);
-	struct idpf_ctlq_info *q = adapter->hw.asq;
-	struct device *dev = idpf_adapter_to_dev(adapter);
-	struct idpf_hw *hw = &adapter->hw;
-
-	dev_info(dev, "MBX TXQ: head = %x, tail = %x\n",
-		 rd32(hw, q->reg.head), rd32(hw, q->reg.tail));
-	q = adapter->hw.arq;
-	dev_info(dev, "MBX RXQ: head = %x, tail = %x\n",
-		 rd32(hw, q->reg.head), rd32(hw, q->reg.tail));
-
-	intr->dyn_ctl = idpf_get_reg_addr(adapter, dyn_ctl);
-	if (intr->dyn_ctl)
-		dev_info(dev, "DYN_CTL = %x\n", readl(intr->dyn_ctl));
-}
-
-/**
  * idpf_wait_for_marker_event - wait for software marker response
  * @vport: virtual port data structure
  * @rsrc: pointer to queue and vector resources
