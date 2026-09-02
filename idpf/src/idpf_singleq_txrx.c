@@ -818,7 +818,7 @@ static void idpf_rx_singleq_base_hash(struct idpf_queue *rx_q,
 	mask = VIRTCHNL2_RX_BASE_DESC_STATUS_FLTSTAT_M;
 	qw1 = le64_to_cpu(rx_desc->base_wb.qword1.status_error_ptype_len);
 
-	if (FIELD_GET(mask, qw1) == mask) {
+	if ((qw1 & mask) == mask) {
 		u32 hash = le32_to_cpu(rx_desc->base_wb.qword0.hi_dword.rss);
 
 		skb_set_hash(skb, hash, idpf_ptype_to_htype(decoded));
