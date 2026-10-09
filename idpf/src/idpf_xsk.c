@@ -235,27 +235,30 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 		struct idpf_tx_buf *tx_buf;
 		u32 buf_id;
 
-		if (!xsk_tx_peek_desc(xdpq->xsk_pool, &desc))
-			break;
-
-		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
-		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
-					 desc.len);
-
+		/* Reserve the buf_id before consuming an XSK descriptor, which
+		 * cannot be returned to the ring once peeked.
+		 */
 		if (idpf_queue_has(FLOW_SCH_EN, xdpq)) {
-			/* Xdp only uses a single buffer. No need to save refillq state
-			 * for rollback like we do in the standard data path.
-			 */
 			if (unlikely(!idpf_tx_get_free_buf_id(xdpq->tx.refillq,
 						      &buf_id))) {
-				done = IDPF_XDP_CONSUMED;
-				goto out_unlock;
+				budget = 0;
+				break;
 			}
 
 			tx_parms.compl_tag = buf_id;
 		} else {
 			buf_id = ntu;
 		}
+
+		if (!xsk_tx_peek_desc(xdpq->xsk_pool, &desc)) {
+			if (idpf_queue_has(FLOW_SCH_EN, xdpq))
+				idpf_post_buf_refill(xdpq->tx.refillq, buf_id);
+			break;
+		}
+
+		dma = xsk_buff_raw_get_dma(xdpq->xsk_pool, desc.addr);
+		xsk_buff_raw_dma_sync_for_device(xdpq->xsk_pool, dma,
+					 desc.len);
 
 		tx_buf = &xdpq->tx.bufs[buf_id];
 		tx_buf->bytes = desc.len;
@@ -295,7 +298,6 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 
 	done = budget > 0;
 
-out_unlock:
 	spin_unlock_bh(&xdpq->xdp_tx_lock);
 
 	return done;
@@ -410,20 +412,25 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 	bool fs = idpf_queue_has(FLOW_SCH_EN, xdpq);
 	struct idpf_tx_buf *tx_buf;
 	u32 xsk_frames = 0;
+	u16 rs_idx = 0;
 	u16 i;
 
-	if (!clean_count)
-		return;
-
-	if (likely(!xdpq->xdp_tx_active)) {
-		xsk_frames = clean_count;
-		goto skip;
-	}
-
+	/* With flow scheduling each RS completion is exactly one packet whose
+	 * buf_id must go back to the refillq.
+	 */
 	if (fs) {
 		clean_count = 1;
 		tx_buf = &xdpq->tx.bufs[buf_id];
+		rs_idx = tx_buf->rs_idx;
 	} else {
+		if (!clean_count)
+			return;
+
+		if (likely(!xdpq->xdp_tx_active)) {
+			xsk_frames = clean_count;
+			goto skip;
+		}
+
 		tx_buf = &xdpq->tx.bufs[ntc];
 	}
 
@@ -455,9 +462,19 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		tx_buf = &xdpq->tx.bufs[ntc];
 	}
 skip:
-	xdpq->next_to_clean += clean_count;
-	if (unlikely(xdpq->next_to_clean >= xdpq->desc_count))
-		xdpq->next_to_clean -= xdpq->desc_count;
+	if (fs) {
+		u16 cnt = xdpq->desc_count;
+		u16 head = xdpq->next_to_clean;
+		u16 in_flight = (READ_ONCE(xdpq->next_to_use) + cnt - head) % cnt;
+
+		/* Descriptors are fetched in order; ignore tags already reclaimed by RE. */
+		if ((u16)((rs_idx + cnt - head) % cnt) < in_flight)
+			xdpq->next_to_clean = (rs_idx + 1) % cnt;
+	} else {
+		xdpq->next_to_clean += clean_count;
+		if (unlikely(xdpq->next_to_clean >= xdpq->desc_count))
+			xdpq->next_to_clean -= xdpq->desc_count;
+	}
 
 	if (xsk_frames) {
 		xsk_tx_completed(xdpq->xsk_pool, xsk_frames);
@@ -505,17 +522,7 @@ void
 idpf_tx_splitq_clean_zc(struct idpf_queue *xdpq, u16 compl_tag,
 			struct libeth_sq_napi_stats *cleaned)
 {
-	struct idpf_tx_buf *tx_buf = &xdpq->tx.bufs[compl_tag];
-	u16 ntc = xdpq->next_to_clean;
-	u16 end = tx_buf->rs_idx + 1;
-	u16 frames_ready = 0;
-
-	if (end >= ntc)
-		frames_ready = end - ntc;
-	else
-		frames_ready = end + xdpq->desc_count - ntc;
-
-	return idpf_tx_clean_zc(xdpq, ntc, frames_ready, cleaned,
+	return idpf_tx_clean_zc(xdpq, xdpq->next_to_clean, 1, cleaned,
 				compl_tag);
 }
 
