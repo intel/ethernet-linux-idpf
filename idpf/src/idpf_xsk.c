@@ -412,7 +412,6 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 	bool fs = idpf_queue_has(FLOW_SCH_EN, xdpq);
 	struct idpf_tx_buf *tx_buf;
 	u32 xsk_frames = 0;
-	u16 rs_idx = 0;
 	u16 i;
 
 	/* With flow scheduling each RS completion is exactly one packet whose
@@ -421,7 +420,6 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 	if (fs) {
 		clean_count = 1;
 		tx_buf = &xdpq->tx.bufs[buf_id];
-		rs_idx = tx_buf->rs_idx;
 	} else {
 		if (!clean_count)
 			return;
@@ -462,15 +460,8 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		tx_buf = &xdpq->tx.bufs[ntc];
 	}
 skip:
-	if (fs) {
-		u16 cnt = xdpq->desc_count;
-		u16 head = xdpq->next_to_clean;
-		u16 in_flight = (READ_ONCE(xdpq->next_to_use) + cnt - head) % cnt;
-
-		/* Descriptors are fetched in order; ignore tags already reclaimed by RE. */
-		if ((u16)((rs_idx + cnt - head) % cnt) < in_flight)
-			xdpq->next_to_clean = (rs_idx + 1) % cnt;
-	} else {
+	/* With flow scheduling the descriptor ring is reclaimed by RE completions. */
+	if (!fs) {
 		xdpq->next_to_clean += clean_count;
 		if (unlikely(xdpq->next_to_clean >= xdpq->desc_count))
 			xdpq->next_to_clean -= xdpq->desc_count;
