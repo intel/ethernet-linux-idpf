@@ -2041,6 +2041,10 @@ void idpf_init_task(struct work_struct *work)
 	return;
 
 unwind_vports:
+	/* Release PTP while the vports holding the Tx timestamp caps exist */
+	if (test_bit(IDPF_HR_DRV_LOAD, adapter->flags) || default_vport)
+		idpf_ptp_release(adapter);
+
 	if (default_vport) {
 		for (index = 0; index < adapter->max_vports; index++) {
 			if (adapter->vports[index])
@@ -2056,9 +2060,6 @@ unwind_vports:
 	if (test_and_clear_bit(IDPF_HR_DRV_LOAD, adapter->flags)) {
 		cancel_delayed_work_sync(&adapter->serv_task);
 		cancel_delayed_work_sync(&adapter->mbx_task);
-		idpf_ptp_release(adapter);
-	} else if (default_vport) {
-		idpf_ptp_release(adapter);
 	}
 
 	clear_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
