@@ -291,6 +291,8 @@ enum virtchnl2_cap_other {
 	VIRTCHNL2_CAP_LAN_MEMORY_REGIONS	= BIT_ULL(22),
 	VIRTCHNL2_CAP_TX_CMPL_TSTMP		= BIT_ULL(23),
 	VIRTCHNL2_CAP_TX_LARGE_COMPLQ		= BIT_ULL(24),
+	/* Transmit Queue Traffic Class capability */
+	VIRTCHNL2_CAP_TXQ_TC			= BIT_ULL(25),
 	/* This must be the last capability */
 	VIRTCHNL2_CAP_OEM			= BIT_ULL(63),
 };
@@ -726,7 +728,6 @@ VIRTCHNL2_CHECK_STRUCT_VAR_LEN(80, virtchnl2_oem_config_rx_queues_ext, qinfo);
  * @type: See enum virtchnl2_queue_type.
  * @queue_id: Queue ID.
  * @quanta_profile_idx: Quanta profile index.
- * @tc_id: Traffic class id. Values: <0,7>.
  * @pad3: Padding.
  *
  */
@@ -734,8 +735,7 @@ struct virtchnl2_oem_txq_ext_info {
 	__le32 type;
 	__le32 queue_id;
 	u8 quanta_profile_idx;
-	u8 tc_id;
-	u8 pad3[6];
+	u8 pad3[7];
 };
 VIRTCHNL2_CHECK_STRUCT_LEN(16, virtchnl2_oem_txq_ext_info);
 
@@ -1056,6 +1056,8 @@ VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_vport);
  * @egress_pasid: Egress PASID info.
  * @egress_hdr_pasid: Egress HDR passid.
  * @egress_buf_pasid: Egress buf passid.
+ * @tc_id: Traffic class ID (0-7). Valid only if VIRTCHNL2_CAP_TXQ_TC is
+ *		    negotiated; otherwise it must be zero.
  * @pad1: Padding for future extensions.
  */
 struct virtchnl2_txq_info {
@@ -1074,7 +1076,8 @@ struct virtchnl2_txq_info {
 	__le32 egress_pasid;
 	__le32 egress_hdr_pasid;
 	__le32 egress_buf_pasid;
-	u8 pad1[8];
+	u8 tc_id;
+	u8 pad1[7];
 };
 VIRTCHNL2_CHECK_STRUCT_LEN(56, virtchnl2_txq_info);
 
