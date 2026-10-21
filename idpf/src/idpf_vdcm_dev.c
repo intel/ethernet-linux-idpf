@@ -1305,9 +1305,21 @@ static void idpf_vdcm_dev_put_pasid(struct idpf_vdcm *ivdm)
  */
 int idpf_vdcm_dev_open(struct idpf_vdcm *ivdm)
 {
+	struct idpf_adi_priv *priv = container_of(ivdm->adi,
+						  struct idpf_adi_priv, adi);
+	struct idpf_adapter *adapter = priv->adapter;
 	int pasid;
 	int ret;
 
+	/* Serialize against a PF reset, which tears down and rebuilds
+	 * the MSIX vector stack under vport_ctrl_lock. Without this the
+	 * ADI config path can dereference a freed vector stack.
+	 */
+	mutex_lock(&adapter->vport_ctrl_lock);
+	if (idpf_is_reset_in_prog(adapter)) {
+		ret = -EBUSY;
+		goto err_dev_open;
+	}
 	mutex_lock(&ivdm->ref_lock);
 
 	if (!ivdm->refcnt) {
@@ -1324,6 +1336,7 @@ int idpf_vdcm_dev_open(struct idpf_vdcm *ivdm)
 	ivdm->refcnt++;
 
 	mutex_unlock(&ivdm->ref_lock);
+	mutex_unlock(&adapter->vport_ctrl_lock);
 
 	return 0;
 
@@ -1331,6 +1344,8 @@ err_config_adi:
 	idpf_vdcm_dev_put_pasid(ivdm);
 err_get_pasid:
 	mutex_unlock(&ivdm->ref_lock);
+err_dev_open:
+	mutex_unlock(&adapter->vport_ctrl_lock);
 	return ret;
 }
 
