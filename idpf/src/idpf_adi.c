@@ -49,6 +49,12 @@ void idpf_notify_adi_reset(struct idpf_adapter *adapter, u16 adi_id,
 	struct idpf_adi_priv *priv;
 
 	priv = xa_load(&adapter->adi_info.priv_info, adi_id);
+	if (!priv) {
+		dev_err(idpf_adapter_to_dev(adapter),
+			"Failed to find ADI private info for ADI %d\n", adi_id);
+		return;
+	}
+
 	if (reset)
 		priv->reset_state = IDPF_ADI_RESET_COMPLETED;
 	else
