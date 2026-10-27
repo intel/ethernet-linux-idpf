@@ -72,9 +72,10 @@ function gen-aux() {
 
 function gen-bitfield() {
 	bf='include/linux/bitfield.h'
+	bffw='include/linux/bitfield-fix-width.h'
 	gen HAVE_INCLUDE_BITFIELD if macro FIELD_PREP in "$bf"
 	gen NEED_BITFIELD_FIELD_FIT if macro FIELD_FIT absent in "$bf"
-	gen NEED_BITFIELD_FIELD_MASK if fun field_mask absent in "$bf"
+	gen NEED_BITFIELD_FIELD_MASK if fun field_mask absent in "$bf" "$bffw"
 	gen NEED_BITFIELD_FIELD_MAX if macro FIELD_MAX absent in "$bf"
 }
 
