@@ -1602,7 +1602,7 @@ int idpf_send_create_vport_msg(struct idpf_adapter *adapter,
 	else
 		vport_msg->rxq_model = cpu_to_le16(VIRTCHNL2_QUEUE_MODEL_SINGLE);
 
-	idpf_vport_calc_total_qs(adapter, idx, vport_msg, max_q);
+	idpf_vport_calc_total_qs(adapter->vport_config[idx], vport_msg, max_q);
 
 	/* Response size of the create vport message is unknown at this moment
 	 * but memory for the receive buffer should be allocated to store the
@@ -4308,7 +4308,8 @@ void idpf_vport_adjust_qs(struct idpf_vport *vport,
 
 	vport_msg.txq_model = cpu_to_le16(rsrc->txq_model);
 	vport_msg.rxq_model = cpu_to_le16(rsrc->rxq_model);
-	idpf_vport_calc_total_qs(vport->adapter, vport->idx, &vport_msg, NULL);
+	idpf_vport_calc_total_qs(vport->adapter->vport_config[vport->idx],
+				 &vport_msg, NULL);
 
 	idpf_vport_init_num_qs(vport, &vport_msg, rsrc);
 	idpf_vport_calc_num_q_groups(rsrc);

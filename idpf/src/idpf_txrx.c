@@ -1440,58 +1440,87 @@ void idpf_vport_calc_num_q_desc(struct idpf_vport *vport,
 
 /**
  * idpf_vport_calc_total_qs - Calculate total number of queues
- * @adapter: private data struct
- * @vport_idx: vport idx to retrieve vport pointer
+ * @vport_config: vport config struct, NULL if not yet allocated
  * @vport_msg: message to fill with data
  * @max_q: vport max queue info
  */
-void idpf_vport_calc_total_qs(struct idpf_adapter *adapter, u16 vport_idx,
+void idpf_vport_calc_total_qs(struct idpf_vport_config *vport_config,
 			      struct virtchnl2_create_vport *vport_msg,
 			      struct idpf_vport_max_q *max_q)
 {
-	u16 num_txq, num_complq = 0, num_rxq, num_bufq = 0;
+	int dflt_splitq_txq_grps = 0, dflt_singleq_txqs = 0;
+	int dflt_splitq_rxq_grps = 0, dflt_singleq_rxqs = 0;
 	int num_bufq_per_rxq_grp = IDPF_MAX_BUFQS_PER_RXQ_GRP;
-	struct idpf_vport_config *vport_config;
-
-	vport_config = adapter->vport_config[vport_idx];
-	if (vport_config) {
-		num_txq = vport_config->user_config.num_req_tx_qs;
-		num_rxq = vport_config->user_config.num_req_rx_qs;
+	struct idpf_vport_user_config_data *user;
+	u16 num_req_tx_qs = 0, num_req_rx_qs = 0;
+	u16 num_txq_grps, num_rxq_grps;
 #ifdef HAVE_XDP_SUPPORT
+	u32 num_xdpsq;
+#endif /* HAVE_XDP_SUPPORT */
+	u32 num_qs;
 
-		/* If XDP on, we need an additional TX queue for every RX
-		 * queue.
-		 */
-		if (vport_config->user_config.xdp_prog) {
+	if (vport_config) {
+		num_req_tx_qs = vport_config->user_config.num_req_tx_qs;
+		num_req_rx_qs = vport_config->user_config.num_req_rx_qs;
+#ifdef HAVE_XDP_SUPPORT
+		if (vport_config->user_config.xdp_prog)
 			num_bufq_per_rxq_grp = IDPF_SINGLE_BUFQ_PER_RXQ_GRP;
-			num_txq += num_rxq;
-		}
 #endif /* HAVE_XDP_SUPPORT */
 	} else {
-		int num_dflt_rx = IDPF_DFLT_NUM_Q;
-		int num_dflt_tx = IDPF_DFLT_NUM_Q;
 		int num_cpus = num_online_cpus();
+		int dflt_qs = min_t(int, num_cpus, IDPF_DFLT_NUM_Q);
 
-		if (max_q->max_txq < IDPF_DFLT_NUM_Q)
-			num_dflt_tx = max_q->max_txq;
-		if (max_q->max_rxq < IDPF_DFLT_NUM_Q)
-			num_dflt_rx = max_q->max_rxq;
-
-		num_txq = min_t(int, num_dflt_tx, num_cpus);
-		num_rxq = min_t(int, num_dflt_rx, num_cpus);
+		dflt_splitq_txq_grps = min_t(int, max_q->max_txq, dflt_qs);
+		dflt_singleq_txqs = min_t(int, max_q->max_txq, dflt_qs);
+		dflt_splitq_rxq_grps = min_t(int, max_q->max_rxq, dflt_qs);
+		dflt_singleq_rxqs = min_t(int, max_q->max_rxq, dflt_qs);
 	}
 
-	if (idpf_is_queue_model_split(le16_to_cpu(vport_msg->txq_model)))
-		num_complq = num_txq * IDPF_COMPLQ_PER_GROUP;
-
+	if (idpf_is_queue_model_split(le16_to_cpu(vport_msg->txq_model))) {
+		num_txq_grps = num_req_tx_qs ? num_req_tx_qs : dflt_splitq_txq_grps;
+		vport_msg->num_tx_complq = cpu_to_le16(num_txq_grps *
+						       IDPF_COMPLQ_PER_GROUP);
+		vport_msg->num_tx_q = cpu_to_le16(num_txq_grps *
+						  IDPF_DFLT_SPLITQ_TXQ_PER_GROUP);
+	} else {
+		num_txq_grps = IDPF_DFLT_SINGLEQ_TX_Q_GROUPS;
+		num_qs = num_txq_grps * (num_req_tx_qs ? num_req_tx_qs :
+					 dflt_singleq_txqs);
+		vport_msg->num_tx_q = cpu_to_le16(num_qs);
+		vport_msg->num_tx_complq = 0;
+	}
 	if (idpf_is_queue_model_split(le16_to_cpu(vport_msg->rxq_model))) {
-		num_bufq = num_rxq * num_bufq_per_rxq_grp;
+		num_rxq_grps = num_req_rx_qs ? num_req_rx_qs : dflt_splitq_rxq_grps;
+		vport_msg->num_rx_bufq = cpu_to_le16(num_rxq_grps *
+						     num_bufq_per_rxq_grp);
+		vport_msg->num_rx_q = cpu_to_le16(num_rxq_grps *
+						  IDPF_DFLT_SPLITQ_RXQ_PER_GROUP);
+	} else {
+		num_rxq_grps = IDPF_DFLT_SINGLEQ_RX_Q_GROUPS;
+		num_qs = num_rxq_grps * (num_req_rx_qs ? num_req_rx_qs :
+					 dflt_singleq_rxqs);
+		vport_msg->num_rx_q = cpu_to_le16(num_qs);
+		vport_msg->num_rx_bufq = 0;
 	}
 
-	vport_msg->num_tx_q = cpu_to_le16(num_txq);
-	vport_msg->num_tx_complq = cpu_to_le16(num_complq);
-	vport_msg->num_rx_q = cpu_to_le16(num_rxq);
-	vport_msg->num_rx_bufq = cpu_to_le16(num_bufq);
+	if (!vport_config)
+		return;
+
+	user = &vport_config->user_config;
+	user->num_req_rx_qs = le16_to_cpu(vport_msg->num_rx_q);
+	user->num_req_tx_qs = le16_to_cpu(vport_msg->num_tx_q);
+#ifdef HAVE_XDP_SUPPORT
+
+	/* XDP needs an additional Tx queue for every Rx queue */
+	if (user->xdp_prog)
+		num_xdpsq = user->num_req_rx_qs;
+	else
+		num_xdpsq = 0;
+
+	vport_msg->num_tx_q = cpu_to_le16(user->num_req_tx_qs + num_xdpsq);
+	if (idpf_is_queue_model_split(le16_to_cpu(vport_msg->txq_model)))
+		vport_msg->num_tx_complq = vport_msg->num_tx_q;
+#endif /* HAVE_XDP_SUPPORT */
 }
 
 /**
