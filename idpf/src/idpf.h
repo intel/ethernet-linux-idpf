@@ -7,6 +7,7 @@
 /* Forward declaration */
 struct idpf_adapter;
 struct idpf_vport;
+struct idpf_vport_config;
 struct idpf_vport_max_q;
 struct idpf_q_vec_rsrc;
 struct idpf_rss_data;
