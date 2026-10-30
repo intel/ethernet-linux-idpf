@@ -1448,9 +1448,9 @@ void idpf_vport_calc_total_qs(struct idpf_vport_config *vport_config,
 			      struct virtchnl2_create_vport *vport_msg,
 			      struct idpf_vport_max_q *max_q)
 {
+	int num_bufq_per_rxq_grp = IDPF_MAX_BUFQS_PER_RXQ_GRP;
 	int dflt_splitq_txq_grps = 0, dflt_singleq_txqs = 0;
 	int dflt_splitq_rxq_grps = 0, dflt_singleq_rxqs = 0;
-	int num_bufq_per_rxq_grp = IDPF_MAX_BUFQS_PER_RXQ_GRP;
 	struct idpf_vport_user_config_data *user;
 	u16 num_req_tx_qs = 0, num_req_rx_qs = 0;
 	u16 num_txq_grps, num_rxq_grps;
@@ -1467,7 +1467,7 @@ void idpf_vport_calc_total_qs(struct idpf_vport_config *vport_config,
 			num_bufq_per_rxq_grp = IDPF_SINGLE_BUFQ_PER_RXQ_GRP;
 #endif /* HAVE_XDP_SUPPORT */
 	} else {
-		int num_cpus = num_online_cpus();
+		u32 num_cpus = netif_get_num_default_rss_queues();
 		int dflt_qs = min_t(int, num_cpus, IDPF_DFLT_NUM_Q);
 
 		dflt_splitq_txq_grps = min_t(int, max_q->max_txq, dflt_qs);
