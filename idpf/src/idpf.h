@@ -665,12 +665,12 @@ struct idpf_vport_user_config_data {
 	/* Duplicated in queue structure for performance reasons */
 	struct bpf_prog *xdp_prog;
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
-	DECLARE_BITMAP(af_xdp_zc_qps, IDPF_LARGE_MAX_Q);
+	unsigned long *af_xdp_zc_qps;
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
 #endif /* HAVE_XDP_SUPPORT */
 	DECLARE_BITMAP(user_flags, __IDPF_USER_FLAGS_NBITS);
 #ifdef HAVE_ETF_SUPPORT
-	DECLARE_BITMAP(etf_qenable, IDPF_LARGE_MAX_Q);
+	unsigned long *etf_qenable;
 #endif /* HAVE_ETF_SUPPORT */
 	struct list_head mac_filter_list;
 	u32 num_fsteer_fltrs;
@@ -1439,6 +1439,25 @@ static inline bool idpf_is_feature_ena(struct idpf_vport *vport,
 				       netdev_features_t feature)
 {
 	return vport->netdev->features & feature;
+}
+
+/**
+ * idpf_vport_user_config_qbitmaps_free - Free per-queue user config bitmaps
+ * @config_data: vport user config data
+ */
+static inline void
+idpf_vport_user_config_qbitmaps_free(struct idpf_vport_user_config_data *config_data)
+{
+#ifdef HAVE_XDP_SUPPORT
+#ifdef HAVE_NETDEV_BPF_XSK_POOL
+	bitmap_free(config_data->af_xdp_zc_qps);
+	config_data->af_xdp_zc_qps = NULL;
+#endif /* HAVE_NETDEV_BPF_XSK_POOL */
+#endif /* HAVE_XDP_SUPPORT */
+#ifdef HAVE_ETF_SUPPORT
+	bitmap_free(config_data->etf_qenable);
+	config_data->etf_qenable = NULL;
+#endif /* HAVE_ETF_SUPPORT */
 }
 
 #define IS_SILICON_DEVICE(subdev)      (!IS_SIMICS_DEVICE(subdev) && !IS_EMR_DEVICE(subdev))

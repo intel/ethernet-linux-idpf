@@ -91,6 +91,7 @@ destroy_wqs:
 		if (!adapter->vport_config[i])
 			continue;
 		kfree(adapter->vport_config[i]->user_config.q_coalesce);
+		idpf_vport_user_config_qbitmaps_free(&adapter->vport_config[i]->user_config);
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 		kfree(adapter->vport_config[i]->affinity_config);
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */
