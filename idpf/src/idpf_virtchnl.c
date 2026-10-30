@@ -1187,37 +1187,40 @@ int idpf_vport_alloc_max_qs(struct idpf_adapter *adapter,
 	struct idpf_avail_queue_info *avail_queues = &adapter->avail_queues;
 	struct virtchnl2_get_capabilities *caps = &adapter->caps;
 	u16 default_vports = idpf_get_default_vports(adapter);
-	u16 max_rx_q, max_tx_q, max_bufq, max_complq;
+	u16 max_rx_q, max_tx_q, max_buf_q, max_compl_q;
 
 	mutex_lock(&adapter->queue_lock);
 
 	max_rx_q = le16_to_cpu(caps->max_rx_q) / default_vports;
 	max_tx_q = le16_to_cpu(caps->max_tx_q) / default_vports;
-	max_bufq = le16_to_cpu(caps->max_rx_bufq) / default_vports;
-	max_complq = le16_to_cpu(caps->max_tx_complq) / default_vports;
+	max_buf_q = le16_to_cpu(caps->max_rx_bufq) / default_vports;
+	max_compl_q = le16_to_cpu(caps->max_tx_complq) / default_vports;
 
-	if (adapter->num_alloc_vports < default_vports) {
-		max_q->max_rxq = min_t(u16, max_rx_q, IDPF_MAX_RXQ);
-		max_q->max_txq = min_t(u16, max_tx_q, IDPF_MAX_TXQ);
-	} else {
-		max_q->max_rxq = IDPF_MIN_Q;
-		max_q->max_txq = IDPF_MIN_Q;
+	if (adapter->num_alloc_vports >= default_vports) {
+		max_rx_q = IDPF_MIN_Q;
+		max_tx_q = IDPF_MIN_Q;
 	}
 
-	/* In splitq model, recalculate RX and TX queues based on the
-	 * availability of buffer and completion queues. Skip this for
-	 * singleq model as buffer and completion queues will be zero.
+	/*
+	 * Harmonize the numbers. The current implementation always creates
+	 * `IDPF_MAX_BUFQS_PER_RXQ_GRP` buffer queues for each Rx queue and
+	 * one completion queue for each Tx queue for best performance.
+	 * If less buffer or completion queues is available, cap the number
+	 * of the corresponding Rx/Tx queues.
 	 */
-	if (max_bufq) {
-		max_q->max_rxq = min_t(u16, max_q->max_rxq,
-				       max_bufq / IDPF_MAX_BUFQS_PER_RXQ_GRP);
-		max_q->max_bufq = max_q->max_rxq * IDPF_MAX_BUFQS_PER_RXQ_GRP;
+	if (max_buf_q) {
+		max_rx_q = min_t(u16, max_rx_q,
+				 max_buf_q / IDPF_MAX_BUFQS_PER_RXQ_GRP);
+		max_q->max_bufq = max_rx_q * IDPF_MAX_BUFQS_PER_RXQ_GRP;
 	}
 
-	if (max_complq) {
-		max_q->max_txq = min_t(u16, max_q->max_txq, max_complq);
-		max_q->max_complq = max_q->max_txq;
+	if (max_compl_q) {
+		max_tx_q = min_t(u16, max_tx_q, max_compl_q);
+		max_q->max_complq = max_tx_q;
 	}
+
+	max_q->max_rxq = max_rx_q;
+	max_q->max_txq = max_tx_q;
 
 	if (avail_queues->avail_rxq < max_q->max_rxq ||
 	    avail_queues->avail_txq < max_q->max_txq ||
@@ -1747,7 +1750,7 @@ int idpf_send_disable_vport_msg(struct idpf_adapter *adapter, u32 vport_id)
 	xn_params.vc_op = VIRTCHNL2_OP_DISABLE_VPORT;
 	xn_params.send_buf.iov_base = &v_id;
 	xn_params.send_buf.iov_len = sizeof(v_id);
-	xn_params.timeout_ms = idpf_get_vc_xn_min_timeout(adapter);
+	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
 
 	return reply_sz < 0 ? reply_sz : 0;
@@ -2116,18 +2119,17 @@ static int idpf_send_ena_dis_queues_msg(struct idpf_adapter *adapter,
 					struct idpf_queue_id_reg_info *chunks,
 					u32 vport_id, bool ena)
 {
-	struct idpf_vc_xn_params xn_params = { };
+	struct idpf_vc_xn_params xn_params = {
+		.timeout_ms = idpf_get_vc_xn_default_timeout(adapter),
+	};
 	struct virtchnl2_del_ena_dis_queues *eq;
 	u32 num_chunks, buf_sz;
 	ssize_t reply_sz;
 
-	if (ena) {
+	if (ena)
 		xn_params.vc_op = VIRTCHNL2_OP_ENABLE_QUEUES;
-		xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
-	} else {
+	else
 		xn_params.vc_op = VIRTCHNL2_OP_DISABLE_QUEUES;
-	xn_params.timeout_ms = idpf_get_vc_xn_min_timeout(adapter);
-	}
 
 	num_chunks = chunks->num_chunks;
 	buf_sz = struct_size(eq, chunks.chunks, num_chunks);
@@ -2166,7 +2168,9 @@ int idpf_send_map_unmap_queue_vector_msg(struct idpf_adapter *adapter,
 {
 	struct virtchnl2_queue_vector *vqv, *vqv_start;
 	struct virtchnl2_queue_vector_maps *vqvm;
-	struct idpf_vc_xn_params xn_params = { };
+	struct idpf_vc_xn_params xn_params = {
+		.timeout_ms = idpf_get_vc_xn_default_timeout(adapter),
+	};
 	u32 config_sz, chunk_sz, buf_sz;
 	u32 num_msgs, num_chunks, num_q;
 	int i, j, err = 0;
@@ -2236,13 +2240,10 @@ int idpf_send_map_unmap_queue_vector_msg(struct idpf_adapter *adapter,
 		goto error;
 	}
 
-	if (map) {
+	if (map)
 		xn_params.vc_op = VIRTCHNL2_OP_MAP_QUEUE_VECTOR;
-		xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
-	} else {
+	else
 		xn_params.vc_op = VIRTCHNL2_OP_UNMAP_QUEUE_VECTOR;
-		xn_params.timeout_ms = idpf_get_vc_xn_min_timeout(adapter);
-	}
 
 	for (i = 0; i < num_msgs; i++) {
 		memset(vqvm, 0, buf_sz);
@@ -2357,7 +2358,7 @@ int idpf_send_delete_queues_msg(struct idpf_adapter *adapter,
 					 num_chunks);
 
 	xn_params.vc_op = VIRTCHNL2_OP_DEL_QUEUES;
-	xn_params.timeout_ms = idpf_get_vc_xn_min_timeout(adapter);
+	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	xn_params.send_buf.iov_base = eq;
 	xn_params.send_buf.iov_len = buf_size;
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
@@ -2541,7 +2542,7 @@ int idpf_send_dealloc_vectors_msg(struct idpf_adapter *adapter)
 	xn_params.vc_op = VIRTCHNL2_OP_DEALLOC_VECTORS;
 	xn_params.send_buf.iov_base = vcs;
 	xn_params.send_buf.iov_len = buf_size;
-	xn_params.timeout_ms = idpf_get_vc_xn_min_timeout(adapter);
+	xn_params.timeout_ms = idpf_get_vc_xn_default_timeout(adapter);
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
 	if (reply_sz < 0)
 		return reply_sz;
