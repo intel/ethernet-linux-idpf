@@ -253,6 +253,38 @@ static void idpf_vector_stash(struct idpf_adapter *adapter, u16 *q_vector_idxs,
 }
 
 /**
+ * idpf_vport_free_pool_quota - Get a default vport's share of the free pool
+ * @adapter: private data struct
+ * @index: relative index of the default vport
+ *
+ * The free pool holds every vector left over once IDPF_MIN_Q_VEC has been set
+ * aside for each default vport. Split that remainder evenly so that a vport
+ * created early cannot drain the pool before its peers are brought up. The
+ * first 'free pool % default vports' indexes get one extra vector each so no
+ * vector is left stranded.
+ *
+ * Return: maximum number of free pool vectors @index is allowed to claim
+ */
+static u16 idpf_vport_free_pool_quota(struct idpf_adapter *adapter, u16 index)
+{
+	struct idpf_vector_lifo *stack = &adapter->vector_stack;
+	u16 default_vports = idpf_get_default_vports(adapter);
+	u16 free_pool, quota;
+
+	lockdep_assert_held(&adapter->vector_lock);
+
+	free_pool = stack->size - stack->base;
+	if (!default_vports)
+		return free_pool;
+
+	quota = free_pool / default_vports;
+	if (index < free_pool % default_vports)
+		quota++;
+
+	return quota;
+}
+
+/**
  * idpf_req_rel_vector_indexes - Request or release MSIX vector indexes
  * @adapter: driver specific private structure
  * @q_vector_idxs: vector index array
@@ -265,6 +297,11 @@ static void idpf_vector_stash(struct idpf_adapter *adapter, u16 *q_vector_idxs,
  * vectors. It can wait on acquiring the mutex lock. If the caller passes 0 as
  * requested vectors, then this function just stashes the already allocated
  * vectors and returns 0.
+ *
+ * Default vports are additionally capped at an even share of the free pool so
+ * that the distribution does not depend on the order the vports are created
+ * in. Non-default vports keep consuming whatever the default vports leave
+ * behind on a purely on-demand basis.
  *
  * Returns actual number of vectors allocated on success, error value on failure
  * If 0 is returned, implies the stack has no vectors to allocate which is also
@@ -296,6 +333,13 @@ int idpf_req_rel_vector_indexes(struct idpf_adapter *adapter, u16 *q_vector_idxs
 			q_vector_idxs[num_alloc_vecs++] = stack->vec_idx[j++];
 			num_req_vecs--;
 		}
+
+		/* Never take more than an even share of the free pool, the
+		 * rest belongs to the other default vports
+		 */
+		num_req_vecs = min(num_req_vecs,
+				   idpf_vport_free_pool_quota(adapter,
+							      vec_info->index));
 	}
 
 	/* Find if stack has enough vector to allocate */
