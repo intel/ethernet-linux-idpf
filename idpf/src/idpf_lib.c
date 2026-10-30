@@ -1405,6 +1405,7 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 					   struct idpf_vport_max_q *max_q)
 {
 	struct idpf_rss_data *rss_data;
+	struct idpf_vport_config *vport_config;
 	struct idpf_q_vec_rsrc *rsrc;
 	u16 idx = adapter->next_vport;
 	struct idpf_vport *vport;
@@ -1423,7 +1424,6 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 
 	num_max_q = max(max_q->max_txq, max_q->max_rxq);
 	if (!adapter->vport_config[idx]) {
-		struct idpf_vport_config *vport_config;
 		struct idpf_q_coalesce *q_coal;
 
 		vport_config = kzalloc(sizeof(*vport_config), GFP_KERNEL);
@@ -1434,12 +1434,9 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 		}
 
 		q_coal = kcalloc(num_max_q, sizeof(*q_coal), GFP_KERNEL);
-		if (!q_coal) {
-			kfree(vport_config);
-			kfree(vport);
+		if (!q_coal)
+			goto free_vport_config;
 
-			return NULL;
-		}
 		for (i = 0; i < num_max_q; i++) {
 			q_coal[i].tx_intr_mode = IDPF_ITR_DYNAMIC;
 			q_coal[i].tx_coalesce_usecs = IDPF_ITR_TX_DEF;
@@ -1448,14 +1445,29 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 		}
 		vport_config->user_config.q_coalesce = q_coal;
 
+#ifdef HAVE_XDP_SUPPORT
+#ifdef HAVE_NETDEV_BPF_XSK_POOL
+		vport_config->user_config.af_xdp_zc_qps =
+			bitmap_zalloc(max_q->max_txq, GFP_KERNEL);
+		if (!vport_config->user_config.af_xdp_zc_qps)
+			goto free_vport_config;
+#endif /* HAVE_NETDEV_BPF_XSK_POOL */
+#endif /* HAVE_XDP_SUPPORT */
+#ifdef HAVE_ETF_SUPPORT
+		vport_config->user_config.etf_qenable =
+			bitmap_zalloc(max_q->max_txq, GFP_KERNEL);
+		if (!vport_config->user_config.etf_qenable)
+			goto free_vport_config;
+#endif /* HAVE_ETF_SUPPORT */
+
 		adapter->vport_config[idx] = vport_config;
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 
 		vport_config->affinity_config = kzalloc(MAX_NUM_VEC_AFFINTY * sizeof(*vport_config->affinity_config),
 							GFP_KERNEL);
 		if (!vport_config->affinity_config) {
-			kfree(vport_config);
-			goto free_vport;
+			adapter->vport_config[idx] = NULL;
+			goto free_vport_config;
 		}
 
 		numa = dev_to_node(&adapter->pdev->dev);
@@ -1510,6 +1522,14 @@ free_vector_idxs:
 	kfree(rsrc->q_vector_idxs);
 	rsrc->q_vector_idxs = NULL;
 free_vport:
+	kfree(vport);
+
+	return NULL;
+
+free_vport_config:
+	idpf_vport_user_config_qbitmaps_free(&vport_config->user_config);
+	kfree(vport_config->user_config.q_coalesce);
+	kfree(vport_config);
 	kfree(vport);
 
 	return NULL;

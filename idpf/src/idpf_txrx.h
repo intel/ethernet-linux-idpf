@@ -26,9 +26,6 @@
 #define idpf_tx_buf_next(buf)      (*(u32 *)&(buf)->priv)
 LIBETH_SQE_CHECK_PRIV(u32);
 
-#define IDPF_LARGE_MAX_Q			256
-#define IDPF_MAX_TXQ				IDPF_LARGE_MAX_Q
-#define IDPF_MAX_RXQ				64
 #define IDPF_MIN_Q				2
 /* Mailbox Queue */
 #define IDPF_MAX_MBXQ				1
@@ -952,12 +949,12 @@ struct idpf_rxq_group {
 	union {
 		struct {
 			u16 num_rxq;
-			struct idpf_queue *rxqs[IDPF_LARGE_MAX_Q];
+			struct idpf_queue **rxqs;
 		} singleq;
 		struct {
 			u16 num_rxq_sets;
 			u16 num_bufq_sets;
-			struct idpf_rxq_set *rxq_sets[IDPF_LARGE_MAX_Q];
+			struct idpf_rxq_set **rxq_sets;
 			struct idpf_bufq_set *bufq_sets;
 		} splitq;
 	};

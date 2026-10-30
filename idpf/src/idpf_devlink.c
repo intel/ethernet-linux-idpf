@@ -191,6 +191,7 @@ static void idpf_destroy_sf(struct idpf_sf *sf)
 		 */
 		idpf_vport_dealloc(sf->vport);
 		kfree(adapter->vport_config[idx]->user_config.q_coalesce);
+		idpf_vport_user_config_qbitmaps_free(&adapter->vport_config[idx]->user_config);
 #ifndef HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS
 		kfree(adapter->vport_config[idx]->affinity_config);
 #endif /* !HAVE_NETDEV_IRQ_AFFINITY_AND_ARFS */

@@ -1274,6 +1274,8 @@ static void idpf_rxq_group_rel(struct idpf_q_vec_rsrc *rsrc)
 				kfree(rx_qgrp->splitq.rxq_sets[j]);
 				rx_qgrp->splitq.rxq_sets[j] = NULL;
 			}
+			kfree(rx_qgrp->splitq.rxq_sets);
+			rx_qgrp->splitq.rxq_sets = NULL;
 
 			idpf_rxq_sw_queue_rel(rsrc, rx_qgrp);
 			kfree(rx_qgrp->splitq.bufq_sets);
@@ -1284,6 +1286,8 @@ static void idpf_rxq_group_rel(struct idpf_q_vec_rsrc *rsrc)
 				kfree(rx_qgrp->singleq.rxqs[j]);
 				rx_qgrp->singleq.rxqs[j] = NULL;
 			}
+			kfree(rx_qgrp->singleq.rxqs);
+			rx_qgrp->singleq.rxqs = NULL;
 		}
 	}
 	kfree(rsrc->rxq_grps);
@@ -1813,6 +1817,14 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 
 		rx_qgrp->vport = vport;
 		if (!idpf_is_queue_model_split(rsrc->rxq_model)) {
+			rx_qgrp->singleq.rxqs = kcalloc(num_rxq,
+							sizeof(*rx_qgrp->singleq.rxqs),
+							GFP_KERNEL);
+			if (!rx_qgrp->singleq.rxqs) {
+				err = -ENOMEM;
+				goto err_alloc;
+			}
+
 			rx_qgrp->singleq.num_rxq = num_rxq;
 			for (unsigned int j = 0; j < num_rxq; j++) {
 				rx_qgrp->singleq.rxqs[j] = kzalloc(sizeof(*rx_qgrp->singleq.rxqs[j]),
@@ -1824,6 +1836,15 @@ static int idpf_rxq_group_alloc(struct idpf_vport *vport, struct idpf_q_vec_rsrc
 			}
 			goto skip_splitq_rx_init;
 		}
+
+		rx_qgrp->splitq.rxq_sets = kcalloc(num_rxq,
+						   sizeof(*rx_qgrp->splitq.rxq_sets),
+						   GFP_KERNEL);
+		if (!rx_qgrp->splitq.rxq_sets) {
+			err = -ENOMEM;
+			goto err_alloc;
+		}
+
 		rx_qgrp->splitq.num_rxq_sets = num_rxq;
 
 		for (unsigned int j = 0; j < num_rxq; j++) {
