@@ -737,7 +737,10 @@ struct idpf_vector_info {
  * gives priority to default vports in a way that at least IDPF_MIN_Q_VEC
  * vectors are allocated per default vport and the relative vector indexes for
  * those are maintained in default pool. Free pool contains all the unallocated
- * vector indexes which can be allocated on-demand basis.
+ * vector indexes, split evenly across the default vports so that each one is
+ * guaranteed its share no matter the order they are created in. Whatever the
+ * default vports do not claim stays available to non-default vports on an
+ * on-demand basis.
  * Mailbox vector index is maintained in the default pool of the stack
  * and also the RDMA vectors.
  */
