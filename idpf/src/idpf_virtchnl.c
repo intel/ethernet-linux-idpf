@@ -1463,6 +1463,20 @@ static void __idpf_queue_reg_init(struct idpf_vport *vport,
 
 
 /**
+ * idpf_get_max_qset - max(txq, complq, rxq, bufq)
+ * @rsrc: pointer to queue and vector resources
+ *
+ * Return: the largest number of QIDs of any single queue type.
+ */
+static u16 idpf_get_max_qset(const struct idpf_q_vec_rsrc *rsrc)
+{
+	u16 max_tx_qtypes = max(rsrc->num_txq, rsrc->num_complq);
+	u16 max_rx_qtypes = max(rsrc->num_rxq, rsrc->num_bufq);
+
+	return max(max_tx_qtypes, max_rx_qtypes);
+}
+
+/**
  * idpf_queue_reg_init - initialize queue registers
  * @vport: virtual port structure
  * @rsrc: pointer to queue and vector resources
@@ -1476,13 +1490,13 @@ int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 	int num_regs, err = 0;
 	u32 *reg_vals;
 
-	/* We may never deal with more than 256 same type of queues */
-	reg_vals = kzalloc(sizeof(*reg_vals) * IDPF_LARGE_MAX_Q, GFP_KERNEL);
+	reg_vals = kcalloc(idpf_get_max_qset(rsrc), sizeof(*reg_vals),
+			   GFP_KERNEL);
 	if (!reg_vals)
 		return -ENOMEM;
 
 	/* Initialize Tx queue tail register address */
-	num_regs = idpf_vport_get_q_reg(reg_vals, IDPF_LARGE_MAX_Q,
+	num_regs = idpf_vport_get_q_reg(reg_vals, rsrc->num_txq,
 					VIRTCHNL2_QUEUE_TYPE_TX, chunks);
 	if (num_regs < rsrc->num_txq) {
 		err = -EINVAL;
@@ -1495,7 +1509,7 @@ int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 	 * model
 	 */
 	if (idpf_is_queue_model_split(rsrc->rxq_model)) {
-		num_regs = idpf_vport_get_q_reg(reg_vals, IDPF_LARGE_MAX_Q,
+		num_regs = idpf_vport_get_q_reg(reg_vals, rsrc->num_bufq,
 						VIRTCHNL2_QUEUE_TYPE_RX_BUFFER,
 						chunks);
 		if (num_regs < rsrc->num_bufq) {
@@ -1506,7 +1520,7 @@ int idpf_queue_reg_init(struct idpf_vport *vport, struct idpf_q_vec_rsrc *rsrc,
 		__idpf_queue_reg_init(vport, rsrc, reg_vals, num_regs,
 				      VIRTCHNL2_QUEUE_TYPE_RX_BUFFER);
 	} else {
-		num_regs = idpf_vport_get_q_reg(reg_vals, IDPF_LARGE_MAX_Q,
+		num_regs = idpf_vport_get_q_reg(reg_vals, rsrc->num_rxq,
 						VIRTCHNL2_QUEUE_TYPE_RX,
 						chunks);
 		if (num_regs < rsrc->num_rxq) {
@@ -4236,18 +4250,16 @@ static void __idpf_vport_queue_ids_init(struct idpf_q_vec_rsrc *rsrc,
 int idpf_vport_queue_ids_init(struct idpf_q_vec_rsrc *rsrc,
 			      struct idpf_queue_id_reg_info *chunks)
 {
-	/* We may never deal with more than 256 same type of queues */
-#define IDPF_MAX_QIDS	256
 	int num_ids, ret = 0;
 	u16 q_type;
 	u32 *qids;
 
-	qids = kcalloc(IDPF_MAX_QIDS, sizeof(u32), GFP_KERNEL);
+	qids = kcalloc(idpf_get_max_qset(rsrc), sizeof(u32), GFP_KERNEL);
 	if (!qids)
 		return -ENOMEM;
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_TX;
-	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
+	num_ids = idpf_vport_get_queue_ids(qids, rsrc->num_txq, q_type, chunks);
 	if (num_ids < rsrc->num_txq) {
 		ret = -EINVAL;
 		goto out;
@@ -4256,7 +4268,7 @@ int idpf_vport_queue_ids_init(struct idpf_q_vec_rsrc *rsrc,
 	__idpf_vport_queue_ids_init(rsrc, qids, num_ids, q_type);
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_RX;
-	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
+	num_ids = idpf_vport_get_queue_ids(qids, rsrc->num_rxq, q_type, chunks);
 	if (num_ids < rsrc->num_rxq) {
 		ret = -EINVAL;
 		goto out;
@@ -4268,7 +4280,8 @@ int idpf_vport_queue_ids_init(struct idpf_q_vec_rsrc *rsrc,
 		goto check_rx;
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_TX_COMPLETION;
-	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
+	num_ids = idpf_vport_get_queue_ids(qids, rsrc->num_complq, q_type,
+					   chunks);
 	if (num_ids < rsrc->num_complq) {
 		ret = -EINVAL;
 		goto out;
@@ -4281,7 +4294,7 @@ check_rx:
 		goto out;
 
 	q_type = VIRTCHNL2_QUEUE_TYPE_RX_BUFFER;
-	num_ids = idpf_vport_get_queue_ids(qids, IDPF_MAX_QIDS, q_type, chunks);
+	num_ids = idpf_vport_get_queue_ids(qids, rsrc->num_bufq, q_type, chunks);
 	if (num_ids < rsrc->num_bufq) {
 		ret = -EINVAL;
 		goto out;

@@ -603,12 +603,13 @@ idpf_xsk_check_xmit_params(struct idpf_vport *vport, u32 xdpq_idx)
 	if (unlikely(!idpf_xdp_is_prog_ena(vport)))
 		return -ENXIO;
 
+	if (unlikely(xdpq_idx < vport->xdp_txq_offset ||
+		     xdpq_idx >= vport->num_txq))
+		return -ENXIO;
+
 	cfg_data = &vport->adapter->vport_config[vport->idx]->user_config;
 	if (unlikely(!test_bit(xdpq_idx - vport->xdp_txq_offset,
 			       cfg_data->af_xdp_zc_qps)))
-		return -ENXIO;
-
-	if (unlikely(xdpq_idx >= vport->num_txq))
 		return -ENXIO;
 
 	if (unlikely(!vport->txqs[xdpq_idx]->xsk_pool))
