@@ -295,10 +295,12 @@ int idpf_ctlq_send(struct idpf_hw *hw, struct idpf_ctlq_info *cq,
 		desc->opcode = cpu_to_le16(msg->opcode);
 		desc->pfid_vfid = cpu_to_le16(msg->func_id);
 
+		{
 			desc->cookie_high =
 				cpu_to_le32(msg->cookie.mbx.chnl_opcode);
 			desc->cookie_low =
 				cpu_to_le32(msg->cookie.mbx.chnl_retval);
+		}
 
 		desc->flags = cpu_to_le16((msg->host_id & IDPF_HOST_ID_MASK) <<
 					  IDPF_CTLQ_FLAG_HOST_ID_S);
