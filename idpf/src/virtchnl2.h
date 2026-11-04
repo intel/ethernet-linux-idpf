@@ -134,6 +134,15 @@ enum virtchnl2_op {
 	VIRTCHNL2_OP_DISABLE_VLAN_STRIPPING		= 556,
 	VIRTCHNL2_OP_ENABLE_VLAN_INSERTION		= 557,
 	VIRTCHNL2_OP_DISABLE_VLAN_INSERTION		= 558,
+	/* Crypto/PSP opcodes */
+	VIRTCHNL2_OP_PSP_ALLOCATE_KEYS			= 560,
+	VIRTCHNL2_OP_PSP_INSERT_KEYS			= 561,
+	VIRTCHNL2_OP_PSP_DELETE_KEYS			= 562,
+	VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST		= 563,
+	VIRTCHNL2_OP_CRYPTO_GET_CAPS			= 564,
+	VIRTCHNL2_OP_PSP_GET_CAPS			= 565,
+	VIRTCHNL2_OP_GET_PSP_STATS			= 566,
+	VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS		= 567,
 	VIRTCHNL2_OP_GET_OEM_CAPS			= 4999,
 	VIRTCHNL2_OP_OEM_RCA                            = 5000,
 	VIRTCHNL2_OP_OEM_CONFIG_RX_QUEUES_EXT		= 5001,
@@ -293,6 +302,7 @@ enum virtchnl2_cap_other {
 	VIRTCHNL2_CAP_TX_LARGE_COMPLQ		= BIT_ULL(24),
 	/* Transmit Queue Traffic Class capability */
 	VIRTCHNL2_CAP_TXQ_TC			= BIT_ULL(25),
+	VIRTCHNL2_CAP_CRYPTO			= BIT_ULL(26),
 	/* This must be the last capability */
 	VIRTCHNL2_CAP_OEM			= BIT_ULL(63),
 };
@@ -419,6 +429,8 @@ enum virtchnl2_rss_alg {
  * @VIRTCHNL2_EVENT_FINISH_RESET_ADI: Finish reset ADI event type
  * @VIRTCHNL2_EVENT_ADI_ACTIVE: Event type to indicate 'function active' state
  *				of ADI.
+ * @VIRTCHNL2_EVENT_PSP_ROTATE_KEY: PSP master key rotation event, see
+ *				    struct virtchnl2_psp_rotation_event
  */
 enum virtchnl2_event_codes {
 	VIRTCHNL2_EVENT_UNKNOWN			= 0,
@@ -426,7 +438,8 @@ enum virtchnl2_event_codes {
 	/* These messages are only sent to PF from CP */
 	VIRTCHNL2_EVENT_START_RESET_ADI		= 2,
 	VIRTCHNL2_EVENT_FINISH_RESET_ADI	= 3,
-	VIRTCHNL2_EVENT_ADI_ACTIVE		= 4,
+	/* PSP master key rotation event */
+	VIRTCHNL2_EVENT_PSP_ROTATE_KEY		= 4,
 };
 
 /**
@@ -625,6 +638,7 @@ enum virtchnl2_proto_hdr_type {
 	VIRTCHNL2_PROTO_HDR_ROCE		= 60,
 	VIRTCHNL2_PROTO_HDR_ROCEV1		= 61,
 	VIRTCHNL2_PROTO_HDR_ROCEV2		= 62,
+	VIRTCHNL2_PROTO_HDR_PSP			= 63,
 	/* Protocol ids up to 32767 are reserved.
 	 * 32768 - 65534 are used for user defined protocol ids.
 	 * VIRTCHNL2_PROTO_HDR_NO_PROTO is a mandatory protocol id.
@@ -2523,6 +2537,424 @@ struct virtchnl2_vlan_setting {
 };
 VIRTCHNL2_CHECK_STRUCT_LEN(32, virtchnl2_vlan_setting);
 
+/* Generic crypto offload types */
+enum virtchnl2_crypto_caps {
+	VIRTCHNL2_CAP_CRYPTO_PSP = BIT(0),
+};
+
+/**
+ * struct virtchnl2_crypto_get_caps - Crypto capabilities
+ * @crypto_caps: See enum virtchnl2_crypto_caps
+ * @num_sadb_entries: Total number of SADB entries
+ * @saidx_width: SA index width in bits
+ * @padding: Padding to 256 bytes
+ *
+ * Request and response of VIRTCHNL2_OP_CRYPTO_GET_CAPS. On input @crypto_caps
+ * holds the requested capabilities, on output the granted ones.
+ */
+struct virtchnl2_crypto_get_caps {
+	__le32 crypto_caps;
+	__le32 num_sadb_entries;
+	u8 saidx_width;
+	u8 padding[247];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(256, virtchnl2_crypto_get_caps);
+
+/* PSP capability flags */
+enum virtchnl2_psp_caps {
+	/* PSP capability 0 is reserved */
+	VIRTCHNL2_CAP_PSP_PROTO_V0			= BIT(1),
+	VIRTCHNL2_CAP_PSP_PROTO_V1			= BIT(2),
+	VIRTCHNL2_CAP_PSP_REQUEST_ROTATION		= BIT(3),
+	/* If not granted, the domain field of PSP requests is ignored */
+	VIRTCHNL2_CAP_PSP_DOMAIN			= BIT(4),
+};
+
+/**
+ * struct virtchnl2_psp_get_caps - PSP capabilities
+ * @psp_caps: See enum virtchnl2_psp_caps
+ * @padding: Padding to 64 bytes
+ *
+ * Request and response of VIRTCHNL2_OP_PSP_GET_CAPS. PSP capabilities are set
+ * per function: a capability that is not requested is not available.
+ */
+struct virtchnl2_psp_get_caps {
+	__le32 psp_caps;
+	u8 padding[60];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(64, virtchnl2_psp_get_caps);
+
+enum virtchnl2_psp_key_type {
+	VIRTCHNL2_PSP_KEY_TYPE_V0			= 1,
+	VIRTCHNL2_PSP_KEY_TYPE_V1			= 2,
+};
+
+#define VIRTCHNL2_PSP_KEY_SIZE_V0			16
+#define VIRTCHNL2_PSP_KEY_SIZE_V1			32
+
+/* PSP key domain types. Types VIRTCHNL2_PSP_DOMAIN_RESERVED_START to
+ * VIRTCHNL2_PSP_DOMAIN_RESERVED_END are reserved for future versions of the
+ * API.
+ */
+enum virtchnl2_psp_domain_type {
+	VIRTCHNL2_PSP_DOMAIN_NONE			= 0,
+	VIRTCHNL2_PSP_DOMAIN_RESERVED_START		= 1,
+	VIRTCHNL2_PSP_DOMAIN_RESERVED_END		= 0x7fff,
+	/* 0x8000 to 0xFFFF are reserved */
+};
+
+/* VIRTCHNL2_PSP_ALLOC_KEY_EXHAUSTED: the keys derived from the current master
+ * key are exhausted and a master key rotation will be performed
+ * automatically. Only set on partial success, i.e. if fewer keys than
+ * requested, but at least one, were allocated.
+ */
+enum virtchnl2_psp_allocate_response_flags {
+	VIRTCHNL2_PSP_ALLOC_KEY_EXHAUSTED		= BIT(0),
+};
+
+/**
+ * struct virtchnl2_psp_key_domain - PSP key domain
+ * @type: See enum virtchnl2_psp_domain_type
+ * @pad: Reserved/padding
+ * @value: Security context used as part of the PSP SPI binding, must be 0
+ *	   if @type is VIRTCHNL2_PSP_DOMAIN_NONE
+ *
+ * Key domains prevent steering attacks: PSP does not authenticate the IP
+ * header, so a compromised VM changing the destination IP address must not
+ * be able to decrypt the packets of another VM on the same host.
+ */
+struct virtchnl2_psp_key_domain {
+	__le16 type;
+	u8 pad[6];
+	__le64 value;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(16, virtchnl2_psp_key_domain);
+
+/**
+ * struct virtchnl2_psp_allocate_keys_request - Allocate PSP RX keys request
+ * @vport_id: Virtual port ID
+ * @num_keys: Number of keys requested, 0 only reads the active master key
+ *	      generation
+ * @key_type: See enum virtchnl2_psp_key_type
+ * @pad: Reserved/padding
+ * @domain: Key domain, must be zero-filled if VIRTCHNL2_CAP_PSP_DOMAIN was
+ *	    not granted
+ *
+ * Associated with VIRTCHNL2_OP_PSP_ALLOCATE_KEYS.
+ */
+struct virtchnl2_psp_allocate_keys_request {
+	__le32 vport_id;
+	__le32 num_keys;
+	u8 key_type;
+	u8 pad[7];
+	struct virtchnl2_psp_key_domain domain;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(32, virtchnl2_psp_allocate_keys_request);
+
+/**
+ * struct virtchnl2_allocate_psp_key_v0 - Allocated PSP V0 key entry
+ * @spi: Security parameter index
+ * @pad: Reserved/padding
+ * @v0_key: 128-bit key
+ */
+struct virtchnl2_allocate_psp_key_v0 {
+	__le32 spi;
+	u8 pad[4];
+	u8 v0_key[VIRTCHNL2_PSP_KEY_SIZE_V0];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(24, virtchnl2_allocate_psp_key_v0);
+
+/**
+ * struct virtchnl2_allocate_psp_key_v1 - Allocated PSP V1 key entry
+ * @spi: Security parameter index
+ * @pad: Reserved/padding
+ * @v1_key: 256-bit key
+ */
+struct virtchnl2_allocate_psp_key_v1 {
+	__le32 spi;
+	u8 pad[4];
+	u8 v1_key[VIRTCHNL2_PSP_KEY_SIZE_V1];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(40, virtchnl2_allocate_psp_key_v1);
+
+/**
+ * struct virtchnl2_psp_allocate_keys_response - Allocate PSP RX keys response
+ * @vport_id: Virtual port ID
+ * @key_type: See enum virtchnl2_psp_key_type
+ * @allocate_response_flags: See enum virtchnl2_psp_allocate_response_flags
+ * @pad1: Reserved/padding
+ * @master_key_generation: Master key generation, increased by 1 every time
+ *			   the set of active master keys changes
+ * @keys_size_bytes: Total size of keys payload in bytes
+ * @keys: Flexible array of struct virtchnl2_allocate_psp_key_v0 or
+ *	  struct virtchnl2_allocate_psp_key_v1 entries
+ *
+ * Associated with VIRTCHNL2_OP_PSP_ALLOCATE_KEYS.
+ */
+struct virtchnl2_psp_allocate_keys_response {
+	__le32 vport_id;
+	u8 key_type;
+	u8 allocate_response_flags;
+	u8 pad1[2];
+	__le32 master_key_generation;
+	__le32 keys_size_bytes;
+	u8 keys[];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(16, virtchnl2_psp_allocate_keys_response);
+
+/**
+ * struct virtchnl2_insert_psp_key - PSP TX key entry to insert into SADB
+ * @spi: Security parameter index
+ * @key_type: See enum virtchnl2_psp_key_type
+ * @pad: Reserved/padding
+ * @v0_key: 128-bit key for V0
+ * @v1_key: 256-bit key for V1
+ */
+struct virtchnl2_insert_psp_key {
+	__le32 spi;
+	u8 key_type;
+	u8 pad[3];
+	union {
+		u8 v0_key[VIRTCHNL2_PSP_KEY_SIZE_V0];
+		u8 v1_key[VIRTCHNL2_PSP_KEY_SIZE_V1];
+	};
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(40, virtchnl2_insert_psp_key);
+
+/**
+ * struct virtchnl2_psp_insert_keys_request - Insert PSP TX keys request
+ * @vport_id: Virtual port ID
+ * @num_keys: Number of keys to insert
+ * @domain: Key domain, must be zero-filled if VIRTCHNL2_CAP_PSP_DOMAIN was
+ *	    not granted
+ * @keys: Flexible array of keys to insert
+ *
+ * Associated with VIRTCHNL2_OP_PSP_INSERT_KEYS.
+ */
+struct virtchnl2_psp_insert_keys_request {
+	__le32 vport_id;
+	__le32 num_keys;
+	struct virtchnl2_psp_key_domain domain;
+	struct virtchnl2_insert_psp_key keys[];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(24, virtchnl2_psp_insert_keys_request);
+
+/**
+ * struct virtchnl2_psp_insert_keys_response - Insert PSP TX keys response
+ * @vport_id: Virtual port ID
+ * @num_sa_indexes: Number of allocated SA indexes, at most the number of keys
+ *		    requested. On partial success the insertion stops at the
+ *		    first failure.
+ * @sa_indexes: Flexible array of allocated SA indexes
+ *
+ * Associated with VIRTCHNL2_OP_PSP_INSERT_KEYS.
+ */
+struct virtchnl2_psp_insert_keys_response {
+	__le32 vport_id;
+	__le32 num_sa_indexes;
+	__le32 sa_indexes[];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_psp_insert_keys_response);
+
+/**
+ * struct virtchnl2_psp_delete_keys_request - Delete PSP TX keys request
+ * @vport_id: Virtual port ID
+ * @num_sa_indexes: Number of SA indexes to delete
+ * @domain: Key domain, must be zero-filled if VIRTCHNL2_CAP_PSP_DOMAIN was
+ *	    not granted
+ * @sa_indexes: Flexible array of SA indexes to delete
+ *
+ * Associated with VIRTCHNL2_OP_PSP_DELETE_KEYS.
+ */
+struct virtchnl2_psp_delete_keys_request {
+	__le32 vport_id;
+	__le32 num_sa_indexes;
+	struct virtchnl2_psp_key_domain domain;
+	__le32 sa_indexes[];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(24, virtchnl2_psp_delete_keys_request);
+
+/**
+ * struct virtchnl2_psp_delete_keys_response - Delete PSP TX keys response
+ * @vport_id: Virtual port ID
+ * @num_sa_indexes_deleted: Number of SA indexes deleted. The request fails if
+ *			    any SA index is invalid, and the deletion stops at
+ *			    the first hardware/config queue error.
+ *
+ * Associated with VIRTCHNL2_OP_PSP_DELETE_KEYS.
+ */
+struct virtchnl2_psp_delete_keys_response {
+	__le32 vport_id;
+	__le32 num_sa_indexes_deleted;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_psp_delete_keys_response);
+
+/**
+ * struct virtchnl2_psp_rotate_keygen_request - Request master key rotation
+ * @vport_id: Virtual port ID
+ * @pad: Reserved/padding
+ * @domain: Key domain, must be zero-filled if VIRTCHNL2_CAP_PSP_DOMAIN was
+ *	    not granted
+ *
+ * Associated with VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST.
+ */
+struct virtchnl2_psp_rotate_keygen_request {
+	__le32 vport_id;
+	u8 pad[4];
+	struct virtchnl2_psp_key_domain domain;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(24, virtchnl2_psp_rotate_keygen_request);
+
+/**
+ * struct virtchnl2_psp_rotate_keygen_response - Master key rotation response
+ * @vport_id: Virtual port ID
+ * @master_key_generation_id: Master key generation id
+ *
+ * Associated with VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST.
+ */
+struct virtchnl2_psp_rotate_keygen_response {
+	__le32 vport_id;
+	__le32 master_key_generation_id;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_psp_rotate_keygen_response);
+
+/**
+ * struct virtchnl2_psp_rotation_data - Master key rotation async event payload
+ * @active_master_key_generation_id: Active master key generation id
+ * @pad: Reserved/padding
+ * @domain: Key domain
+ */
+struct virtchnl2_psp_rotation_data {
+	__le32 active_master_key_generation_id;
+	u8 pad[4];
+	struct virtchnl2_psp_key_domain domain;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(24, virtchnl2_psp_rotation_data);
+
+/**
+ * struct virtchnl2_psp_rotation_event - Master key rotation async event
+ * @event: Event opcode (VIRTCHNL2_EVENT_PSP_ROTATE_KEY = 4)
+ * @pad: Reserved/padding, aligns @psp_rotate_event to 8 bytes
+ * @psp_rotate_event: Rotation event payload
+ *
+ * Associated with VIRTCHNL2_OP_EVENT with VIRTCHNL2_EVENT_PSP_ROTATE_KEY.
+ */
+struct virtchnl2_psp_rotation_event {
+	__le32 event;
+	u8 pad[4];
+	struct virtchnl2_psp_rotation_data psp_rotate_event;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(32, virtchnl2_psp_rotation_event);
+
+enum virtchnl2_psp_stats_type {
+	VIRTCHNL2_PSP_STAT_COMMON	= BIT(0),
+	VIRTCHNL2_PSP_STAT_ADDON	= BIT(1),
+};
+
+/**
+ * struct virtchnl2_psp_stats_request - PSP stats request
+ * @requested_stats: Bitmask of requested stats (enum virtchnl2_psp_stats_type)
+ * @pad: Reserved/padding
+ *
+ * Stat groups that are not requested are not supported in the response.
+ *
+ * Associated with VIRTCHNL2_OP_GET_PSP_STATS.
+ */
+struct virtchnl2_psp_stats_request {
+	__le32 requested_stats;
+	u8 pad[4];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_psp_stats_request);
+
+/**
+ * struct virtchnl2_psp_common_stats - PSP common stats
+ * @rx_decrypted_packets: Number of RX decrypted packets
+ * @rx_decrypted_bytes: Number of RX decrypted bytes
+ * @rx_auth_failures: Number of RX auth failures
+ * @rx_misc_errors: Number of RX misc errors
+ * @rx_bad_packets: Number of RX bad packets
+ * @pad1: Reserved/padding
+ * @tx_encrypted_packets: Number of TX encrypted packets
+ * @tx_encrypted_bytes: Number of TX encrypted bytes
+ * @tx_misc_errors: Number of TX misc errors
+ * @tx_bad_packets: Number of TX bad packets
+ */
+struct virtchnl2_psp_common_stats {
+	__le64 rx_decrypted_packets;
+	__le64 rx_decrypted_bytes;
+	__le32 rx_auth_failures;
+	__le32 rx_misc_errors;
+	__le32 rx_bad_packets;
+	u8 pad1[4];
+	__le64 tx_encrypted_packets;
+	__le64 tx_encrypted_bytes;
+	__le32 tx_misc_errors;
+	__le32 tx_bad_packets;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(56, virtchnl2_psp_common_stats);
+
+/**
+ * struct virtchnl2_psp_addon_stats - PSP addon stats
+ * @tx_inv_sa_packets: Number of TX invalid SA packets
+ * @pad: Reserved/padding
+ */
+struct virtchnl2_psp_addon_stats {
+	__le32 tx_inv_sa_packets;
+	u8 pad[4];
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_psp_addon_stats);
+
+/**
+ * struct virtchnl2_psp_stats_response - PSP stats response
+ * @supported_stats: Bitmask of supported stats returned
+ * @pad1: Reserved/padding
+ * @common_stats: Common stats structure
+ * @addon_stats: Addon stats structure
+ *
+ * An unsupported stat group followed by a supported one is zero-filled,
+ * trailing unsupported stat groups may be left out of the response.
+ *
+ * Associated with VIRTCHNL2_OP_GET_PSP_STATS.
+ */
+struct virtchnl2_psp_stats_response {
+	__le32 supported_stats;
+	u8 pad1[4];
+	struct virtchnl2_psp_common_stats common_stats;
+	struct virtchnl2_psp_addon_stats addon_stats;
+};
+
+VIRTCHNL2_CHECK_STRUCT_LEN(72, virtchnl2_psp_stats_response);
+
+/**
+ * struct virtchnl2_get_fips_compliance_status_resp - FIPS compliance response
+ * @num_certs: Number of certificates, 0 if not FIPS compliant
+ * @pad: Reserved/padding
+ * @certs: Flexible array of certificate IDs
+ *
+ * Associated with VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS.
+ */
+struct virtchnl2_get_fips_compliance_status_resp {
+	__le32 num_certs;
+	u8 pad[4];
+	__le32 certs[];
+};
+VIRTCHNL2_CHECK_STRUCT_LEN(8, virtchnl2_get_fips_compliance_status_resp);
+
 static inline const char *virtchnl2_op_str(__le32 v_opcode)
 {
 	switch (v_opcode) {
@@ -2632,6 +3064,22 @@ static inline const char *virtchnl2_op_str(__le32 v_opcode)
 		return "VIRTCHNL2_OP_ENABLE_VLAN_INSERTION";
 	case VIRTCHNL2_OP_DISABLE_VLAN_INSERTION:
 		return "VIRTCHNL2_OP_DISABLE_VLAN_INSERTION";
+	case VIRTCHNL2_OP_PSP_ALLOCATE_KEYS:
+		return "VIRTCHNL2_OP_PSP_ALLOCATE_KEYS";
+	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
+		return "VIRTCHNL2_OP_PSP_INSERT_KEYS";
+	case VIRTCHNL2_OP_PSP_DELETE_KEYS:
+		return "VIRTCHNL2_OP_PSP_DELETE_KEYS";
+	case VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST:
+		return "VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST";
+	case VIRTCHNL2_OP_CRYPTO_GET_CAPS:
+		return "VIRTCHNL2_OP_CRYPTO_GET_CAPS";
+	case VIRTCHNL2_OP_PSP_GET_CAPS:
+		return "VIRTCHNL2_OP_PSP_GET_CAPS";
+	case VIRTCHNL2_OP_GET_PSP_STATS:
+		return "VIRTCHNL2_OP_GET_PSP_STATS";
+	case VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS:
+		return "VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS";
 	case VIRTCHNL2_OP_GET_OEM_CAPS:
 		return "VIRTCHNL2_OP_GET_OEM_CAPS";
 	default:
@@ -3043,6 +3491,55 @@ virtchnl2_vc_validate_vf_msg(struct virtchnl2_version_info *ver, u32 v_opcode,
 	case VIRTCHNL2_OP_ENABLE_VLAN_INSERTION:
 	case VIRTCHNL2_OP_DISABLE_VLAN_INSERTION:
 		valid_len = sizeof(struct virtchnl2_vlan_setting);
+		break;
+	case VIRTCHNL2_OP_PSP_ALLOCATE_KEYS:
+		valid_len = sizeof(struct virtchnl2_psp_allocate_keys_request);
+		break;
+	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
+		valid_len = offsetof(struct virtchnl2_psp_insert_keys_request, keys);
+		if (!msg || msglen < valid_len) {
+			err_msg_format = true;
+			break;
+		}
+
+		num_chunks = ((struct virtchnl2_psp_insert_keys_request *)msg)->num_keys;
+		if (num_chunks > ((u32)msglen - valid_len) /
+				 sizeof(struct virtchnl2_insert_psp_key)) {
+			err_msg_format = true;
+			break;
+		}
+
+		valid_len += num_chunks * sizeof(struct virtchnl2_insert_psp_key);
+		break;
+	case VIRTCHNL2_OP_PSP_DELETE_KEYS:
+		valid_len = offsetof(struct virtchnl2_psp_delete_keys_request, sa_indexes);
+		if (!msg || msglen < valid_len) {
+			err_msg_format = true;
+			break;
+		}
+
+		num_chunks = ((struct virtchnl2_psp_delete_keys_request *)msg)->num_sa_indexes;
+		if (num_chunks > ((u32)msglen - valid_len) / sizeof(__le32)) {
+			err_msg_format = true;
+			break;
+		}
+
+		valid_len += num_chunks * sizeof(__le32);
+		break;
+	case VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST:
+		valid_len = sizeof(struct virtchnl2_psp_rotate_keygen_request);
+		break;
+	case VIRTCHNL2_OP_CRYPTO_GET_CAPS:
+		valid_len = sizeof(struct virtchnl2_crypto_get_caps);
+		break;
+	case VIRTCHNL2_OP_PSP_GET_CAPS:
+		valid_len = sizeof(struct virtchnl2_psp_get_caps);
+		break;
+	case VIRTCHNL2_OP_GET_PSP_STATS:
+		valid_len = sizeof(struct virtchnl2_psp_stats_request);
+		break;
+	case VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS:
+		/* The request has no payload */
 		break;
 	/* These are always errors coming from the VF. */
 	case VIRTCHNL2_OP_EVENT:
