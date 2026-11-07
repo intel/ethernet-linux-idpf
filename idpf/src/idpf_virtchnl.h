@@ -40,6 +40,18 @@ struct idpf_vc_xn;
 /* Callback for asynchronous messages */
 typedef int (*async_vc_cb) (struct idpf_adapter *, struct idpf_vc_xn *,
 			    const struct idpf_ctlq_msg *);
+/* Response callback for async messages that need a caller context. Mirrors the
+ * libie control queue resp_cb(ctx, mem, status) contract: @mem references the
+ * reply payload (0-length if none), @status is 0 on success or negative if the
+ * control plane failed the request.
+ *
+ * Called from the mailbox receive path with the transaction spinlock held: it
+ * must not sleep, e.g. take a mutex, allocate with GFP_KERNEL or send a
+ * synchronous request, whose reply would never be received. @mem points into
+ * the mailbox receive buffer, which is reposted once it returns: copy what is
+ * needed.
+ */
+typedef void (*vc_xn_resp_cb)(void *ctx, struct kvec *mem, int status);
 
 /**
  * struct idpf_vc_xn - Data structure representing virtchnl transactions
@@ -56,6 +68,9 @@ typedef int (*async_vc_cb) (struct idpf_adapter *, struct idpf_vc_xn *,
  *	   should be ignored.
  * @async_handler: if sent asynchronously, a callback can be provided to handle
  *		   the reply when it's received
+ * @resp_cb: if sent asynchronously with a context, this callback delivers the
+ *	     reply and status to @send_ctx
+ * @send_ctx: caller context passed to @resp_cb
  * @vc_op: corresponding opcode sent with this transaction
  * @idx: index used as retrieval on reply receive, used for cookie
  * @salt: changed every message to make unique, used for cookie
@@ -67,6 +82,8 @@ struct idpf_vc_xn {
 	size_t reply_sz;
 	struct kvec reply;
 	async_vc_cb async_handler;
+	vc_xn_resp_cb resp_cb;
+	void *send_ctx;
 	u32 vc_op;
 	u8 idx;
 	u8 salt;
@@ -98,6 +115,10 @@ struct idpf_vc_xn_manager {
  * @async_handler: If sent asynchronously, optional callback handler. The user
  *		   must be careful when using async handlers as the memory for
  *		   the recv_buf _cannot_ be on stack if this is async.
+ * @resp_cb: alternative async callback that receives @send_ctx, the reply and
+ *	     a status, see vc_xn_resp_cb. Takes precedence over @async_handler,
+ *	     @recv_buf is not used.
+ * @send_ctx: caller context passed to @resp_cb
  * @vc_op: virtchnl op to send
  */
 struct idpf_vc_xn_params {
@@ -106,6 +127,8 @@ struct idpf_vc_xn_params {
 	int timeout_ms;
 	bool async;
 	async_vc_cb async_handler;
+	vc_xn_resp_cb resp_cb;
+	void *send_ctx;
 	u32 vc_op;
 };
 
