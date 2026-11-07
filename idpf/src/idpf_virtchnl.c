@@ -450,8 +450,10 @@ static void idpf_vc_xn_push_free(struct idpf_vc_xn_manager *vcxn_mngr,
  *   -send_buf: kvec iov for send buf and len
  *   -recv_buf: kvec iov for recv buf and len (ignored if NULL)
  *   -timeout_ms: timeout waiting for a reply (milliseconds)
- *   -async: don't wait for message reply, will lose caller context
+ *   -async: don't wait for message reply
  *   -async_handler: callback to handle async replies
+ *   -resp_cb, send_ctx: callback to handle async replies with the caller
+ *    context, see vc_xn_resp_cb
  *
  * @returns >= 0 for success, the size of the initial reply (may or may not be
  * >= @recv_buf.iov_len, but we never overflow @@recv_buf_iov_base). < 0 for
@@ -492,6 +494,8 @@ ssize_t idpf_vc_xn_exec(struct idpf_adapter *adapter,
 	xn->state = params->async ? IDPF_VC_XN_ASYNC : IDPF_VC_XN_WAITING;
 	xn->vc_op = params->vc_op;
 	xn->async_handler = params->async_handler;
+	xn->resp_cb = params->resp_cb;
+	xn->send_ctx = params->send_ctx;
 	idpf_vc_xn_unlock(xn);
 
 	if (!params->async)
@@ -576,6 +580,27 @@ idpf_vc_xn_forward_async(struct idpf_adapter *adapter, struct idpf_vc_xn *xn,
 				    ctlq_msg->cookie.mbx.chnl_opcode, xn->vc_op);
 		xn->reply_sz = 0;
 		err = -EINVAL;
+		/* The callback must run once for every request that was sent */
+		if (xn->resp_cb) {
+			struct kvec mem = {};
+
+			xn->resp_cb(xn->send_ctx, &mem, -EIO);
+		}
+		goto release_bufs;
+	}
+
+	if (xn->resp_cb) {
+		struct kvec mem = {};
+		int status = 0;
+
+		if (ctlq_msg->cookie.mbx.chnl_retval)
+			status = -EIO;
+		/* Without data, the payload pointer holds descriptor bytes */
+		if (ctlq_msg->data_len) {
+			mem.iov_base = ctlq_msg->ctx.indirect.payload->va;
+			mem.iov_len = xn->reply_sz;
+		}
+		xn->resp_cb(xn->send_ctx, &mem, status);
 		goto release_bufs;
 	}
 
