@@ -261,6 +261,7 @@ idpf_xmit_splitq_zc(struct idpf_queue *xdpq, int budget)
 					 desc.len);
 
 		tx_buf = &xdpq->tx.bufs[buf_id];
+		tx_buf->type = LIBETH_SQE_XSK_TX;
 		tx_buf->bytes = desc.len;
 
 		tx_desc = IDPF_FLEX_TX_DESC(xdpq, ntu);
@@ -449,6 +450,7 @@ idpf_tx_clean_zc(struct idpf_queue *xdpq, u16 ntc, u16 clean_count,
 		} else {
 			xsk_frames++;
 		}
+		tx_buf->type = LIBETH_SQE_EMPTY;
 
 		if (fs)
 			idpf_post_buf_refill(xdpq->tx.refillq, buf_id);
@@ -747,10 +749,18 @@ exit:
 void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq)
 {
 	u16 ntc = xdpq->next_to_clean, ntu = xdpq->next_to_use;
-	u32 xsk_frames = 0;
+	bool fs = idpf_queue_has(FLOW_SCH_EN, xdpq);
+	u32 xsk_frames = 0, cnt;
 
-	while (ntc != ntu) {
-		struct idpf_tx_buf *tx_buf = &xdpq->tx.bufs[ntc];
+	/* Flow scheduling indexes bufs by buf_id, not by ring position */
+	if (fs)
+		cnt = xdpq->buf_pool_size;
+	else
+		cnt = ntu >= ntc ? ntu - ntc : ntu + xdpq->desc_count - ntc;
+
+	for (u32 i = 0; i < cnt; i++) {
+		u32 idx = fs ? i : (ntc + i) % xdpq->desc_count;
+		struct idpf_tx_buf *tx_buf = &xdpq->tx.bufs[idx];
 
 #ifdef HAVE_XDP_FRAME_STRUCT
 		if (tx_buf->xdpf)
@@ -758,7 +768,7 @@ void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq)
 		if (tx_buf->raw)
 #endif
 			idpf_clean_xdp_tx_buf(xdpq, tx_buf);
-		else
+		else if (!fs || tx_buf->type == LIBETH_SQE_XSK_TX)
 			xsk_frames++;
 
 #ifdef HAVE_XDP_FRAME_STRUCT
@@ -766,10 +776,7 @@ void idpf_xsk_cleanup_xdpq(struct idpf_queue *xdpq)
 #else
 		tx_buf->raw = NULL;
 #endif
-
-		ntc++;
-		if (ntc >= xdpq->desc_count)
-			ntc = 0;
+		tx_buf->type = LIBETH_SQE_EMPTY;
 	}
 
 	if (xsk_frames)
