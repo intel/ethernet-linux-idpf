@@ -213,18 +213,20 @@ static void idpf_tx_buf_rel_all(struct idpf_queue *txq)
 	};
 	u32 i;
 
+	/* Buffers already cleared, nothing to do */
+	if (!txq->tx.bufs)
+		return;
+
 #ifdef HAVE_XDP_SUPPORT
 #ifdef HAVE_NETDEV_BPF_XSK_POOL
 	if (idpf_queue_has(XDP, txq) && txq->xsk_pool) {
 		idpf_xsk_cleanup_xdpq(txq);
+		kfree(txq->tx.bufs);
+		txq->tx.bufs = NULL;
 		return;
 	}
 #endif /* HAVE_NETDEV_BPF_XSK_POOL */
 #endif /* HAVE_XDP_SUPPORT */
-
-	/* Buffers already cleared, nothing to do */
-	if (!txq->tx.bufs)
-		return;
 
 	/* Free all the Tx buffer sk_buffs */
 	for (i = 0; i < txq->buf_pool_size; i++)
