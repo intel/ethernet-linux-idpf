@@ -103,6 +103,12 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		return;
 	}
 
+	/* The FIPS compliance status is informational only */
+	err = idpf_send_get_fips_compliance_status(adapter);
+	if (err)
+		dev_warn(dev, "Failed to get PSP FIPS compliance status: %d\n",
+			 err);
+
 	WRITE_ONCE(psp->enabled, true);
 }
 

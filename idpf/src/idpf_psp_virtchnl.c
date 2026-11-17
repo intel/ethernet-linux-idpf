@@ -189,3 +189,62 @@ release_rx:
 	idpf_psp_release_rx_buf(&recv_mem);
 	return err;
 }
+
+/**
+ * idpf_send_get_fips_compliance_status - Get the FIPS compliance status
+ * @adapter: Driver specific private structure
+ *
+ * Query the FIPS compliance status of the crypto offload with
+ * VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS and log it in the legacy
+ * "compliant@cmvp_cert_<a>_and_<b>" form, or as "noncompliant".
+ *
+ * Return: 0 on success, negative on failure.
+ */
+int idpf_send_get_fips_compliance_status(struct idpf_adapter *adapter)
+{
+	const struct virtchnl2_get_fips_compliance_status_resp *resp;
+	struct device *dev = &adapter->pdev->dev;
+	struct kvec recv_mem = { };
+	char status[128];
+	size_t reply_sz;
+	u32 num_certs;
+	int len, err;
+	/* The request has no payload, but empty messages can't be sent */
+	u8 dummy = 0;
+	u32 i;
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_GET_FIPS_COMPLIANCE_STATUS,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       &dummy, sizeof(dummy), &recv_mem);
+	if (err)
+		return err;
+
+	reply_sz = recv_mem.iov_len;
+	resp = (const struct virtchnl2_get_fips_compliance_status_resp *)
+	       recv_mem.iov_base;
+	if (reply_sz < sizeof(*resp)) {
+		err = -EIO;
+		goto release_rx;
+	}
+
+	num_certs = le32_to_cpu(resp->num_certs);
+	if (struct_size(resp, certs, num_certs) > reply_sz) {
+		err = -EIO;
+		goto release_rx;
+	}
+
+	if (!num_certs) {
+		dev_info(dev, "PSP FIPS compliance: noncompliant\n");
+		goto release_rx;
+	}
+
+	len = scnprintf(status, sizeof(status), "compliant@cmvp_cert_");
+	for (i = 0; i < num_certs; i++)
+		len += scnprintf(status + len, sizeof(status) - len, "%s%u",
+				 i ? "_and_" : "", le32_to_cpu(resp->certs[i]));
+	dev_info(dev, "PSP FIPS compliance: %s\n", status);
+
+release_rx:
+	idpf_psp_release_rx_buf(&recv_mem);
+	return err;
+}
