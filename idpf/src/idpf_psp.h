@@ -16,6 +16,8 @@ void idpf_psp_register(struct idpf_adapter *adapter);
 void idpf_psp_unregister(struct idpf_adapter *adapter);
 void idpf_psp_recv_reply(struct idpf_adapter *adapter,
 			 const struct idpf_ctlq_msg *ctlq_msg);
+void idpf_psp_rotation_event(struct idpf_adapter *adapter,
+			     const struct idpf_ctlq_msg *ctlq_msg);
 
 #else /* !CONFIG_INET_PSP */
 
@@ -27,6 +29,10 @@ static inline void idpf_psp_unregister(struct idpf_adapter *adapter) { }
 static inline void
 idpf_psp_recv_reply(struct idpf_adapter *adapter,
 		    const struct idpf_ctlq_msg *ctlq_msg) { }
+
+static inline void
+idpf_psp_rotation_event(struct idpf_adapter *adapter,
+			const struct idpf_ctlq_msg *ctlq_msg) { }
 
 #endif /* CONFIG_INET_PSP */
 

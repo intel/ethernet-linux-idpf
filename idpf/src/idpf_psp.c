@@ -109,6 +109,11 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		dev_warn(dev, "Failed to get PSP FIPS compliance status: %d\n",
 			 err);
 
+	/* The master keys are tracked again for the new PSP device */
+	psp->generation = 0;
+	psp->rx_gen[0].gen = IDPF_PSP_GEN_UNKNOWN;
+	psp->rx_gen[1].gen = IDPF_PSP_GEN_UNKNOWN;
+
 	/* The counters cover the time since the core init */
 	atomic_set(&psp->keys_allocated, 0);
 
@@ -143,6 +148,36 @@ static int idpf_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
 }
 
 /**
+ * idpf_psp_rx_gen_update - Track the master key of an allocated SPI
+ * @adapter: private data struct
+ * @psd: PSP device, locked
+ * @spi: SPI allocated by the CP
+ * @cp_gen: CP master key generation of @spi
+ *
+ * Bit 31 of an SPI selects one of the two master keys of the CP, a rotation
+ * replaces the older one. The HW doesn't tell which master key decrypted a
+ * packet: report the PSP device generation that was current when the first
+ * SPI of the master key was allocated, which is the generation of the
+ * associations using it, see idpf_psp_rx_process_skb(). The CP master key
+ * generation tells when a master key was replaced, including by a rotation
+ * the PSP core didn't request, see idpf_psp_rotation_event().
+ */
+static void idpf_psp_rx_gen_update(struct idpf_adapter *adapter,
+				   struct psp_dev *psd, __be32 spi, u32 cp_gen)
+{
+	struct idpf_psp_rx_gen *rx_gen;
+
+	lockdep_assert_held(&psd->lock);
+
+	rx_gen = &adapter->psp.rx_gen[be32_to_cpu(spi) >> 31];
+	if (rx_gen->gen != IDPF_PSP_GEN_UNKNOWN && rx_gen->cp_gen == cp_gen)
+		return;
+
+	rx_gen->cp_gen = cp_gen;
+	WRITE_ONCE(rx_gen->gen, psd->generation);
+}
+
+/**
  * idpf_psp_rx_spi_alloc - Allocate a PSP RX SPI and key
  * @psd: PSP device
  * @version: PSP version
@@ -174,9 +209,45 @@ static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 		return err;
 	}
 
+	idpf_psp_rx_gen_update(adapter, psd, rx_key.spi, rx_key.generation);
+
 	key->spi = rx_key.spi;
 	memcpy(key->key, rx_key.key, sizeof(rx_key.key));
 	memzero_explicit(&rx_key, sizeof(rx_key));
+
+	return 0;
+}
+
+/**
+ * idpf_psp_key_rotate - Rotate the PSP master keys
+ * @psd: PSP device
+ * @extack: netlink extended ack for error reporting
+ *
+ * The PSP core increments the PSP device generation before calling this op
+ * and doesn't restore it if the op fails, see psp_nl_key_rotate_doit(): restore
+ * it then, the master keys didn't change.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int idpf_psp_key_rotate(struct psp_dev *psd,
+			       struct netlink_ext_ack *extack)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(psd->main_netdev);
+	int err;
+
+	err = idpf_psp_rotation_request(adapter);
+	if (err) {
+		psd->generation = adapter->psp.generation;
+
+		if (err == -EOPNOTSUPP)
+			NL_SET_ERR_MSG_MOD(extack, "PSP key rotation request not granted by CP");
+		else
+			NL_SET_ERR_MSG_MOD(extack, "PSP key rotation request failed");
+
+		return err;
+	}
+
+	adapter->psp.generation = psd->generation;
 
 	return 0;
 }
@@ -185,6 +256,7 @@ static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 static struct psp_dev_ops idpf_psp_ops = {
 	.set_config	= idpf_psp_set_config,
 	.rx_spi_alloc	= idpf_psp_rx_spi_alloc,
+	.key_rotate	= idpf_psp_key_rotate,
 };
 
 /**

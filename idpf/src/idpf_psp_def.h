@@ -28,6 +28,23 @@ struct idpf_psp_rx_key {
 	u8 key[VIRTCHNL2_PSP_KEY_SIZE_V0];
 };
 
+/* PSP device generation of an SPI phase whose master key isn't known */
+#define IDPF_PSP_GEN_UNKNOWN		0xff
+
+/**
+ * struct idpf_psp_rx_gen - Generation of the master key of an SPI phase
+ * @cp_gen: CP master key generation of the SPIs allocated in the phase
+ * @gen: PSP device generation reported for the packets of the phase,
+ *	 IDPF_PSP_GEN_UNKNOWN if no SPI was allocated in the phase
+ *
+ * Bit 31 of an SPI selects one of the two master keys of the CP, see
+ * idpf_psp_rx_gen_update().
+ */
+struct idpf_psp_rx_gen {
+	u32 cp_gen;
+	u8 gen;
+};
+
 /**
  * struct idpf_adapter_psp - PSP offload state of an adapter
  * @enabled: PSP was negotiated with the CP in the last core init, see
@@ -39,6 +56,10 @@ struct idpf_psp_rx_key {
  * @vport_id: ID of adapter->vports[0] for the PSP requests. A copy, as the
  *	      PSP device stays registered while the vports are freed and
  *	      allocated again during a soft reset. Set in idpf_vport_alloc().
+ * @generation: PSP device generation after the last key rotation, protected
+ *		by the PSP device lock, see idpf_psp_key_rotate()
+ * @rx_gen: generation of the master key of each SPI phase, protected by the
+ *	    PSP device lock, see idpf_psp_rx_gen_update()
  * @keys_allocated: RX keys allocated
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
@@ -49,6 +70,8 @@ struct idpf_adapter_psp {
 	u8 saidx_width;
 	u32 psp_caps;
 	u32 vport_id;
+	u8 generation;
+	struct idpf_psp_rx_gen rx_gen[2];
 	atomic_t keys_allocated;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)

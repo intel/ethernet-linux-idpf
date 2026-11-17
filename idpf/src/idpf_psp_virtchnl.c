@@ -316,6 +316,97 @@ release_rx:
 }
 
 /**
+ * idpf_psp_rotation_request - Request a PSP master key rotation
+ * @adapter: Driver specific private structure
+ *
+ * Return: 0 on success, -EOPNOTSUPP if VIRTCHNL2_CAP_PSP_REQUEST_ROTATION was
+ * not granted, other negative error code on failure.
+ */
+int idpf_psp_rotation_request(struct idpf_adapter *adapter)
+{
+	const struct virtchnl2_psp_rotate_keygen_response *resp;
+	struct virtchnl2_psp_rotate_keygen_request req = { };
+	struct kvec recv_mem = { };
+	int err;
+
+	if (!(adapter->psp.psp_caps & VIRTCHNL2_CAP_PSP_REQUEST_ROTATION))
+		return -EOPNOTSUPP;
+
+	req.vport_id = cpu_to_le32(READ_ONCE(adapter->psp.vport_id));
+	/* req.domain stays zeroed: VIRTCHNL2_PSP_DOMAIN_NONE */
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       &req, sizeof(req), &recv_mem);
+	if (err) {
+		net_warn_ratelimited("%s: err %d\n", __func__, err);
+		return err;
+	}
+
+	resp = (const struct virtchnl2_psp_rotate_keygen_response *)
+	       recv_mem.iov_base;
+	if (recv_mem.iov_len >= sizeof(*resp))
+		dev_dbg(&adapter->pdev->dev,
+			"PSP master key generation %u after rotation\n",
+			le32_to_cpu(resp->master_key_generation_id));
+	idpf_psp_release_rx_buf(&recv_mem);
+
+	return 0;
+}
+
+/**
+ * idpf_psp_rotation_event - Handle a VIRTCHNL2_EVENT_PSP_ROTATE_KEY event
+ * @adapter: Driver specific private structure
+ * @ctlq_msg: event message, its receive buffer is posted back by the caller
+ *
+ * The CP rotated the master keys, it reports the generation of the new active
+ * master key. The driver tracks the master keys of the RX SPIs it allocates,
+ * see idpf_psp_rx_gen_update(): the next SPIs of the new master key are
+ * reported with the PSP device generation of their associations.
+ *
+ * The PSP core is not told about a rotation that it didn't request: the
+ * associations whose master key the rotation discarded can't receive anymore,
+ * but they aren't marked stale and no key rotation notification is sent. mlx5
+ * has the same limitation, see "no support for protecting against external
+ * rotations" in mlx5e_psp_key_rotate(). The PSP device lock can't be taken
+ * here, as it is held across synchronous mailbox requests that are completed
+ * by the mailbox task running this handler.
+ *
+ * A possible solution, not implemented: a PSP core helper for drivers, e.g.
+ * psp_dev_key_rotated(psd, generation), doing what psp_nl_key_rotate_doit()
+ * does after the ->key_rotate() op succeeded: set the generation, mark the
+ * associations of the discarded master key stale with psp_assocs_key_rotated()
+ * and send the key rotation notification. idpf would call it with the PSP
+ * device lock held from a work item queued here, for the events whose
+ * generation is not the one returned by idpf_psp_rotation_request(): the CP
+ * also sends the event for the rotations the driver requested.
+ */
+void idpf_psp_rotation_event(struct idpf_adapter *adapter,
+			     const struct idpf_ctlq_msg *ctlq_msg)
+{
+	const struct virtchnl2_psp_rotation_event *rt_event;
+	u32 gen;
+
+	if (!idpf_is_psp_ena(adapter)) {
+		net_warn_ratelimited("PSP not enabled, ignoring PSP rotation event.\n");
+		return;
+	}
+
+	if (ctlq_msg->data_len < sizeof(*rt_event)) {
+		net_warn_ratelimited("Invalid payload size for PSP rotation event, payload size: %u, expected min: %zu\n",
+				     ctlq_msg->data_len, sizeof(*rt_event));
+		return;
+	}
+
+	rt_event = (const struct virtchnl2_psp_rotation_event *)
+		   ctlq_msg->ctx.indirect.payload->va;
+	gen = le32_to_cpu(rt_event->psp_rotate_event.active_master_key_generation_id);
+
+	net_info_ratelimited("PSP Rotation Event processed, active master key generation %u.\n",
+			     gen);
+}
+
+/**
  * idpf_psp_recv_reply - Wipe the RX keys of a reply from the mailbox buffer
  * @adapter: Driver specific private structure
  * @ctlq_msg: reply, its receive buffer is posted back by the caller
