@@ -22,6 +22,8 @@
  *	     idpf_is_psp_ena()
  * @sadb_entries: SADB size granted by VIRTCHNL2_OP_CRYPTO_GET_CAPS
  * @saidx_width: SA index width granted by VIRTCHNL2_OP_CRYPTO_GET_CAPS
+ * @psp_caps: PSP capabilities granted by VIRTCHNL2_OP_PSP_GET_CAPS, see
+ *	      enum virtchnl2_psp_caps
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -29,6 +31,7 @@ struct idpf_adapter_psp {
 	bool enabled;
 	u32 sadb_entries;
 	u8 saidx_width;
+	u32 psp_caps;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;
