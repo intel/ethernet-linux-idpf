@@ -15,5 +15,6 @@ int idpf_send_get_psp_caps(struct idpf_adapter *adapter,
 int idpf_send_get_fips_compliance_status(struct idpf_adapter *adapter);
 int idpf_send_allocate_psp_key(struct idpf_adapter *adapter,
 			       struct idpf_psp_rx_key *key);
+int idpf_psp_rotation_request(struct idpf_adapter *adapter);
 
 #endif /* !_IDPF_PSP_VIRTCHNL_H_ */

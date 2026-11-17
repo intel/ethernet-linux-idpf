@@ -105,6 +105,9 @@ static void idpf_recv_event_msg(struct idpf_adapter *adapter,
 		mutex_unlock(&adapter->sf_mutex);
 #endif /* DEVLINK_ENABLED */
 		break;
+	case VIRTCHNL2_EVENT_PSP_ROTATE_KEY:
+		idpf_psp_rotation_event(adapter, ctlq_msg);
+		break;
 	case VIRTCHNL2_EVENT_START_RESET_ADI:
 		adi_id = le16_to_cpu(v2e->adi_id);
 		if (adapter->dev_ops.notify_adi_reset)
