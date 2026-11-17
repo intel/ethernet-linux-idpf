@@ -1553,6 +1553,9 @@ static struct idpf_vport *idpf_vport_alloc(struct idpf_adapter *adapter,
 	/* fill vport slot in the adapter struct */
 	adapter->vports[idx] = vport;
 	adapter->vport_ids[idx] = vport->vport_id;
+	/* Copy for the PSP requests that can run while the vports are freed */
+	if (IS_ENABLED(CONFIG_INET_PSP) && !idx)
+		WRITE_ONCE(adapter->psp.vport_id, adapter->vport_ids[idx]);
 
 	adapter->num_alloc_vports++;
 	/* prepare adapter->next_vport for next use */

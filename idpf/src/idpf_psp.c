@@ -109,6 +109,9 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		dev_warn(dev, "Failed to get PSP FIPS compliance status: %d\n",
 			 err);
 
+	/* The counters cover the time since the core init */
+	atomic_set(&psp->keys_allocated, 0);
+
 	WRITE_ONCE(psp->enabled, true);
 }
 
@@ -139,9 +142,49 @@ static int idpf_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
 	return 0;
 }
 
+/**
+ * idpf_psp_rx_spi_alloc - Allocate a PSP RX SPI and key
+ * @psd: PSP device
+ * @version: PSP version
+ * @key: filled with the allocated SPI and key
+ * @extack: netlink extended ack for error reporting
+ *
+ * Allocate one RX key with a synchronous VIRTCHNL2_OP_PSP_ALLOCATE_KEYS
+ * request.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
+				 struct psp_key_parsed *key,
+				 struct netlink_ext_ack *extack)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(psd->main_netdev);
+	struct idpf_psp_rx_key rx_key;
+	int err;
+
+	/* Only version 0 keys are allocated, see idpf_psp_register() */
+	if (psp_key_size(version) != sizeof(rx_key.key)) {
+		NL_SET_ERR_MSG_MOD(extack, "Unsupported PSP version");
+		return -EOPNOTSUPP;
+	}
+
+	err = idpf_send_allocate_psp_key(adapter, &rx_key);
+	if (err) {
+		NL_SET_ERR_MSG_MOD(extack, "Failed to allocate RX SPI and key");
+		return err;
+	}
+
+	key->spi = rx_key.spi;
+	memcpy(key->key, rx_key.key, sizeof(rx_key.key));
+	memzero_explicit(&rx_key, sizeof(rx_key));
+
+	return 0;
+}
+
 /* PSP device operations, see idpf_psp_register() */
 static struct psp_dev_ops idpf_psp_ops = {
 	.set_config	= idpf_psp_set_config,
+	.rx_spi_alloc	= idpf_psp_rx_spi_alloc,
 };
 
 /**
