@@ -124,3 +124,68 @@ release_rx:
 	idpf_psp_release_rx_buf(&recv_mem);
 	return err;
 }
+
+/**
+ * idpf_print_psp_caps - Print values inside virtchnl2_psp_get_caps
+ * @adapter: Driver specific private structure
+ * @caps: Pointer to virtchnl2_psp_get_caps structure
+ */
+static void idpf_print_psp_caps(struct idpf_adapter *adapter,
+				const struct virtchnl2_psp_get_caps *caps)
+{
+	u32 psp_caps = le32_to_cpu(caps->psp_caps);
+
+	dev_dbg(&adapter->pdev->dev,
+		"virtchnl2_psp_get_caps: psp_caps=0x%08x (PROTO_V0=%u, PROTO_V1=%u, REQUEST_ROTATION=%u, DOMAIN=%u)\n",
+		psp_caps,
+		!!(psp_caps & VIRTCHNL2_CAP_PSP_PROTO_V0),
+		!!(psp_caps & VIRTCHNL2_CAP_PSP_PROTO_V1),
+		!!(psp_caps & VIRTCHNL2_CAP_PSP_REQUEST_ROTATION),
+		!!(psp_caps & VIRTCHNL2_CAP_PSP_DOMAIN));
+}
+
+/**
+ * idpf_send_get_psp_caps - Send VIRTCHNL2_OP_PSP_GET_CAPS request to CP
+ * @adapter: Driver specific private structure
+ * @caps: Output buffer for virtchnl2_psp_get_caps
+ *
+ * Request all PSP capabilities, PSP capabilities that are not requested are
+ * not available.
+ *
+ * Return: 0 on success, negative on failure.
+ */
+int idpf_send_get_psp_caps(struct idpf_adapter *adapter,
+			   struct virtchnl2_psp_get_caps *caps)
+{
+	struct virtchnl2_psp_get_caps send_caps = {
+		.psp_caps = cpu_to_le32(VIRTCHNL2_CAP_PSP_PROTO_V0 |
+					VIRTCHNL2_CAP_PSP_PROTO_V1 |
+					VIRTCHNL2_CAP_PSP_REQUEST_ROTATION |
+					VIRTCHNL2_CAP_PSP_DOMAIN),
+	};
+	struct kvec recv_mem = { };
+	int err;
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_PSP_GET_CAPS,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       &send_caps, sizeof(send_caps), &recv_mem);
+	if (err) {
+		dev_err(&adapter->pdev->dev, "Failed to get PSP caps: %d\n",
+			err);
+		return err;
+	}
+
+	if (recv_mem.iov_len < sizeof(*caps)) {
+		dev_err(&adapter->pdev->dev, "Invalid PSP caps reply size: %zu\n",
+			recv_mem.iov_len);
+		err = -EIO;
+		goto release_rx;
+	}
+
+	memcpy(caps, recv_mem.iov_base, sizeof(*caps));
+	idpf_print_psp_caps(adapter, caps);
+
+release_rx:
+	idpf_psp_release_rx_buf(&recv_mem);
+	return err;
+}

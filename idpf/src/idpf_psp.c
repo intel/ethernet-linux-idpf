@@ -21,8 +21,9 @@
 static int idpf_psp_negotiate_caps(struct idpf_adapter *adapter)
 {
 	struct virtchnl2_crypto_get_caps crypto_caps = { };
+	struct virtchnl2_psp_get_caps psp_caps = { };
 	struct device *dev = &adapter->pdev->dev;
-	u32 sadb_entries;
+	u32 caps, sadb_entries;
 	int err;
 
 	err = idpf_send_get_crypto_caps(adapter, &crypto_caps);
@@ -54,6 +55,18 @@ static int idpf_psp_negotiate_caps(struct idpf_adapter *adapter)
 		return -EOPNOTSUPP;
 	}
 
+	err = idpf_send_get_psp_caps(adapter, &psp_caps);
+	if (err)
+		return err;
+
+	/* The driver only allocates and inserts PSP version 0 keys */
+	caps = le32_to_cpu(psp_caps.psp_caps);
+	if (!(caps & VIRTCHNL2_CAP_PSP_PROTO_V0)) {
+		dev_notice(dev, "PSP version 0 keys not granted by CP\n");
+		return -EOPNOTSUPP;
+	}
+
+	adapter->psp.psp_caps = caps;
 	adapter->psp.sadb_entries = sadb_entries;
 	adapter->psp.saidx_width = crypto_caps.saidx_width;
 
