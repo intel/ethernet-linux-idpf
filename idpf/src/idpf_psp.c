@@ -4,8 +4,61 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include "idpf_psp.h"
+#include "idpf_psp_virtchnl.h"
 
 #include <net/psp.h>
+
+/**
+ * idpf_psp_negotiate_caps - Negotiate the crypto and PSP capabilities
+ * @adapter: private data struct
+ *
+ * Query the crypto and PSP capabilities granted by the CP, check that they
+ * cover what the driver implements and apply the negotiated values. Must only
+ * be called if VIRTCHNL2_CAP_CRYPTO was negotiated.
+ *
+ * Return: 0 if PSP offload can be used, negative error code otherwise.
+ */
+static int idpf_psp_negotiate_caps(struct idpf_adapter *adapter)
+{
+	struct virtchnl2_crypto_get_caps crypto_caps = { };
+	struct device *dev = &adapter->pdev->dev;
+	u32 sadb_entries;
+	int err;
+
+	err = idpf_send_get_crypto_caps(adapter, &crypto_caps);
+	if (err)
+		return err;
+
+	if (!(le32_to_cpu(crypto_caps.crypto_caps) & VIRTCHNL2_CAP_CRYPTO_PSP)) {
+		dev_notice(dev, "PSP crypto offload not granted by CP\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (crypto_caps.saidx_width != IDPF_PSP_SAIDX_WIDTH_21 &&
+	    crypto_caps.saidx_width != IDPF_PSP_SAIDX_WIDTH_26) {
+		dev_err(dev, "Unsupported PSP SA index width %u\n",
+			crypto_caps.saidx_width);
+		return -EOPNOTSUPP;
+	}
+
+	sadb_entries = le32_to_cpu(crypto_caps.num_sadb_entries);
+	if (!sadb_entries) {
+		dev_notice(dev, "No PSP SADB entries granted by CP\n");
+		return -EOPNOTSUPP;
+	}
+
+	/* The SA indexes of all the SADB entries must fit in the width */
+	if (sadb_entries > BIT(crypto_caps.saidx_width)) {
+		dev_err(dev, "%u PSP SADB entries don't fit in %u bit SA indexes\n",
+			sadb_entries, crypto_caps.saidx_width);
+		return -EOPNOTSUPP;
+	}
+
+	adapter->psp.sadb_entries = sadb_entries;
+	adapter->psp.saidx_width = crypto_caps.saidx_width;
+
+	return 0;
+}
 
 /**
  * idpf_psp_init - Initialize PSP offload
@@ -21,11 +74,19 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 {
 	struct idpf_adapter_psp *psp = &adapter->psp;
 	struct device *dev = &adapter->pdev->dev;
+	int err;
 
 	WRITE_ONCE(psp->enabled, false);
 
 	if (!idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_CRYPTO)) {
 		dev_notice(dev, "PSP disabled, crypto capability not granted\n");
+		return;
+	}
+
+	err = idpf_psp_negotiate_caps(adapter);
+	if (err) {
+		dev_warn(dev, "PSP disabled, capability negotiation failed: %d\n",
+			 err);
 		return;
 	}
 
