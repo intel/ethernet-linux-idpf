@@ -100,6 +100,9 @@ struct idpf_rss_data;
 #define IDPF_NUM_CHUNKS_PER_MSG(struct_sz, chunk_sz)   \
 	((IDPF_CTLQ_MAX_BUF_LEN - (struct_sz)) / (chunk_sz))
 
+/* PSP headers use the mailbox types and sizes defined above */
+#include "idpf_psp_def.h"
+
 #define IDPF_CORER_TIMEOUT_MSEC		(120 * 1000)
 #define IDPF_RESET_POLL_COUNT		(2 * 1000)
 
@@ -921,6 +924,7 @@ struct idpf_adapter {
 	struct idpf_vector_lifo vector_stack;
 	irqreturn_t (*irq_mb_handler)(int irq, void *data);
 
+	struct idpf_adapter_psp psp;
 	u32 tx_timeout_count;
 	struct idpf_avail_queue_info avail_queues;
 	struct idpf_vport **vports;
@@ -1029,6 +1033,18 @@ bool idpf_is_capability_ena(struct idpf_adapter *adapter, bool all,
 static inline bool idpf_is_rdma_cap_ena(struct idpf_adapter *adapter)
 {
 	return idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_RDMA);
+}
+
+/**
+ * idpf_is_psp_ena - Determine if PSP offload is enabled
+ * @adapter: private data struct
+ *
+ * Return: true if PSP offload was negotiated in the last core init, see
+ * idpf_psp_init(), false otherwise
+ */
+static inline bool idpf_is_psp_ena(const struct idpf_adapter *adapter)
+{
+	return IS_ENABLED(CONFIG_INET_PSP) && READ_ONCE(adapter->psp.enabled);
 }
 
 #define IDPF_CAP_RSS (\

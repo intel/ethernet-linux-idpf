@@ -5,6 +5,7 @@
 #include <linux/aer.h>
 #include "idpf.h"
 #include "idpf_lan_vf_regs.h"
+#include "idpf_psp.h"
 #include "idpf_virtchnl.h"
 
 #define DRV_SUMMARY    "Intel(R) Infrastructure Data Path Function Linux Driver"
@@ -100,6 +101,7 @@ destroy_wqs:
 	}
 	kfree(adapter->vport_config);
 	adapter->vport_config = NULL;
+	idpf_psp_free(adapter);
 	kfree(adapter->netdevs);
 	adapter->netdevs = NULL;
 	kfree(adapter->vcxn_mngr);
