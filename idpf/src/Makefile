@@ -25,6 +25,7 @@ idpf-y := \
 	idpf_xsk.o \
 	idpf_vf_dev.o
 idpf-$(CONFIG_PTP_1588_CLOCK:m=y) += idpf_ptp.o idpf_virtchnl_ptp.o
+idpf-$(CONFIG_INET_PSP) += idpf_psp.o
 idpf-y += kcompat.o
 # Use kcompat DIMLIB if kernel doesn't provide it
 ifndef CONFIG_DIMLIB

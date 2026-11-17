@@ -4,6 +4,7 @@
 #include "idpf.h"
 #include "idpf_virtchnl.h"
 #include "idpf_ptp.h"
+#include "idpf_psp.h"
 #include <linux/export.h>
 
 /**
@@ -949,6 +950,10 @@ static int idpf_send_get_caps_msg(struct idpf_adapter *adapter)
 			    VIRTCHNL2_CAP_MISS_COMPL_TAG	|
 			    VIRTCHNL2_CAP_LOOPBACK		|
 			    VIRTCHNL2_CAP_VLAN);
+
+	/* PSP offload uses the virtchnl2 crypto offload API */
+	if (IS_ENABLED(CONFIG_INET_PSP))
+		caps.other_caps |= cpu_to_le64(VIRTCHNL2_CAP_CRYPTO);
 
 	xn_params.vc_op = VIRTCHNL2_OP_GET_CAPS;
 	xn_params.send_buf.iov_base = &caps;
@@ -3692,6 +3697,8 @@ restart:
 			err);
 		goto intr_rel;
 	}
+
+	idpf_psp_init(adapter);
 
 	err = idpf_ptp_init(adapter);
 	if (err)
