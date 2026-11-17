@@ -156,9 +156,11 @@ static int idpf_mb_clean(struct idpf_adapter *adapter,
 		if (!q_msg[i])
 			continue;
 		dma_mem = q_msg[i]->ctx.indirect.payload;
-		if (dma_mem)
+		if (dma_mem) {
+			memzero_explicit(dma_mem->va, dma_mem->size);
 			dmam_free_coherent(idpf_adapter_to_dev(adapter), dma_mem->size,
 					   dma_mem->va, dma_mem->pa);
+		}
 		kfree(q_msg[i]);
 		kfree(dma_mem);
 	}
@@ -290,6 +292,7 @@ int idpf_send_mb_msg(struct idpf_adapter *adapter, struct idpf_ctlq_info *asq,
 
 	return 0;
 send_error:
+	memzero_explicit(dma_mem->va, dma_mem->size);
 	dmam_free_coherent(idpf_adapter_to_dev(adapter), dma_mem->size, dma_mem->va,
 			   dma_mem->pa);
 dma_alloc_error:
