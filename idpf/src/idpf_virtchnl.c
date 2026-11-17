@@ -766,6 +766,9 @@ int idpf_recv_mb_msg(struct idpf_adapter *adapter, struct idpf_ctlq_info *arq)
 		else
 			err = idpf_vc_xn_forward_reply(adapter, &ctlq_msg);
 
+		/* Wipe PSP keys before the buffer is posted back */
+		idpf_psp_recv_reply(adapter, &ctlq_msg);
+
 		post_err = idpf_ctlq_post_rx_buffs(&adapter->hw, arq,
 						   &num_recv, &dma_mem);
 

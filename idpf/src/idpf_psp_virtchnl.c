@@ -248,3 +248,93 @@ release_rx:
 	idpf_psp_release_rx_buf(&recv_mem);
 	return err;
 }
+
+/**
+ * idpf_send_allocate_psp_key - Allocate a PSP RX key
+ * @adapter: Driver specific private structure
+ * @key: filled with the allocated SPI and key and their master key generation
+ *
+ * Allocate one RX key with a synchronous VIRTCHNL2_OP_PSP_ALLOCATE_KEYS
+ * request. The caller must be allowed to sleep.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int idpf_send_allocate_psp_key(struct idpf_adapter *adapter,
+			       struct idpf_psp_rx_key *key)
+{
+	const struct virtchnl2_psp_allocate_keys_response *vc_reply;
+	struct virtchnl2_psp_allocate_keys_request key_req = { };
+	const struct virtchnl2_allocate_psp_key_v0 *v0_key;
+	struct kvec recv_mem = { };
+	size_t reply_sz;
+	u32 spi;
+	int err;
+
+	BUILD_BUG_ON(sizeof(key->key) != sizeof(v0_key->v0_key));
+
+	key_req.vport_id = cpu_to_le32(READ_ONCE(adapter->psp.vport_id));
+	key_req.num_keys = cpu_to_le32(1);
+	key_req.key_type = VIRTCHNL2_PSP_KEY_TYPE_V0;
+	/* key_req.domain stays zeroed: VIRTCHNL2_PSP_DOMAIN_NONE */
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_PSP_ALLOCATE_KEYS,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       &key_req, sizeof(key_req), &recv_mem);
+	if (err)
+		return err;
+
+	reply_sz = recv_mem.iov_len;
+	vc_reply = (const struct virtchnl2_psp_allocate_keys_response *)
+		   recv_mem.iov_base;
+	if (reply_sz < offsetof(typeof(*vc_reply), keys) + sizeof(*v0_key) ||
+	    vc_reply->key_type != VIRTCHNL2_PSP_KEY_TYPE_V0 ||
+	    le32_to_cpu(vc_reply->keys_size_bytes) != sizeof(*v0_key)) {
+		net_warn_ratelimited("%s: invalid reply of %zu bytes\n",
+				     __func__, reply_sz);
+		err = -EIO;
+		goto release_rx;
+	}
+
+	v0_key = (const struct virtchnl2_allocate_psp_key_v0 *)vc_reply->keys;
+	spi = le32_to_cpu(v0_key->spi);
+	if (!(spi & PSP_SPI_KEY_ID)) {
+		net_warn_ratelimited("%s: invalid SPI %#x\n", __func__, spi);
+		err = -EIO;
+		goto release_rx;
+	}
+
+	key->spi = cpu_to_be32(spi);
+	key->generation = le32_to_cpu(vc_reply->master_key_generation);
+	memcpy(key->key, v0_key->v0_key, sizeof(key->key));
+	atomic_inc(&adapter->psp.keys_allocated);
+
+release_rx:
+	/* Don't leave the RX key in the freed reply buffer */
+	memzero_explicit(recv_mem.iov_base, reply_sz);
+	idpf_psp_release_rx_buf(&recv_mem);
+	return err;
+}
+
+/**
+ * idpf_psp_recv_reply - Wipe the RX keys of a reply from the mailbox buffer
+ * @adapter: Driver specific private structure
+ * @ctlq_msg: reply, its receive buffer is posted back by the caller
+ *
+ * Called by idpf_recv_mb_msg() for all the replies, including the late
+ * replies to requests that timed out, after they were copied to the waiting
+ * transaction.
+ */
+void idpf_psp_recv_reply(struct idpf_adapter *adapter,
+			 const struct idpf_ctlq_msg *ctlq_msg)
+{
+	const struct idpf_dma_mem *dma_mem = ctlq_msg->ctx.indirect.payload;
+
+	switch (ctlq_msg->cookie.mbx.chnl_opcode) {
+	case VIRTCHNL2_OP_PSP_ALLOCATE_KEYS:
+		if (ctlq_msg->data_len && dma_mem && dma_mem->va)
+			memzero_explicit(dma_mem->va, dma_mem->size);
+		break;
+	default:
+		break;
+	}
+}
