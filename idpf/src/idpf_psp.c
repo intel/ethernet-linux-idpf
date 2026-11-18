@@ -6,6 +6,7 @@
 #include "idpf_psp.h"
 #include "idpf_psp_virtchnl.h"
 
+#include <linux/debugfs.h>
 #include <net/psp.h>
 
 /* Delay before the PSP work sends again a request that couldn't be sent */
@@ -182,6 +183,41 @@ static int idpf_psp_negotiate_caps(struct idpf_adapter *adapter)
 }
 
 /**
+ * idpf_psp_debugfs_init - Expose the PSP counters in debugfs
+ * @adapter: private data struct
+ *
+ * The counters are in /sys/kernel/debug/idpf/<PCI device>/psp/. They are reset
+ * on each core init, see idpf_psp_init().
+ */
+static void idpf_psp_debugfs_init(struct idpf_adapter *adapter)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct dentry *dir;
+
+	dir = debugfs_create_dir(pci_name(adapter->pdev), idpf_debugfs_root);
+	psp->debugfs = dir;
+	dir = debugfs_create_dir("psp", dir);
+
+	debugfs_create_u32("sadb_entries", 0444, dir, &psp->sadb_entries);
+	debugfs_create_atomic_t("sadb_used", 0444, dir, &psp->sadb_used);
+	debugfs_create_atomic_t("keys_allocated", 0444, dir,
+				&psp->keys_allocated);
+	debugfs_create_atomic_t("keys_inserted", 0444, dir,
+				&psp->keys_inserted);
+	debugfs_create_atomic_t("keys_removed", 0444, dir, &psp->keys_removed);
+	debugfs_create_atomic_t("keys_lost", 0444, dir, &psp->keys_lost);
+	debugfs_create_atomic_t("keys_refused", 0444, dir,
+				&psp->keys_refused);
+	debugfs_create_atomic_t("insert_errors", 0444, dir,
+				&psp->insert_errors);
+	debugfs_create_atomic_t("insert_late", 0444, dir, &psp->insert_late);
+	debugfs_create_atomic_t("delete_retries", 0444, dir,
+				&psp->del_retries);
+	debugfs_create_atomic_t("tx_drops", 0444, dir, &psp->tx_drops);
+	debugfs_create_atomic_t("rx_drops", 0444, dir, &psp->rx_drops);
+}
+
+/**
  * idpf_psp_init - Initialize PSP offload
  * @adapter: private data struct
  *
@@ -227,6 +263,8 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		INIT_LIST_HEAD(&psp->ins_list);
 		spin_lock_init(&psp->drain_lock);
 		INIT_LIST_HEAD(&psp->drain_list);
+		/* Not in the idpf_test and DFT builds */
+		idpf_psp_debugfs_init(adapter);
 		psp->initialized = true;
 	}
 
@@ -338,6 +376,9 @@ void idpf_psp_quiesce(struct idpf_adapter *adapter)
 void idpf_psp_free(struct idpf_adapter *adapter)
 {
 	idpf_psp_unregister(adapter);
+	/* Created even if the workqueue couldn't be allocated */
+	debugfs_remove_recursive(adapter->psp.debugfs);
+	adapter->psp.debugfs = NULL;
 
 	if (!adapter->psp.wq)
 		return;

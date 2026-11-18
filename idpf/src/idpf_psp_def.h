@@ -205,6 +205,7 @@ struct idpf_psp_dev_stats {
  * @keys_refused: RX and TX keys refused, SADB or insertion queue full
  * @tx_drops: PSP packets dropped on transmit
  * @rx_drops: decrypted PSP packets dropped on receive
+ * @debugfs: debugfs directory of the counters, see idpf_psp_debugfs_init()
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -241,6 +242,7 @@ struct idpf_adapter_psp {
 	atomic_t keys_refused;
 	atomic_t tx_drops;
 	atomic_t rx_drops;
+	struct dentry *debugfs;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;

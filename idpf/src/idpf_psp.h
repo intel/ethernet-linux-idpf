@@ -184,4 +184,6 @@ idpf_psp_rotation_event(struct idpf_adapter *adapter,
 
 #endif /* CONFIG_INET_PSP */
 
+extern struct dentry *idpf_debugfs_root;
+
 #endif /* !_IDPF_PSP_H_ */
