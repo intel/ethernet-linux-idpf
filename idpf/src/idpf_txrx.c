@@ -3488,8 +3488,9 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 	/* Check for splitq specific TX resources before idpf_tso(), which
 	 * changes the headers: a packet requeued after NETDEV_TX_BUSY must be
 	 * left untouched.
+	 * A PSP packet always needs a context descriptor for its SA index.
 	 */
-	count += skb_is_gso(skb) + vlan_tag;
+	count += (skb_is_gso(skb) || psp) + vlan_tag;
 	if (idpf_tx_maybe_stop_splitq(tx_q, count, buf_count)) {
 		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
 		return NETDEV_TX_BUSY;
@@ -3499,10 +3500,15 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 	if (unlikely(tso < 0))
 		return idpf_tx_drop_skb(tx_q, skb);
 
-	if (tso) {
+	if (psp) {
+		/* The context descriptor of a PSP packet has its SA index, with
+		 * or without TSO
+		 */
+		ctx_desc = idpf_tx_splitq_get_ctx_desc(tx_q);
+		idpf_psp_tx_ctx_desc(ctx_desc, &tx_params.offload, tso,
+				     psp->saidx);
+	} else if (tso) {
 		/* If tso is needed, set up context desc */
-		u16 seg_idx = min_t(u16, IDPF_MAX_SEGS,
-				    tx_params.offload.tso_segs) - 1;
 		ctx_desc = idpf_tx_splitq_get_ctx_desc(tx_q);
 
 		ctx_desc->tso.qw1.cmd_dtype =
@@ -3515,6 +3521,11 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 				cpu_to_le16(tx_params.offload.mss &
 					    IDPF_TXD_FLEX_CTX_MSS_RT_M);
 		ctx_desc->tso.qw0.hdr_len = tx_params.offload.tso_hdr_len;
+	}
+
+	if (tso) {
+		u16 seg_idx = min_t(u16, IDPF_MAX_SEGS,
+				    tx_params.offload.tso_segs) - 1;
 
 		u64_stats_update_begin(&tx_q->stats_sync);
 		u64_stats_inc(&tx_q->q_stats.tx.lso_pkts);
@@ -3531,7 +3542,17 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 	if (vlan_tag)
 		idpf_tx_prepare_vlan_tag(tx_q, skb);
 
-	idx = idpf_tx_tstamp(tx_q, skb, &tx_params.offload);
+	if (unlikely(psp)) {
+		/* No room for a timestamp context descriptor */
+		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+			u64_stats_update_begin(&tx_q->stats_sync);
+			u64_stats_inc(&tx_q->q_stats.tx.tstamp_skipped);
+			u64_stats_update_end(&tx_q->stats_sync);
+		}
+		idx = -1;
+	} else {
+		idx = idpf_tx_tstamp(tx_q, skb, &tx_params.offload);
+	}
 	if (idx != -1) {
 		ctx_desc = idpf_tx_splitq_get_ctx_desc(tx_q);
 		idpf_tx_set_tstamp_desc(ctx_desc, idx);

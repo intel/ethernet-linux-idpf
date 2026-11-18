@@ -72,6 +72,10 @@ idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
 	return ret;
 }
 
+void idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
+			  const struct idpf_tx_offload_params *off, bool tso,
+			  u32 saidx);
+
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP
  * @adapter: private data struct
@@ -124,6 +128,11 @@ idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
 {
 	return IDPF_PSP_TX_PLAIN;
 }
+
+static inline void
+idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
+		     const struct idpf_tx_offload_params *off, bool tso,
+		     u32 saidx) { }
 
 static inline void
 idpf_psp_rotation_event(struct idpf_adapter *adapter,
