@@ -6,6 +6,8 @@
 #ifndef _IDPF_PSP_DEF_H_
 #define _IDPF_PSP_DEF_H_
 
+#include <linux/kref.h>
+#include <linux/spinlock.h>
 #if IS_ENABLED(CONFIG_INET_PSP)
 #include <net/psp.h>
 #endif
@@ -15,6 +17,34 @@
  */
 #define IDPF_PSP_SAIDX_WIDTH_21		21
 #define IDPF_PSP_SAIDX_WIDTH_26		26
+
+/* Largest SA index the driver supports. The SA indexes the CP returns are
+ * checked against the width negotiated for the adapter before they are used,
+ * see idpf_psp_saidx_ok().
+ */
+#define IDPF_PSP_IDX_MAX		(BIT(IDPF_PSP_SAIDX_WIDTH_26) - 1)
+/* States of a TX key without a usable SA index, see struct idpf_psp_tx_key */
+#define IDPF_PSP_IDX_NONE		(U32_MAX - 3)	/* no SA index */
+#define IDPF_PSP_IDX_IN_PROG		(U32_MAX - 2)	/* insertion pending */
+#define IDPF_PSP_IDX_ERROR		(U32_MAX - 1)	/* insertion failed */
+#define IDPF_PSP_IDX_DELETED		U32_MAX		/* key deleted */
+
+/**
+ * struct idpf_psp_tx_key - State of a PSP TX key
+ * @ref: reference count, held by the PSP association, see
+ *	 idpf_psp_tx_key_add(), and by the lists and the insert request the
+ *	 key is on
+ * @lock: protects @idx and @hw_idx updates, and @tx_queue
+ * @idx: SA index the TX path uses, or IDPF_PSP_IDX_IN_PROG,
+ *	 IDPF_PSP_IDX_ERROR or IDPF_PSP_IDX_DELETED. Read without @lock.
+ * @rcu: for freeing the key after the RCU readers of the TX path
+ */
+struct idpf_psp_tx_key {
+	struct kref ref;
+	spinlock_t lock;		/* protects the SA indexes and tx_queue */
+	u32 idx;
+	struct rcu_head rcu;
+};
 
 /**
  * struct idpf_psp_rx_key - PSP RX key allocated by the CP

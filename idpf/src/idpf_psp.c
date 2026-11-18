@@ -132,6 +132,57 @@ void idpf_psp_free(struct idpf_adapter *adapter)
 }
 
 /**
+ * idpf_psp_tx_key_alloc - Allocate the state of a PSP TX key
+ *
+ * Return: the TX key with a reference, NULL if it couldn't be allocated.
+ */
+struct idpf_psp_tx_key *idpf_psp_tx_key_alloc(void)
+{
+	struct idpf_psp_tx_key *key;
+
+	key = kzalloc(sizeof(*key), GFP_KERNEL);
+	if (!key)
+		return NULL;
+
+	kref_init(&key->ref);
+	spin_lock_init(&key->lock);
+	key->idx = IDPF_PSP_IDX_IN_PROG;
+
+	return key;
+}
+
+/**
+ * idpf_psp_tx_key_free - Free the state of a PSP TX key
+ * @ref: reference count of the TX key
+ */
+static void idpf_psp_tx_key_free(struct kref *ref)
+{
+	struct idpf_psp_tx_key *key = container_of(ref, struct idpf_psp_tx_key,
+						   ref);
+
+	/* The TX path may still read the SA index of the key */
+	kfree_rcu(key, rcu);
+}
+
+/**
+ * idpf_psp_tx_key_get - Get a reference on a PSP TX key
+ * @key: the TX key
+ */
+void idpf_psp_tx_key_get(struct idpf_psp_tx_key *key)
+{
+	kref_get(&key->ref);
+}
+
+/**
+ * idpf_psp_tx_key_put - Release a reference on a PSP TX key
+ * @key: the TX key
+ */
+void idpf_psp_tx_key_put(struct idpf_psp_tx_key *key)
+{
+	kref_put(&key->ref, idpf_psp_tx_key_free);
+}
+
+/**
  * idpf_psp_set_config - Set the PSP device configuration
  * @psd: PSP device
  * @conf: new configuration
