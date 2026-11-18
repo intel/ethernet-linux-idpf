@@ -5,6 +5,7 @@
 #include <linux/aer.h>
 #include "idpf.h"
 #include "idpf_lan_vf_regs.h"
+#include <linux/debugfs.h>
 #include "idpf_psp.h"
 #include "idpf_virtchnl.h"
 
@@ -783,4 +784,35 @@ static struct pci_driver idpf_driver = {
 	.err_handler		= &idpf_pci_err_handler,
 };
 
-module_pci_driver(idpf_driver);
+struct dentry *idpf_debugfs_root;
+
+/**
+ * idpf_module_init - Driver registration routine
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int __init idpf_module_init(void)
+{
+	int err;
+
+	/* Only the PSP counters are in debugfs */
+	if (IS_ENABLED(CONFIG_INET_PSP))
+		idpf_debugfs_root = debugfs_create_dir(KBUILD_MODNAME, NULL);
+
+	err = pci_register_driver(&idpf_driver);
+	if (err)
+		debugfs_remove_recursive(idpf_debugfs_root);
+
+	return err;
+}
+module_init(idpf_module_init);
+
+/**
+ * idpf_module_exit - Driver exit cleanup routine
+ */
+static void __exit idpf_module_exit(void)
+{
+	pci_unregister_driver(&idpf_driver);
+	debugfs_remove_recursive(idpf_debugfs_root);
+}
+module_exit(idpf_module_exit);
