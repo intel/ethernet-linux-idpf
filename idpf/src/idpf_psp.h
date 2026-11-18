@@ -36,6 +36,8 @@ void idpf_psp_tx_key_inserted(struct idpf_adapter *adapter,
 			      struct idpf_psp_tx_key *key, u32 saidx);
 void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
 			    struct idpf_psp_tx_key *key);
+int idpf_psp_queue_insert(struct idpf_adapter *adapter,
+			  struct idpf_psp_tx_key *key);
 
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP

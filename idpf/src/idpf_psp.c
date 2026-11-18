@@ -11,6 +11,9 @@
 /* Delay before the PSP work sends again a request that couldn't be sent */
 #define IDPF_PSP_RETRY_MSEC		100
 
+/* Maximum number of TX keys queued for insertion */
+#define IDPF_PSP_INS_QUEUE_MAX		1024
+
 /**
  * idpf_queue_psp_work - Queue the PSP work
  * @adapter: private data struct
@@ -236,6 +239,8 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	atomic_set(&psp->keys_inserted, 0);
 	atomic_set(&psp->insert_errors, 0);
 	atomic_set(&psp->insert_late, 0);
+	atomic_set(&psp->sadb_used, 0);
+	atomic_set(&psp->keys_refused, 0);
 
 	WRITE_ONCE(psp->enabled, true);
 }
@@ -435,11 +440,61 @@ void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
 			    struct idpf_psp_tx_key *key)
 {
 	atomic_inc(&adapter->psp.insert_errors);
+	/* The SADB entry reserved for the key wasn't used */
+	atomic_dec(&adapter->psp.sadb_used);
 
 	spin_lock_bh(&key->lock);
 	if (key->idx == IDPF_PSP_IDX_IN_PROG)
 		WRITE_ONCE(key->idx, IDPF_PSP_IDX_ERROR);
 	spin_unlock_bh(&key->lock);
+}
+
+/**
+ * idpf_psp_sadb_full - Check if new PSP keys must be refused
+ * @adapter: private data struct
+ *
+ * Return: true if the SADB or the insertion queue is full, false otherwise.
+ */
+static bool idpf_psp_sadb_full(struct idpf_adapter *adapter)
+{
+	/* sadb_entries fits in 26 bits, see idpf_psp_negotiate_caps() */
+	return atomic_read(&adapter->psp.sadb_used) >=
+	       (int)adapter->psp.sadb_entries ||
+	       READ_ONCE(adapter->psp.ins_queued) >= IDPF_PSP_INS_QUEUE_MAX;
+}
+
+/**
+ * idpf_psp_queue_insert - Queue a TX key for insertion into the SADB
+ * @adapter: private data struct
+ * @key: the TX key, with its SPI and key set
+ *
+ * Reserve a SADB entry for the key and queue it for insertion. The PSP work
+ * inserts the queued keys, see idpf_send_insert_psp_keys(), and releases the
+ * reference taken on @key once the insertion completed.
+ *
+ * Return: 0 on success, -ENOSPC if the SADB or the insertion queue is full.
+ */
+int idpf_psp_queue_insert(struct idpf_adapter *adapter,
+			  struct idpf_psp_tx_key *key)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+
+	spin_lock_bh(&psp->insert_lock);
+	if (idpf_psp_sadb_full(adapter)) {
+		spin_unlock_bh(&psp->insert_lock);
+		atomic_inc(&psp->keys_refused);
+		return -ENOSPC;
+	}
+
+	atomic_inc(&psp->sadb_used);
+	idpf_psp_tx_key_get(key);
+	list_add_tail(&key->ins_node, &psp->ins_list);
+	WRITE_ONCE(psp->ins_queued, psp->ins_queued + 1);
+	spin_unlock_bh(&psp->insert_lock);
+
+	idpf_queue_psp_work(adapter);
+
+	return 0;
 }
 
 /**
@@ -512,6 +567,13 @@ static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 	if (psp_key_size(version) != sizeof(rx_key.key)) {
 		NL_SET_ERR_MSG_MOD(extack, "Unsupported PSP version");
 		return -EOPNOTSUPP;
+	}
+
+	/* Refuse new connections whose TX key couldn't be inserted */
+	if (idpf_psp_sadb_full(adapter)) {
+		atomic_inc(&adapter->psp.keys_refused);
+		NL_SET_ERR_MSG_MOD(extack, "PSP SADB full");
+		return -ENOSPC;
 	}
 
 	err = idpf_send_allocate_psp_key(adapter, &rx_key);

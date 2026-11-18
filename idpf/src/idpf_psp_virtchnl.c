@@ -471,6 +471,7 @@ static void idpf_psp_delete_done(struct idpf_adapter *adapter,
 	struct idpf_psp_tx_key *key, *tmp;
 
 	atomic_add(removed, &adapter->psp.keys_removed);
+	atomic_sub(removed, &adapter->psp.sadb_used);
 	if (lost) {
 		atomic_add(lost, &adapter->psp.keys_lost);
 		net_warn_ratelimited("%s: %u SA indexes couldn't be deleted\n",
@@ -881,6 +882,8 @@ static void idpf_psp_insert_late(struct idpf_adapter *adapter,
 			continue;
 
 		atomic_inc(&adapter->psp.insert_late);
+		/* The SA index is used until it is deleted */
+		atomic_inc(&adapter->psp.sadb_used);
 		key = idpf_psp_tx_key_alloc();
 		if (!key) {
 			atomic_inc(&adapter->psp.keys_lost);
@@ -927,6 +930,7 @@ void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 				max(atomic_read(&adapter->psp.keys_lost), 0));
 		atomic_sub(deleted, &adapter->psp.keys_lost);
 		atomic_add(deleted, &adapter->psp.keys_removed);
+		atomic_sub(deleted, &adapter->psp.sadb_used);
 		break;
 	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
 		if (idpf_is_psp_ena(adapter) && !ctlq_msg->cookie.mbx.chnl_retval)

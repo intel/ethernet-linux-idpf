@@ -155,6 +155,7 @@ struct idpf_psp_dev_stats {
  *		  idpf_psp_insert_timeout()
  * @ins_list: TX keys queued for insertion
  * @ins_queued: number of keys in @ins_list
+ * @sadb_used: SADB entries used, or reserved by keys queued for insertion
  * @keys_allocated: RX keys allocated
  * @keys_inserted: TX keys inserted into the SADB
  * @insert_errors: TX keys whose insertion failed
@@ -162,6 +163,7 @@ struct idpf_psp_dev_stats {
  * @keys_removed: SA indexes deleted
  * @keys_lost: SA indexes that couldn't be deleted
  * @del_retries: SA indexes retried after a failed deletion request
+ * @keys_refused: RX and TX keys refused, SADB or insertion queue full
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -184,6 +186,7 @@ struct idpf_adapter_psp {
 	struct timer_list insert_timer;
 	struct list_head ins_list;
 	u32 ins_queued;
+	atomic_t sadb_used;
 	atomic_t keys_allocated;
 	atomic_t keys_inserted;
 	atomic_t insert_errors;
@@ -191,6 +194,7 @@ struct idpf_adapter_psp {
 	atomic_t keys_removed;
 	atomic_t keys_lost;
 	atomic_t del_retries;
+	atomic_t keys_refused;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;
