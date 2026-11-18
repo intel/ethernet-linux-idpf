@@ -17,6 +17,12 @@
 /* Maximum number of packets queued per TX key until its SA index is known */
 #define IDPF_PSP_TX_QUEUE_MAX		64
 
+/* Bits of 26 bit SA indexes in the split-DMA fields of the context
+ * descriptor, see idpf_psp_tx_ctx_desc()
+ */
+#define IDPF_PSP_SAIDX_PFNUM_S		21	/* bits 21-24 in PFNUM */
+#define IDPF_PSP_SAIDX_HOST_S		25	/* bit 25 in HOST bit 0 */
+
 /**
  * idpf_queue_psp_work - Queue the PSP work
  * @adapter: private data struct
@@ -880,6 +886,54 @@ drop:
 	idpf_tx_drop_skb(tx_q, skb);
 
 	return IDPF_PSP_TX_CONSUMED;
+}
+
+/**
+ * idpf_psp_tx_ctx_desc - Build the context descriptor of a PSP packet
+ * @desc: the context descriptor
+ * @off: offload parameters of the packet, see idpf_tso()
+ * @tso: whether the packet uses TSO
+ * @saidx: SA index of the TX key of the packet
+ *
+ * PSP packets use the TX native "with SA with Host offload" TSO context
+ * descriptor (DTYPE 9), with or without TSO. Its split-DMA fields (FTYPE,
+ * FNUM, PFNUM and HOST) are 0, a 0 FTYPE is FTYPE_VF, except for the bits of 26
+ * bit SA indexes: SA index bits 21 to 24 are in the PFNUM field and bit 25 in
+ * bit 0 of the HOST field.
+ */
+void idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
+			  const struct idpf_tx_offload_params *off, bool tso,
+			  u32 saidx)
+{
+	u64 qw1 = IDPF_TX_DESC_DTYPE_FLEX_HOSTSPLIT_SA_TSO_CTX;
+	struct idpf_flex_tx_hs_ctx_desc *ctx =
+		(struct idpf_flex_tx_hs_ctx_desc *)desc;
+	u32 host_fnum_tlen = 0;
+
+	memset(ctx, 0, sizeof(*ctx));
+
+	if (tso) {
+		qw1 |= IDPF_TX_FLEX_CTX_DESC_CMD_TSO;
+		host_fnum_tlen = off->tso_len & IDPF_TXD_FLEX_CTX_TLEN_M;
+		ctx->qw0.tso.ftype_mss_rt =
+			cpu_to_le16(off->mss & IDPF_TXD_FLEX_CTX_MSS_RT_M);
+		ctx->qw0.tso.hdr_len = off->tso_hdr_len;
+	}
+
+	/* Parser tag 1, for the benefit of the FXP */
+	ctx->qw0.tso.ptag = 1;
+
+	host_fnum_tlen |= ((saidx >> IDPF_PSP_SAIDX_HOST_S) & 1) <<
+			  IDPF_TXD_FLEX_CTX_HOST_S;
+	ctx->qw0.tso.host_fnum_tlen = cpu_to_le32(host_fnum_tlen);
+
+	qw1 |= ((u64)(saidx & IDPF_TXD_FLEX_CTX_QW1_SAIDX_M) <<
+		IDPF_TXD_FLEX_CTX_QW1_SAIDX_S) |
+	       ((u64)((saidx >> IDPF_PSP_SAIDX_PFNUM_S) &
+		      IDPF_TXD_FLEX_CTX_QW1_PFNUM_M) <<
+		IDPF_TXD_FLEX_CTX_QW1_PFNUM_S) |
+	       IDPF_TXD_FLEX_CTX_QW1_SAIDX_VALID;
+	ctx->qw1_cmd_dtype = cpu_to_le64(qw1);
 }
 
 /**
