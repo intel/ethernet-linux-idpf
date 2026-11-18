@@ -3482,16 +3482,19 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 	if (unlikely(!count))
 		return idpf_tx_drop_skb(tx_q, skb);
 
-	tso = idpf_tso(skb, &tx_params.offload);
-	if (unlikely(tso < 0))
-		return idpf_tx_drop_skb(tx_q, skb);
-
-	/* Check for splitq specific TX resources */
-	count += tso + vlan_tag;
+	/* Check for splitq specific TX resources before idpf_tso(), which
+	 * changes the headers: a packet requeued after NETDEV_TX_BUSY must be
+	 * left untouched.
+	 */
+	count += skb_is_gso(skb) + vlan_tag;
 	if (idpf_tx_maybe_stop_splitq(tx_q, count, buf_count)) {
 		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
 		return NETDEV_TX_BUSY;
 	}
+
+	tso = idpf_tso(skb, &tx_params.offload);
+	if (unlikely(tso < 0))
+		return idpf_tx_drop_skb(tx_q, skb);
 
 	if (tso) {
 		/* If tso is needed, set up context desc */
