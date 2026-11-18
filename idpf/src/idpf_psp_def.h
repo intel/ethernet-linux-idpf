@@ -9,6 +9,8 @@
 #include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
 #if IS_ENABLED(CONFIG_INET_PSP)
 #include <net/psp.h>
 #endif
@@ -54,6 +56,27 @@ struct idpf_psp_tx_key {
 	struct list_head del_node;
 	bool del_single;
 	struct rcu_head rcu;
+};
+
+/**
+ * struct idpf_psp_insert_req - VIRTCHNL2_OP_PSP_INSERT_KEYS request
+ * @adapter: adapter the request was sent for
+ * @expires: when the request times out, in jiffies, see
+ *	     idpf_psp_insert_check_timeout()
+ * @cookie: cookie of the mailbox transaction of the request, see
+ *	    idpf_vc_xn_retire()
+ * @num_keys: number of keys in the request
+ * @keys: keys of the request in request order, with a reference each
+ *
+ * The request is the context of the response callback: it binds the response
+ * to the keys it was sent for, see idpf_psp_insert_keys_cb().
+ */
+struct idpf_psp_insert_req {
+	struct idpf_adapter *adapter;
+	unsigned long expires;
+	u16 cookie;
+	u32 num_keys;
+	struct idpf_psp_tx_key *keys[] __counted_by(num_keys);
 };
 
 /**
@@ -118,7 +141,16 @@ struct idpf_psp_dev_stats {
  *		 PSP was negotiated
  * @del_lock: protects @del_list
  * @del_list: TX keys whose SA index is queued for deletion
+ * @wq: workqueue of @work
+ * @work: sends the insertion and deletion requests
+ * @insert_lock: protects @insert_req
+ * @insert_req: the VIRTCHNL2_OP_PSP_INSERT_KEYS request in flight, if any
+ * @insert_timer: queues @work to time out a lost insert request, see
+ *		  idpf_psp_insert_timeout()
  * @keys_allocated: RX keys allocated
+ * @keys_inserted: TX keys inserted into the SADB
+ * @insert_errors: TX keys whose insertion failed
+ * @insert_late: SA indexes of late insertion replies, queued for deletion
  * @keys_removed: SA indexes deleted
  * @keys_lost: SA indexes that couldn't be deleted
  * @del_retries: SA indexes retried after a failed deletion request
@@ -137,7 +169,15 @@ struct idpf_adapter_psp {
 	bool initialized;
 	spinlock_t del_lock;		/* protects del_list */
 	struct list_head del_list;
+	struct workqueue_struct *wq;
+	struct delayed_work work;
+	spinlock_t insert_lock;		/* protects the insertions */
+	struct idpf_psp_insert_req *insert_req;
+	struct timer_list insert_timer;
 	atomic_t keys_allocated;
+	atomic_t keys_inserted;
+	atomic_t insert_errors;
+	atomic_t insert_late;
 	atomic_t keys_removed;
 	atomic_t keys_lost;
 	atomic_t del_retries;

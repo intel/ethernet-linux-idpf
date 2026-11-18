@@ -8,6 +8,97 @@
 
 #include <net/psp.h>
 
+/* Delay before the PSP work sends again a request that couldn't be sent */
+#define IDPF_PSP_RETRY_MSEC		100
+
+/**
+ * idpf_queue_psp_work - Queue the PSP work
+ * @adapter: private data struct
+ */
+void idpf_queue_psp_work(struct idpf_adapter *adapter)
+{
+	if (adapter->psp.wq)
+		mod_delayed_work(adapter->psp.wq, &adapter->psp.work, 0);
+}
+
+/**
+ * idpf_retry_psp_work - Queue the PSP work after a request couldn't be sent
+ * @adapter: private data struct
+ *
+ * The request is sent again after IDPF_PSP_RETRY_MSEC, unless the PSP work is
+ * queued earlier.
+ */
+void idpf_retry_psp_work(struct idpf_adapter *adapter)
+{
+	if (adapter->psp.wq)
+		queue_delayed_work(adapter->psp.wq, &adapter->psp.work,
+				   msecs_to_jiffies(IDPF_PSP_RETRY_MSEC));
+}
+
+/**
+ * idpf_cancel_psp_work - Cancel the PSP work and wait for it to finish
+ * @adapter: private data struct
+ */
+void idpf_cancel_psp_work(struct idpf_adapter *adapter)
+{
+	if (adapter->psp.wq)
+		cancel_delayed_work_sync(&adapter->psp.work);
+}
+
+/**
+ * idpf_psp_work - Send the PSP key insertion and deletion requests
+ * @work: work of struct idpf_adapter_psp
+ *
+ * Time out the insert request in flight, then send at most one request of
+ * each kind. The work is queued again when there is more to do, or after a
+ * delay when a request couldn't be sent.
+ */
+static void idpf_psp_work(struct work_struct *work)
+{
+	struct idpf_adapter *adapter = container_of(to_delayed_work(work),
+						    struct idpf_adapter,
+						    psp.work);
+
+	/* The mailbox is initialized again on reset, and released on remove
+	 * and shutdown, see idpf_psp_quiesce()
+	 */
+	if (idpf_is_reset_in_prog(adapter) ||
+	    test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
+		return;
+
+	idpf_psp_insert_check_timeout(adapter);
+	if (idpf_send_delete_psp_keys(adapter))
+		idpf_queue_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_insert_timeout - Insert request timer
+ * @t: insert_timer of struct idpf_adapter_psp
+ *
+ * The mailbox transactions don't time out asynchronous requests: the PSP work
+ * times out the insert request in flight, see
+ * idpf_psp_insert_check_timeout(). The transaction lock can't be taken here.
+ */
+static void idpf_psp_insert_timeout(struct timer_list *t)
+{
+	struct idpf_adapter_psp *psp = timer_container_of(psp, t, insert_timer);
+	struct idpf_adapter *adapter = container_of(psp, struct idpf_adapter,
+						    psp);
+
+	idpf_queue_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_insert_timer_arm - Start the insert request timer
+ * @adapter: private data struct
+ * @expires: timeout of the insert request in jiffies
+ */
+void idpf_psp_insert_timer_arm(struct idpf_adapter *adapter,
+			       unsigned long expires)
+{
+	mod_timer(&adapter->psp.insert_timer, expires);
+}
+
 /**
  * idpf_psp_negotiate_caps - Negotiate the crypto and PSP capabilities
  * @adapter: private data struct
@@ -113,7 +204,21 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	if (!psp->initialized) {
 		spin_lock_init(&psp->del_lock);
 		INIT_LIST_HEAD(&psp->del_list);
+		INIT_DELAYED_WORK(&psp->work, idpf_psp_work);
+		spin_lock_init(&psp->insert_lock);
+		timer_setup(&psp->insert_timer, idpf_psp_insert_timeout, 0);
 		psp->initialized = true;
+	}
+
+	if (!psp->wq) {
+		psp->wq = alloc_workqueue("%s-%s-psp",
+					  WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS,
+					  0, dev_driver_string(dev),
+					  dev_name(dev));
+		if (!psp->wq) {
+			dev_warn(dev, "PSP disabled, failed to allocate the workqueue\n");
+			return;
+		}
 	}
 
 	/* The master keys are tracked again for the new PSP device */
@@ -126,8 +231,58 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	atomic_set(&psp->keys_removed, 0);
 	atomic_set(&psp->keys_lost, 0);
 	atomic_set(&psp->del_retries, 0);
+	atomic_set(&psp->keys_inserted, 0);
+	atomic_set(&psp->insert_errors, 0);
+	atomic_set(&psp->insert_late, 0);
 
 	WRITE_ONCE(psp->enabled, true);
+}
+
+/**
+ * idpf_psp_quiesce - Stop the PSP work and drop the pending requests
+ * @adapter: private data struct
+ *
+ * Called after idpf_vc_xn_shutdown(), which discards the asynchronous
+ * transactions without calling their response callback: the keys of the
+ * insert request in flight are failed here. The SA indexes queued for deletion
+ * are dropped, as the SADB is flushed by the reset or remove that follows, see
+ * idpf_psp_queue_delete().
+ */
+void idpf_psp_quiesce(struct idpf_adapter *adapter)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct idpf_psp_tx_key *key, *tmp;
+	struct idpf_psp_insert_req *req;
+	LIST_HEAD(keys);
+	u32 i;
+
+	if (!psp->wq)
+		return;
+
+	cancel_delayed_work_sync(&psp->work);
+	timer_delete_sync(&psp->insert_timer);
+
+	spin_lock_bh(&psp->insert_lock);
+	req = psp->insert_req;
+	psp->insert_req = NULL;
+	spin_unlock_bh(&psp->insert_lock);
+
+	if (req) {
+		for (i = 0; i < req->num_keys; i++) {
+			idpf_psp_tx_key_failed(adapter, req->keys[i]);
+			idpf_psp_tx_key_put(req->keys[i]);
+		}
+		kfree(req);
+	}
+
+	spin_lock_bh(&psp->del_lock);
+	list_splice_init(&psp->del_list, &keys);
+	spin_unlock_bh(&psp->del_lock);
+
+	list_for_each_entry_safe(key, tmp, &keys, del_node) {
+		list_del_init(&key->del_node);
+		idpf_psp_tx_key_put(key);
+	}
 }
 
 /**
@@ -139,6 +294,13 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 void idpf_psp_free(struct idpf_adapter *adapter)
 {
 	idpf_psp_unregister(adapter);
+
+	if (!adapter->psp.wq)
+		return;
+
+	idpf_psp_quiesce(adapter);
+	destroy_workqueue(adapter->psp.wq);
+	adapter->psp.wq = NULL;
 }
 
 /**
@@ -218,6 +380,53 @@ void idpf_psp_queue_delete(struct idpf_adapter *adapter,
 	spin_lock_bh(&psp->del_lock);
 	list_add_tail(&key->del_node, &psp->del_list);
 	spin_unlock_bh(&psp->del_lock);
+
+	idpf_queue_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_tx_key_inserted - Complete the insertion of a TX key
+ * @adapter: private data struct
+ * @key: TX key of an insert request
+ * @saidx: SA index the key was inserted at, see idpf_psp_saidx_ok()
+ *
+ * Called from the insert response callback, must not sleep.
+ */
+void idpf_psp_tx_key_inserted(struct idpf_adapter *adapter,
+			      struct idpf_psp_tx_key *key, u32 saidx)
+{
+	bool deleted;
+
+	atomic_inc(&adapter->psp.keys_inserted);
+
+	spin_lock_bh(&key->lock);
+	key->hw_idx = saidx;
+	deleted = key->idx == IDPF_PSP_IDX_DELETED;
+	if (!deleted)
+		WRITE_ONCE(key->idx, saidx);
+	spin_unlock_bh(&key->lock);
+
+	/* The key was deleted while its insertion was pending */
+	if (deleted)
+		idpf_psp_queue_delete(adapter, key);
+}
+
+/**
+ * idpf_psp_tx_key_failed - Fail the insertion of a TX key
+ * @adapter: private data struct
+ * @key: TX key of an insert request
+ *
+ * Called from the insert response callback, must not sleep.
+ */
+void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
+			    struct idpf_psp_tx_key *key)
+{
+	atomic_inc(&adapter->psp.insert_errors);
+
+	spin_lock_bh(&key->lock);
+	if (key->idx == IDPF_PSP_IDX_IN_PROG)
+		WRITE_ONCE(key->idx, IDPF_PSP_IDX_ERROR);
+	spin_unlock_bh(&key->lock);
 }
 
 /**

@@ -497,7 +497,8 @@ static void idpf_psp_delete_done(struct idpf_adapter *adapter,
  *   it and its SA indexes may be in use by new keys: they are counted as lost,
  *   a late reply moves the deleted ones to removed, see
  *   idpf_psp_recv_late_reply();
- * - a request that couldn't be sent is retried the next time the PSP work runs.
+ * - a request that couldn't be sent is sent again after a delay, see
+ *   idpf_retry_psp_work().
  *
  * Return: true if SA indexes are still queued for deletion, false otherwise.
  */
@@ -606,8 +607,116 @@ requeue:
 	list_splice(&batch, &psp->del_list);
 	spin_unlock_bh(&psp->del_lock);
 	net_warn_ratelimited("%s: request not sent: %d\n", __func__, err);
+	idpf_retry_psp_work(adapter);
 
 	return false;
+}
+
+/**
+ * idpf_psp_insert_timed_out - Fail the TX keys of an insert request
+ * @adapter: Driver specific private structure
+ * @req: insert request that timed out, its transaction was retired
+ */
+static void idpf_psp_insert_timed_out(struct idpf_adapter *adapter,
+				      struct idpf_psp_insert_req *req)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	u32 i;
+
+	net_warn_ratelimited("%s: request timed out\n", __func__);
+
+	spin_lock_bh(&psp->insert_lock);
+	if (psp->insert_req == req)
+		psp->insert_req = NULL;
+	spin_unlock_bh(&psp->insert_lock);
+
+	for (i = 0; i < req->num_keys; i++) {
+		idpf_psp_tx_key_failed(adapter, req->keys[i]);
+		idpf_psp_tx_key_put(req->keys[i]);
+	}
+
+	kfree(req);
+
+	/* Send the next request */
+	idpf_queue_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_insert_check_timeout - Time out the insert request in flight
+ * @adapter: Driver specific private structure
+ *
+ * The mailbox transactions don't time out asynchronous requests, and only
+ * release their transaction when the reply is received. Once the insert
+ * request in flight timed out, release its transaction: a reply received
+ * afterwards is a late reply, see idpf_psp_recv_late_reply(). Called from the
+ * PSP work, queued by the insert request timer.
+ */
+void idpf_psp_insert_check_timeout(struct idpf_adapter *adapter)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct idpf_psp_insert_req *req;
+	bool expired = false;
+	u16 cookie = 0;
+
+	spin_lock_bh(&psp->insert_lock);
+	req = psp->insert_req;
+	if (req) {
+		cookie = req->cookie;
+		expired = time_after_eq(jiffies, req->expires);
+	}
+	spin_unlock_bh(&psp->insert_lock);
+
+	/* The response callback frees the request once it was called, which
+	 * can't happen anymore once the transaction was retired
+	 */
+	if (expired && idpf_vc_xn_retire(adapter, cookie, req))
+		idpf_psp_insert_timed_out(adapter, req);
+}
+
+/**
+ * idpf_psp_insert_late - Delete the SA indexes of a late insertion reply
+ * @adapter: Driver specific private structure
+ * @ctlq_msg: VIRTCHNL2_OP_PSP_INSERT_KEYS reply
+ *
+ * The keys of the request were failed when it timed out: delete the SA indexes
+ * they were inserted at.
+ */
+static void idpf_psp_insert_late(struct idpf_adapter *adapter,
+				 const struct idpf_ctlq_msg *ctlq_msg)
+{
+	const struct virtchnl2_psp_insert_keys_response *resp;
+	struct idpf_psp_tx_key *key;
+	u32 i, num_sa_indexes;
+	size_t hdr_sz;
+
+	hdr_sz = offsetof(struct virtchnl2_psp_insert_keys_response,
+			  sa_indexes);
+	if (!ctlq_msg->ctx.indirect.payload || ctlq_msg->data_len < hdr_sz)
+		return;
+
+	resp = (const struct virtchnl2_psp_insert_keys_response *)
+	       ctlq_msg->ctx.indirect.payload->va;
+	num_sa_indexes = min_t(size_t, le32_to_cpu(resp->num_sa_indexes),
+			       (ctlq_msg->data_len - hdr_sz) /
+			       sizeof(resp->sa_indexes[0]));
+
+	for (i = 0; i < num_sa_indexes; i++) {
+		u32 saidx = le32_to_cpu(resp->sa_indexes[i]);
+
+		if (!idpf_psp_saidx_ok(adapter, saidx))
+			continue;
+
+		atomic_inc(&adapter->psp.insert_late);
+		key = idpf_psp_tx_key_alloc();
+		if (!key) {
+			atomic_inc(&adapter->psp.keys_lost);
+			continue;
+		}
+
+		key->hw_idx = saidx;
+		idpf_psp_queue_delete(adapter, key);
+		idpf_psp_tx_key_put(key);
+	}
 }
 
 /**
@@ -618,7 +727,8 @@ requeue:
  * Called by idpf_vc_xn_forward_reply() for the replies no transaction waits
  * for anymore, e.g. after the request timed out. The SA indexes deleted by a
  * deletion reply were counted as lost, see idpf_send_delete_psp_keys(): they
- * are counted as removed.
+ * are counted as removed. The SA indexes of an insertion reply are deleted,
+ * see idpf_psp_insert_late().
  */
 void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 			      const struct idpf_ctlq_msg *ctlq_msg)
@@ -643,6 +753,10 @@ void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 				max(atomic_read(&adapter->psp.keys_lost), 0));
 		atomic_sub(deleted, &adapter->psp.keys_lost);
 		atomic_add(deleted, &adapter->psp.keys_removed);
+		break;
+	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
+		if (idpf_is_psp_ena(adapter) && !ctlq_msg->cookie.mbx.chnl_retval)
+			idpf_psp_insert_late(adapter, ctlq_msg);
 		break;
 	default:
 		break;

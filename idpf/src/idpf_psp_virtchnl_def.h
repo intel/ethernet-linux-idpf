@@ -6,6 +6,9 @@
 #ifndef _IDPF_PSP_VIRTCHNL_DEF_H_
 #define _IDPF_PSP_VIRTCHNL_DEF_H_
 
+/* Timeout of the asynchronous VIRTCHNL2_OP_PSP_INSERT_KEYS requests */
+#define IDPF_VC_XN_PSP_RESPONSE_TIMEOUT_MSEC	(60 * 1000)
+
 /* PSP key insertion and deletion requests must fit in one mailbox buffer,
  * which limits the number of TX keys and SA indexes per request.
  */
