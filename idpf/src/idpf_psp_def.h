@@ -45,6 +45,7 @@
  *	 IDPF_PSP_IDX_ERROR or IDPF_PSP_IDX_DELETED. Read without @lock.
  * @hw_idx: SA index of the key in the SADB, IDPF_PSP_IDX_NONE if it has none
  * @spi: SPI of the key
+ * @version: PSP version of the key
  * @key: the key, wiped once copied into the insert request
  * @ins_node: entry in the insert queue, see idpf_psp_queue_insert()
  * @del_node: entry in the delete queue, see idpf_psp_queue_delete()
@@ -60,6 +61,7 @@ struct idpf_psp_tx_key {
 	u32 idx;
 	u32 hw_idx;
 	__be32 spi;
+	u8 version;
 	u8 key[VIRTCHNL2_PSP_KEY_SIZE_V0];
 	struct list_head ins_node;
 	struct list_head del_node;
@@ -93,9 +95,13 @@ struct idpf_psp_insert_req {
 /**
  * struct idpf_psp_tx - PSP parameters of a TX packet
  * @saidx: SA index of the TX key
+ * @spi: SPI of the TX key
+ * @version: PSP version of the association
  */
 struct idpf_psp_tx {
 	u32 saidx;
+	__be32 spi;
+	u8 version;
 };
 
 /**

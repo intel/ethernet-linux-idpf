@@ -75,6 +75,8 @@ idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
 void idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
 			  const struct idpf_tx_offload_params *off, bool tso,
 			  u32 saidx);
+bool idpf_psp_tx_encap(struct idpf_queue *tx_q, struct sk_buff *skb,
+		       const struct idpf_psp_tx *psp);
 
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP
@@ -133,6 +135,13 @@ static inline void
 idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
 		     const struct idpf_tx_offload_params *off, bool tso,
 		     u32 saidx) { }
+
+static inline bool idpf_psp_tx_encap(struct idpf_queue *tx_q,
+				     struct sk_buff *skb,
+				     const struct idpf_psp_tx *psp)
+{
+	return false;
+}
 
 static inline void
 idpf_psp_rotation_event(struct idpf_adapter *adapter,
