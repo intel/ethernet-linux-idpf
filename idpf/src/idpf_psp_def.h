@@ -7,10 +7,13 @@
 #define _IDPF_PSP_DEF_H_
 
 #include <linux/kref.h>
+#include <linux/list.h>
 #include <linux/spinlock.h>
 #if IS_ENABLED(CONFIG_INET_PSP)
 #include <net/psp.h>
 #endif
+
+#include "idpf_psp_virtchnl_def.h"
 
 /* SA index widths supported by the driver, negotiated per adapter with
  * VIRTCHNL2_OP_CRYPTO_GET_CAPS, see idpf_psp_negotiate_caps().
@@ -37,12 +40,19 @@
  * @lock: protects @idx and @hw_idx updates, and @tx_queue
  * @idx: SA index the TX path uses, or IDPF_PSP_IDX_IN_PROG,
  *	 IDPF_PSP_IDX_ERROR or IDPF_PSP_IDX_DELETED. Read without @lock.
+ * @hw_idx: SA index of the key in the SADB, IDPF_PSP_IDX_NONE if it has none
+ * @del_node: entry in the delete queue, see idpf_psp_queue_delete()
+ * @del_single: delete @hw_idx in a request of its own, after a request that
+ *		failed
  * @rcu: for freeing the key after the RCU readers of the TX path
  */
 struct idpf_psp_tx_key {
 	struct kref ref;
 	spinlock_t lock;		/* protects the SA indexes and tx_queue */
 	u32 idx;
+	u32 hw_idx;
+	struct list_head del_node;
+	bool del_single;
 	struct rcu_head rcu;
 };
 
@@ -104,7 +114,14 @@ struct idpf_psp_dev_stats {
  *	    PSP device lock, see idpf_psp_rx_gen_update()
  * @stats: last PSP device statistics read with VIRTCHNL2_OP_GET_PSP_STATS,
  *	   protected by the PSP device lock, see idpf_psp_get_stats()
+ * @initialized: the locks and lists below were initialized, the first time
+ *		 PSP was negotiated
+ * @del_lock: protects @del_list
+ * @del_list: TX keys whose SA index is queued for deletion
  * @keys_allocated: RX keys allocated
+ * @keys_removed: SA indexes deleted
+ * @keys_lost: SA indexes that couldn't be deleted
+ * @del_retries: SA indexes retried after a failed deletion request
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -117,7 +134,13 @@ struct idpf_adapter_psp {
 	u8 generation;
 	struct idpf_psp_rx_gen rx_gen[2];
 	struct idpf_psp_dev_stats stats;
+	bool initialized;
+	spinlock_t del_lock;		/* protects del_list */
+	struct list_head del_list;
 	atomic_t keys_allocated;
+	atomic_t keys_removed;
+	atomic_t keys_lost;
+	atomic_t del_retries;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;

@@ -661,6 +661,7 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 				    xn->vc_op, xn->salt, xn->state,
 				    ctlq_msg->cookie.mbx.chnl_opcode, salt);
 		idpf_vc_xn_unlock(xn);
+		idpf_psp_recv_late_reply(adapter, ctlq_msg);
 		return -EINVAL;
 	}
 
@@ -671,6 +672,7 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 	case IDPF_VC_XN_IDLE:
 		dev_err_ratelimited(idpf_adapter_to_dev(adapter), "Unexpected or belated VC reply (op %d)\n",
 				    ctlq_msg->cookie.mbx.chnl_opcode);
+		idpf_psp_recv_late_reply(adapter, ctlq_msg);
 		err = -EINVAL;
 		goto out_unlock;
 	case IDPF_VC_XN_SHUTDOWN:

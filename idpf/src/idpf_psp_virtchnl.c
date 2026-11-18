@@ -458,6 +458,198 @@ release_rx:
 }
 
 /**
+ * idpf_psp_delete_done - Release the TX keys of a deletion request
+ * @adapter: Driver specific private structure
+ * @batch: TX keys of the request
+ * @removed: number of SA indexes the CP deleted
+ * @lost: number of SA indexes that couldn't be deleted
+ */
+static void idpf_psp_delete_done(struct idpf_adapter *adapter,
+				 struct list_head *batch, u32 removed,
+				 u32 lost)
+{
+	struct idpf_psp_tx_key *key, *tmp;
+
+	atomic_add(removed, &adapter->psp.keys_removed);
+	if (lost) {
+		atomic_add(lost, &adapter->psp.keys_lost);
+		net_warn_ratelimited("%s: %u SA indexes couldn't be deleted\n",
+				     __func__, lost);
+	}
+
+	list_for_each_entry_safe(key, tmp, batch, del_node) {
+		list_del_init(&key->del_node);
+		idpf_psp_tx_key_put(key);
+	}
+}
+
+/**
+ * idpf_send_delete_psp_keys - Delete queued SA indexes from the SADB
+ * @adapter: Driver specific private structure
+ *
+ * Send one synchronous VIRTCHNL2_OP_PSP_DELETE_KEYS request for the SA indexes
+ * queued by idpf_psp_queue_delete():
+ * - the CP fails the request if any SA index is invalid: the SA indexes of a
+ *   failed request are retried once each, in a request of their own;
+ * - the CP stops the deletion at the first hardware or config queue error:
+ *   the SA indexes it didn't delete stay in use and are counted as lost;
+ * - a request that timed out is not sent again, as the CP may have processed
+ *   it and its SA indexes may be in use by new keys: they are counted as lost,
+ *   a late reply moves the deleted ones to removed, see
+ *   idpf_psp_recv_late_reply();
+ * - a request that couldn't be sent is retried the next time the PSP work runs.
+ *
+ * Return: true if SA indexes are still queued for deletion, false otherwise.
+ */
+bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter)
+{
+	const struct virtchnl2_psp_delete_keys_response *del_resp;
+	struct virtchnl2_psp_delete_keys_request *del_req;
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct idpf_psp_tx_key *key, *tmp;
+	u32 i, removed, num_keys = 0;
+	struct kvec recv_mem = { };
+	bool single = false, more;
+	LIST_HEAD(batch);
+	size_t buf_size;
+	int err;
+
+	spin_lock_bh(&psp->del_lock);
+	list_for_each_entry_safe(key, tmp, &psp->del_list, del_node) {
+		/* SA indexes of a failed request are deleted on their own */
+		if (num_keys == IDPF_PSP_DELETE_KEYS_MAX ||
+		    (num_keys && key->del_single))
+			break;
+
+		list_move_tail(&key->del_node, &batch);
+		num_keys++;
+		if (key->del_single) {
+			single = true;
+			break;
+		}
+	}
+	more = !list_empty(&psp->del_list);
+	spin_unlock_bh(&psp->del_lock);
+
+	if (!num_keys)
+		return false;
+
+	buf_size = offsetof(struct virtchnl2_psp_delete_keys_request,
+			    sa_indexes) + num_keys * sizeof(__le32);
+	del_req = kzalloc(buf_size, GFP_KERNEL);
+	if (!del_req) {
+		err = -ENOMEM;
+		goto requeue;
+	}
+
+	del_req->vport_id = cpu_to_le32(READ_ONCE(psp->vport_id));
+	del_req->num_sa_indexes = cpu_to_le32(num_keys);
+	/* del_req->domain stays zeroed: VIRTCHNL2_PSP_DOMAIN_NONE */
+	i = 0;
+	list_for_each_entry(key, &batch, del_node)
+		del_req->sa_indexes[i++] = cpu_to_le32(key->hw_idx);
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_PSP_DELETE_KEYS,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       del_req, buf_size, &recv_mem);
+	kfree(del_req);
+	switch (err) {
+	case 0:
+		/* The reply has the number of deleted SA indexes, a reply
+		 * without it counts all SA indexes as deleted
+		 */
+		del_resp = (const struct virtchnl2_psp_delete_keys_response *)
+			   recv_mem.iov_base;
+		removed = num_keys;
+		if (recv_mem.iov_len >= sizeof(*del_resp))
+			removed = min(num_keys,
+				      le32_to_cpu(del_resp->num_sa_indexes_deleted));
+		else
+			net_warn_ratelimited("%s: short reply %zu\n", __func__,
+					     recv_mem.iov_len);
+		idpf_psp_release_rx_buf(&recv_mem);
+
+		idpf_psp_delete_done(adapter, &batch, removed,
+				     num_keys - removed);
+		return more;
+	case -EIO:
+		/* The CP failed the request, e.g. because of an invalid SA
+		 * index: retry each SA index on its own, once
+		 */
+		if (single)
+			break;
+
+		list_for_each_entry(key, &batch, del_node)
+			key->del_single = true;
+		atomic_add(num_keys, &psp->del_retries);
+		spin_lock_bh(&psp->del_lock);
+		list_splice(&batch, &psp->del_list);
+		spin_unlock_bh(&psp->del_lock);
+
+		return true;
+	case -ETIME:
+		break;
+	default:
+		goto requeue;
+	}
+
+	/* The request timed out, or failed again on its own */
+	idpf_psp_delete_done(adapter, &batch, 0, num_keys);
+
+	return more;
+
+requeue:
+	/* The request wasn't sent, e.g. no mailbox transaction was free. A
+	 * reset flushes the queue.
+	 */
+	spin_lock_bh(&psp->del_lock);
+	list_splice(&batch, &psp->del_list);
+	spin_unlock_bh(&psp->del_lock);
+	net_warn_ratelimited("%s: request not sent: %d\n", __func__, err);
+
+	return false;
+}
+
+/**
+ * idpf_psp_recv_late_reply - Handle a late reply to a PSP request
+ * @adapter: Driver specific private structure
+ * @ctlq_msg: reply, its receive buffer is posted back by the caller
+ *
+ * Called by idpf_vc_xn_forward_reply() for the replies no transaction waits
+ * for anymore, e.g. after the request timed out. The SA indexes deleted by a
+ * deletion reply were counted as lost, see idpf_send_delete_psp_keys(): they
+ * are counted as removed.
+ */
+void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
+			      const struct idpf_ctlq_msg *ctlq_msg)
+{
+	const struct virtchnl2_psp_delete_keys_response *del_resp;
+	u32 deleted;
+
+	switch (ctlq_msg->cookie.mbx.chnl_opcode) {
+	case VIRTCHNL2_OP_PSP_DELETE_KEYS:
+		if (!idpf_is_psp_ena(adapter) ||
+		    ctlq_msg->cookie.mbx.chnl_retval ||
+		    !ctlq_msg->ctx.indirect.payload ||
+		    ctlq_msg->data_len < sizeof(*del_resp))
+			break;
+
+		del_resp = (const struct virtchnl2_psp_delete_keys_response *)
+			   ctlq_msg->ctx.indirect.payload->va;
+		/* Only the SA indexes counted as lost since the last core
+		 * init, the counters were reset by a reset meanwhile
+		 */
+		deleted = min_t(u32, le32_to_cpu(del_resp->num_sa_indexes_deleted),
+				max(atomic_read(&adapter->psp.keys_lost), 0));
+		atomic_sub(deleted, &adapter->psp.keys_lost);
+		atomic_add(deleted, &adapter->psp.keys_removed);
+		break;
+	default:
+		break;
+	}
+}
+
+/**
  * idpf_psp_recv_reply - Wipe the RX keys of a reply from the mailbox buffer
  * @adapter: Driver specific private structure
  * @ctlq_msg: reply, its receive buffer is posted back by the caller
