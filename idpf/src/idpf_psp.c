@@ -109,6 +109,13 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		dev_warn(dev, "Failed to get PSP FIPS compliance status: %d\n",
 			 err);
 
+	/* Initialized the first time PSP is negotiated */
+	if (!psp->initialized) {
+		spin_lock_init(&psp->del_lock);
+		INIT_LIST_HEAD(&psp->del_list);
+		psp->initialized = true;
+	}
+
 	/* The master keys are tracked again for the new PSP device */
 	psp->generation = 0;
 	psp->rx_gen[0].gen = IDPF_PSP_GEN_UNKNOWN;
@@ -116,6 +123,9 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 
 	/* The counters cover the time since the core init */
 	atomic_set(&psp->keys_allocated, 0);
+	atomic_set(&psp->keys_removed, 0);
+	atomic_set(&psp->keys_lost, 0);
+	atomic_set(&psp->del_retries, 0);
 
 	WRITE_ONCE(psp->enabled, true);
 }
@@ -147,6 +157,8 @@ struct idpf_psp_tx_key *idpf_psp_tx_key_alloc(void)
 	kref_init(&key->ref);
 	spin_lock_init(&key->lock);
 	key->idx = IDPF_PSP_IDX_IN_PROG;
+	key->hw_idx = IDPF_PSP_IDX_NONE;
+	INIT_LIST_HEAD(&key->del_node);
 
 	return key;
 }
@@ -180,6 +192,32 @@ void idpf_psp_tx_key_get(struct idpf_psp_tx_key *key)
 void idpf_psp_tx_key_put(struct idpf_psp_tx_key *key)
 {
 	kref_put(&key->ref, idpf_psp_tx_key_free);
+}
+
+/**
+ * idpf_psp_queue_delete - Queue the deletion of the SA index of a TX key
+ * @adapter: private data struct
+ * @key: the TX key, whose hw_idx is the SA index to delete
+ *
+ * The deletion requests are sent by the PSP work, which releases the
+ * reference taken on @key once the SA index was deleted, see
+ * idpf_send_delete_psp_keys(). No deletion is queued during a reset or
+ * remove: the SADB is flushed by the reset, and by the function reset on
+ * remove.
+ */
+void idpf_psp_queue_delete(struct idpf_adapter *adapter,
+			   struct idpf_psp_tx_key *key)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+
+	if (idpf_is_reset_in_prog(adapter) ||
+	    test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
+		return;
+
+	idpf_psp_tx_key_get(key);
+	spin_lock_bh(&psp->del_lock);
+	list_add_tail(&key->del_node, &psp->del_list);
+	spin_unlock_bh(&psp->del_lock);
 }
 
 /**

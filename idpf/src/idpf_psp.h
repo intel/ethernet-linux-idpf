@@ -16,12 +16,16 @@ void idpf_psp_register(struct idpf_adapter *adapter);
 void idpf_psp_unregister(struct idpf_adapter *adapter);
 void idpf_psp_recv_reply(struct idpf_adapter *adapter,
 			 const struct idpf_ctlq_msg *ctlq_msg);
+void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
+			      const struct idpf_ctlq_msg *ctlq_msg);
 void idpf_psp_rotation_event(struct idpf_adapter *adapter,
 			     const struct idpf_ctlq_msg *ctlq_msg);
 
 struct idpf_psp_tx_key *idpf_psp_tx_key_alloc(void);
 void idpf_psp_tx_key_get(struct idpf_psp_tx_key *key);
 void idpf_psp_tx_key_put(struct idpf_psp_tx_key *key);
+void idpf_psp_queue_delete(struct idpf_adapter *adapter,
+			   struct idpf_psp_tx_key *key);
 
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP
@@ -60,6 +64,10 @@ static inline void idpf_psp_unregister(struct idpf_adapter *adapter) { }
 static inline void
 idpf_psp_recv_reply(struct idpf_adapter *adapter,
 		    const struct idpf_ctlq_msg *ctlq_msg) { }
+
+static inline void
+idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
+			 const struct idpf_ctlq_msg *ctlq_msg) { }
 
 static inline void
 idpf_psp_rotation_event(struct idpf_adapter *adapter,
