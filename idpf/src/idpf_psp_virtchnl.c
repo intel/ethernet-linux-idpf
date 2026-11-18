@@ -613,26 +613,77 @@ requeue:
 }
 
 /**
- * idpf_psp_insert_timed_out - Fail the TX keys of an insert request
- * @adapter: Driver specific private structure
- * @req: insert request that timed out, its transaction was retired
+ * idpf_psp_insert_keys_cb - VIRTCHNL2_OP_PSP_INSERT_KEYS response callback
+ * @ctx: struct idpf_psp_insert_req of the request
+ * @buff: reply, NULL if the request timed out
+ * @status: 0 on success, -EIO if the CP failed the request, -ETIMEDOUT if
+ *	    the request timed out
+ *
+ * Called once per request that was sent: by the mailbox transactions with the
+ * reply, or by idpf_psp_insert_check_timeout(), except on shutdown, see
+ * idpf_psp_quiesce(). The mailbox transactions call it from the mailbox task
+ * with the transaction locked, it must not sleep. The CP inserts the keys in
+ * request order and stops at the first failure: the keys without an SA index
+ * in the reply failed.
  */
-static void idpf_psp_insert_timed_out(struct idpf_adapter *adapter,
-				      struct idpf_psp_insert_req *req)
+static void idpf_psp_insert_keys_cb(void *ctx, struct kvec *buff, int status)
 {
-	struct idpf_adapter_psp *psp = &adapter->psp;
-	u32 i;
+	struct idpf_psp_insert_req *req = ctx;
+	const struct virtchnl2_psp_insert_keys_response *resp = NULL;
+	struct idpf_adapter_psp *psp = &req->adapter->psp;
+	struct idpf_adapter *adapter = req->adapter;
+	u32 i, num_sa_indexes = 0;
+	size_t hdr_sz;
 
-	net_warn_ratelimited("%s: request timed out\n", __func__);
+	hdr_sz = offsetof(struct virtchnl2_psp_insert_keys_response,
+			  sa_indexes);
+	if (!status) {
+		size_t reply_sz = buff && buff->iov_base ? buff->iov_len : 0;
+
+		if (reply_sz >= hdr_sz) {
+			resp = (const struct virtchnl2_psp_insert_keys_response *)
+			       buff->iov_base;
+			num_sa_indexes = min3(le32_to_cpu(resp->num_sa_indexes),
+					      (u32)((reply_sz - hdr_sz) /
+						    sizeof(resp->sa_indexes[0])),
+					      req->num_keys);
+		} else {
+			net_warn_ratelimited("%s: short reply %zu\n", __func__,
+					     reply_sz);
+		}
+	} else {
+		net_warn_ratelimited("%s: request %s\n", __func__,
+				     status == -ETIMEDOUT ? "timed out" :
+							    "failed");
+	}
 
 	spin_lock_bh(&psp->insert_lock);
-	if (psp->insert_req == req)
+	if (psp->insert_req == req) {
+		/* Before the next request can arm it */
+		timer_delete(&psp->insert_timer);
 		psp->insert_req = NULL;
+	}
 	spin_unlock_bh(&psp->insert_lock);
 
 	for (i = 0; i < req->num_keys; i++) {
-		idpf_psp_tx_key_failed(adapter, req->keys[i]);
-		idpf_psp_tx_key_put(req->keys[i]);
+		struct idpf_psp_tx_key *key = req->keys[i];
+		u32 saidx = IDPF_PSP_IDX_NONE;
+
+		if (i < num_sa_indexes)
+			saidx = le32_to_cpu(resp->sa_indexes[i]);
+
+		if (idpf_psp_saidx_ok(adapter, saidx)) {
+			idpf_psp_tx_key_inserted(adapter, key, saidx);
+		} else {
+			if (i < num_sa_indexes)
+				net_warn_ratelimited("%s: invalid SA index %u\n",
+						     __func__, saidx);
+			idpf_psp_tx_key_failed(adapter, key);
+		}
+
+		/* The key was copied into the request */
+		memzero_explicit(key->key, sizeof(key->key));
+		idpf_psp_tx_key_put(key);
 	}
 
 	kfree(req);
@@ -670,7 +721,130 @@ void idpf_psp_insert_check_timeout(struct idpf_adapter *adapter)
 	 * can't happen anymore once the transaction was retired
 	 */
 	if (expired && idpf_vc_xn_retire(adapter, cookie, req))
-		idpf_psp_insert_timed_out(adapter, req);
+		idpf_psp_insert_keys_cb(req, NULL, -ETIMEDOUT);
+}
+
+/**
+ * idpf_psp_insert_requeue - Queue the TX keys of an unsent request again
+ * @adapter: Driver specific private structure
+ * @req: insert request that couldn't be sent
+ *
+ * The keys are sent again after a delay, see idpf_retry_psp_work().
+ */
+static void idpf_psp_insert_requeue(struct idpf_adapter *adapter,
+				    struct idpf_psp_insert_req *req)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	u32 i;
+
+	spin_lock_bh(&psp->insert_lock);
+	if (psp->insert_req == req)
+		psp->insert_req = NULL;
+	/* In request order, at the head of the queue */
+	for (i = req->num_keys; i; i--)
+		list_add(&req->keys[i - 1]->ins_node, &psp->ins_list);
+	WRITE_ONCE(psp->ins_queued, psp->ins_queued + req->num_keys);
+	spin_unlock_bh(&psp->insert_lock);
+
+	kfree(req);
+	idpf_retry_psp_work(adapter);
+}
+
+/**
+ * idpf_send_insert_psp_keys - Insert queued TX keys into the SADB
+ * @adapter: Driver specific private structure
+ *
+ * Send one asynchronous VIRTCHNL2_OP_PSP_INSERT_KEYS request for the TX keys
+ * queued by idpf_psp_queue_insert(), at most as many as fit in one message.
+ * At most one request is in flight: the response callback queues the PSP work
+ * again, see idpf_psp_insert_keys_cb(). Called from the PSP work.
+ */
+void idpf_send_insert_psp_keys(struct idpf_adapter *adapter)
+{
+	struct virtchnl2_psp_insert_keys_request *key_req;
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct idpf_vc_xn_params xn_params = {
+		.timeout_ms	= IDPF_VC_XN_PSP_RESPONSE_TIMEOUT_MSEC,
+		.async		= true,
+		.resp_cb	= idpf_psp_insert_keys_cb,
+		.vc_op		= VIRTCHNL2_OP_PSP_INSERT_KEYS,
+	};
+	struct idpf_psp_insert_req *req;
+	u32 i, num_keys;
+	size_t buf_size;
+	ssize_t err;
+
+	spin_lock_bh(&psp->insert_lock);
+	num_keys = psp->insert_req ? 0 :
+		   min_t(u32, psp->ins_queued, IDPF_PSP_INSERT_KEYS_MAX);
+	spin_unlock_bh(&psp->insert_lock);
+	if (!num_keys)
+		return;
+
+	req = kzalloc(struct_size(req, keys, num_keys), GFP_KERNEL);
+	if (!req) {
+		idpf_retry_psp_work(adapter);
+		return;
+	}
+
+	req->adapter = adapter;
+	req->expires = jiffies +
+		       msecs_to_jiffies(IDPF_VC_XN_PSP_RESPONSE_TIMEOUT_MSEC);
+
+	/* Keys may have been deleted meanwhile */
+	spin_lock_bh(&psp->insert_lock);
+	req->num_keys = min(num_keys, psp->ins_queued);
+	for (i = 0; i < req->num_keys; i++) {
+		req->keys[i] = list_first_entry(&psp->ins_list,
+						struct idpf_psp_tx_key,
+						ins_node);
+		list_del_init(&req->keys[i]->ins_node);
+	}
+	WRITE_ONCE(psp->ins_queued, psp->ins_queued - req->num_keys);
+	if (req->num_keys)
+		psp->insert_req = req;
+	spin_unlock_bh(&psp->insert_lock);
+
+	if (!req->num_keys) {
+		kfree(req);
+		return;
+	}
+
+	buf_size = offsetof(struct virtchnl2_psp_insert_keys_request, keys) +
+		   req->num_keys * sizeof(struct virtchnl2_insert_psp_key);
+	key_req = kzalloc(buf_size, GFP_KERNEL);
+	if (!key_req) {
+		idpf_psp_insert_requeue(adapter, req);
+		return;
+	}
+
+	key_req->vport_id = cpu_to_le32(READ_ONCE(psp->vport_id));
+	key_req->num_keys = cpu_to_le32(req->num_keys);
+	/* key_req->domain stays zeroed: VIRTCHNL2_PSP_DOMAIN_NONE */
+	for (i = 0; i < req->num_keys; i++) {
+		key_req->keys[i].spi = cpu_to_le32(be32_to_cpu(req->keys[i]->spi));
+		key_req->keys[i].key_type = VIRTCHNL2_PSP_KEY_TYPE_V0;
+		memcpy(key_req->keys[i].v0_key, req->keys[i]->key,
+		       VIRTCHNL2_PSP_KEY_SIZE_V0);
+	}
+
+	/* The request can complete as soon as it is sent */
+	xn_params.send_buf.iov_base = key_req;
+	xn_params.send_buf.iov_len = buf_size;
+	xn_params.send_ctx = req;
+	xn_params.async_cookie = &req->cookie;
+	idpf_psp_insert_timer_arm(adapter, req->expires);
+	err = idpf_vc_xn_exec(adapter, &xn_params);
+	/* The request was copied into the mailbox buffer */
+	memzero_explicit(key_req, buf_size);
+	kfree(key_req);
+	if (err) {
+		/* The response callback is only called for sent requests */
+		timer_delete(&psp->insert_timer);
+		net_warn_ratelimited("%s: request not sent: %zd\n", __func__,
+				     err);
+		idpf_psp_insert_requeue(adapter, req);
+	}
 }
 
 /**

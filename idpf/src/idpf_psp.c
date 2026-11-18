@@ -67,6 +67,7 @@ static void idpf_psp_work(struct work_struct *work)
 		return;
 
 	idpf_psp_insert_check_timeout(adapter);
+	idpf_send_insert_psp_keys(adapter);
 	if (idpf_send_delete_psp_keys(adapter))
 		idpf_queue_psp_work(adapter);
 }
@@ -207,6 +208,7 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		INIT_DELAYED_WORK(&psp->work, idpf_psp_work);
 		spin_lock_init(&psp->insert_lock);
 		timer_setup(&psp->insert_timer, idpf_psp_insert_timeout, 0);
+		INIT_LIST_HEAD(&psp->ins_list);
 		psp->initialized = true;
 	}
 
@@ -265,6 +267,8 @@ void idpf_psp_quiesce(struct idpf_adapter *adapter)
 	spin_lock_bh(&psp->insert_lock);
 	req = psp->insert_req;
 	psp->insert_req = NULL;
+	list_splice_init(&psp->ins_list, &keys);
+	WRITE_ONCE(psp->ins_queued, 0);
 	spin_unlock_bh(&psp->insert_lock);
 
 	if (req) {
@@ -273,6 +277,12 @@ void idpf_psp_quiesce(struct idpf_adapter *adapter)
 			idpf_psp_tx_key_put(req->keys[i]);
 		}
 		kfree(req);
+	}
+
+	list_for_each_entry_safe(key, tmp, &keys, ins_node) {
+		list_del_init(&key->ins_node);
+		idpf_psp_tx_key_failed(adapter, key);
+		idpf_psp_tx_key_put(key);
 	}
 
 	spin_lock_bh(&psp->del_lock);
@@ -321,6 +331,7 @@ struct idpf_psp_tx_key *idpf_psp_tx_key_alloc(void)
 	key->idx = IDPF_PSP_IDX_IN_PROG;
 	key->hw_idx = IDPF_PSP_IDX_NONE;
 	INIT_LIST_HEAD(&key->del_node);
+	INIT_LIST_HEAD(&key->ins_node);
 
 	return key;
 }
@@ -334,6 +345,8 @@ static void idpf_psp_tx_key_free(struct kref *ref)
 	struct idpf_psp_tx_key *key = container_of(ref, struct idpf_psp_tx_key,
 						   ref);
 
+	/* In case the key was never copied into an insert request */
+	memzero_explicit(key->key, sizeof(key->key));
 	/* The TX path may still read the SA index of the key */
 	kfree_rcu(key, rcu);
 }
