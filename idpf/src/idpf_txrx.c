@@ -3178,7 +3178,11 @@ int idpf_tso(struct sk_buff *skb, struct idpf_tx_offload_params *off)
 	shinfo = skb_shinfo(skb);
 
 	ip.hdr = skb_network_header(skb);
-	l4.hdr = skb_transport_header(skb);
+	/* The TCP header of PSP packets follows the UDP and PSP headers */
+	if (skb->encapsulation)
+		l4.hdr = skb_inner_transport_header(skb);
+	else
+		l4.hdr = skb_transport_header(skb);
 
 	/* initialize outer IP header fields */
 	if (ip.v4->version == 4) {
@@ -3188,7 +3192,8 @@ int idpf_tso(struct sk_buff *skb, struct idpf_tx_offload_params *off)
 		ip.v6->payload_len = 0;
 	}
 
-	l4_start = skb_transport_offset(skb);
+	l4_start = skb->encapsulation ? l4.hdr - skb->data :
+					 skb_transport_offset(skb);
 
 	/* remove payload length from checksum */
 	paylen = skb->len - l4_start;
@@ -3495,6 +3500,9 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
 		return NETDEV_TX_BUSY;
 	}
+
+	if (psp && !idpf_psp_tx_encap(tx_q, skb, psp))
+		return idpf_tx_drop_skb(tx_q, skb);
 
 	tso = idpf_tso(skb, &tx_params.offload);
 	if (unlikely(tso < 0))

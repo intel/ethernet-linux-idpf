@@ -504,7 +504,10 @@ static void idpf_psp_tx_drain_cancel(struct idpf_adapter *adapter,
 static void idpf_psp_tx_drain_key(struct idpf_adapter *adapter,
 				  struct idpf_psp_tx_key *key)
 {
-	struct idpf_psp_tx psp = { };
+	struct idpf_psp_tx psp = {
+		.spi		= key->spi,
+		.version	= key->version,
+	};
 	struct sk_buff_head batch;
 	struct sk_buff *skb;
 
@@ -758,6 +761,7 @@ static int idpf_psp_tx_key_add(struct psp_dev *psd, struct psp_assoc *pas,
 		return -ENOMEM;
 
 	key->spi = pas->tx.spi;
+	key->version = pas->version;
 	memcpy(key->key, pas->tx.key, sizeof(key->key));
 
 	err = idpf_psp_queue_insert(adapter, key);
@@ -867,6 +871,9 @@ __idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
 	if (unlikely(!idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model)))
 		goto drop;
 
+	psp->spi = pas->tx.spi;
+	psp->version = pas->version;
+
 	key = rcu_dereference(*idpf_psp_assoc_key(pas));
 	if (unlikely(!key))
 		goto drop;
@@ -934,6 +941,30 @@ void idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
 		IDPF_TXD_FLEX_CTX_QW1_PFNUM_S) |
 	       IDPF_TXD_FLEX_CTX_QW1_SAIDX_VALID;
 	ctx->qw1_cmd_dtype = cpu_to_le64(qw1);
+}
+
+/**
+ * idpf_psp_tx_encap - Add the UDP and PSP headers to a PSP packet
+ * @tx_q: TX queue of the packet
+ * @skb: the packet
+ * @psp: PSP parameters of the packet
+ *
+ * Called once the TX resources of the packet are reserved, so that a packet
+ * that is requeued after NETDEV_TX_BUSY isn't encapsulated twice. The HW
+ * encrypts the packet and appends the ICV.
+ *
+ * Return: true on success, false if the packet must be dropped.
+ */
+bool idpf_psp_tx_encap(struct idpf_queue *tx_q, struct sk_buff *skb,
+		       const struct idpf_psp_tx *psp)
+{
+	if (likely(psp_dev_encapsulate(sock_net(skb->sk), skb, psp->spi,
+				       psp->version, 0)))
+		return true;
+
+	atomic_inc(&idpf_netdev_to_adapter(tx_q->netdev)->psp.tx_drops);
+
+	return false;
 }
 
 /**
@@ -1130,10 +1161,13 @@ static struct psp_dev_ops idpf_psp_ops = {
  *
  * Register the PSP device of the first netdev if PSP offload was negotiated
  * and the netdev is registered.
+ * Only the splitq TX path encrypts PSP packets: the PSP device is only
+ * registered if vport 0 uses the splitq queue model.
  */
 void idpf_psp_register(struct idpf_adapter *adapter)
 {
 	struct device *dev = &adapter->pdev->dev;
+	struct idpf_vport *vport;
 	struct psp_dev *psd;
 
 	if (!idpf_is_psp_ena(adapter) || adapter->psp.psp_dev)
@@ -1142,6 +1176,14 @@ void idpf_psp_register(struct idpf_adapter *adapter)
 	if (!adapter->netdevs || !adapter->netdevs[0] ||
 	    !test_bit(IDPF_VPORT_REG_NETDEV, adapter->vport_config[0]->flags))
 		return;
+
+	vport = adapter->vports ? adapter->vports[0] : NULL;
+	if (!vport ||
+	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model) ||
+	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.rxq_model)) {
+		dev_notice(dev, "PSP disabled, vport 0 doesn't use the splitq queue model\n");
+		return;
+	}
 
 	/* The driver data of an association holds a pointer to its TX key */
 	adapter->psp.caps.assoc_drv_spc = sizeof(struct idpf_psp_tx_key *);
