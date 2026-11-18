@@ -461,6 +461,7 @@ static void idpf_vc_xn_push_free(struct idpf_vc_xn_manager *vcxn_mngr,
  *   -async_handler: callback to handle async replies
  *   -resp_cb, send_ctx: callback to handle async replies with the caller
  *    context, see vc_xn_resp_cb
+ *   -async_cookie: receives the cookie of an async transaction
  *
  * @returns >= 0 for success, the size of the initial reply (may or may not be
  * >= @recv_buf.iov_len, but we never overflow @@recv_buf_iov_base). < 0 for
@@ -509,6 +510,8 @@ ssize_t idpf_vc_xn_exec(struct idpf_adapter *adapter,
 		reinit_completion(&xn->completed);
 	cookie = FIELD_PREP(IDPF_VC_XN_SALT_M, xn->salt) |
 		 FIELD_PREP(IDPF_VC_XN_IDX_M, xn->idx);
+	if (params->async && params->async_cookie)
+		*params->async_cookie = cookie;
 
 	retval = idpf_send_mb_msg(adapter, adapter->hw.asq, params->vc_op,
 				  send_buf->iov_len, (u8 *)send_buf->iov_base,
@@ -564,6 +567,50 @@ only_unlock:
 	idpf_vc_xn_unlock(xn);
 
 	return retval;
+}
+
+/**
+ * idpf_vc_xn_retire - Release an async transaction whose reply was lost
+ * @adapter: driver specific private structure with vcxn_mngr
+ * @cookie: cookie of the transaction, see idpf_vc_xn_params.async_cookie
+ * @send_ctx: caller context the transaction was sent with
+ *
+ * An async transaction is only released when its reply is received, so a
+ * reply lost by the control plane would hold it forever. Release it if it is
+ * still waiting for its reply; a reply received afterwards is dropped.
+ *
+ * Must be called in process context, as the transaction lock is taken without
+ * disabling the bottom halves, while the mailbox transactions are initialized:
+ * not from resp_cb or async_handler, which are called with the transaction
+ * lock held, nor with a lock held that they take.
+ *
+ * Return: true if the transaction was released, false if it was already
+ * completed, its resp_cb having been called, or aborted by
+ * idpf_vc_xn_shutdown(), which doesn't call resp_cb: the caller then still
+ * owns @send_ctx.
+ */
+bool idpf_vc_xn_retire(struct idpf_adapter *adapter, u16 cookie,
+		       const void *send_ctx)
+{
+	u16 xn_idx = FIELD_GET(IDPF_VC_XN_IDX_M, cookie);
+	struct idpf_vc_xn *xn;
+	bool retired = false;
+
+	if (xn_idx >= ARRAY_SIZE(adapter->vcxn_mngr->ring))
+		return false;
+
+	xn = &adapter->vcxn_mngr->ring[xn_idx];
+	idpf_vc_xn_lock(xn);
+	/* The salt and the context tell a reused transaction apart */
+	if (xn->state == IDPF_VC_XN_ASYNC &&
+	    xn->salt == FIELD_GET(IDPF_VC_XN_SALT_M, cookie) &&
+	    xn->send_ctx == send_ctx) {
+		idpf_vc_xn_push_free(adapter->vcxn_mngr, xn);
+		retired = true;
+	}
+	idpf_vc_xn_unlock(xn);
+
+	return retired;
 }
 
 /**
