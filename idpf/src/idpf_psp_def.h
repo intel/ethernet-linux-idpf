@@ -45,6 +45,18 @@ struct idpf_psp_rx_gen {
 	u8 gen;
 };
 
+/* Last PSP device statistics read, see idpf_psp_get_stats() */
+struct idpf_psp_dev_stats {
+	u64 rx_packets;
+	u64 rx_bytes;
+	u64 rx_auth_fail;
+	u64 rx_error;
+	u64 rx_bad;
+	u64 tx_packets;
+	u64 tx_bytes;
+	u64 tx_error;
+};
+
 /**
  * struct idpf_adapter_psp - PSP offload state of an adapter
  * @enabled: PSP was negotiated with the CP in the last core init, see
@@ -60,6 +72,8 @@ struct idpf_psp_rx_gen {
  *		by the PSP device lock, see idpf_psp_key_rotate()
  * @rx_gen: generation of the master key of each SPI phase, protected by the
  *	    PSP device lock, see idpf_psp_rx_gen_update()
+ * @stats: last PSP device statistics read with VIRTCHNL2_OP_GET_PSP_STATS,
+ *	   protected by the PSP device lock, see idpf_psp_get_stats()
  * @keys_allocated: RX keys allocated
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
@@ -72,6 +86,7 @@ struct idpf_adapter_psp {
 	u32 vport_id;
 	u8 generation;
 	struct idpf_psp_rx_gen rx_gen[2];
+	struct idpf_psp_dev_stats stats;
 	atomic_t keys_allocated;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
