@@ -119,6 +119,8 @@ struct idpf_vc_xn_manager {
  *	     a status, see vc_xn_resp_cb. Takes precedence over @async_handler,
  *	     @recv_buf is not used.
  * @send_ctx: caller context passed to @resp_cb
+ * @async_cookie: if set for an async send, receives the cookie of the
+ *		  transaction, see idpf_vc_xn_retire()
  * @vc_op: virtchnl op to send
  */
 struct idpf_vc_xn_params {
@@ -129,6 +131,7 @@ struct idpf_vc_xn_params {
 	async_vc_cb async_handler;
 	vc_xn_resp_cb resp_cb;
 	void *send_ctx;
+	u16 *async_cookie;
 	u32 vc_op;
 };
 
@@ -142,6 +145,8 @@ struct idpf_vport_user_config_data;
 
 ssize_t idpf_vc_xn_exec(struct idpf_adapter *adapter,
 			const struct idpf_vc_xn_params *params);
+bool idpf_vc_xn_retire(struct idpf_adapter *adapter, u16 cookie,
+		       const void *send_ctx);
 int idpf_init_dflt_mbx(struct idpf_adapter *adapter);
 void idpf_deinit_dflt_mbx(struct idpf_adapter *adapter);
 int idpf_vc_core_init(struct idpf_adapter *adapter);
