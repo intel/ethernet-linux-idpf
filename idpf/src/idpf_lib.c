@@ -4,6 +4,7 @@
 #include "idpf.h"
 #include "idpf_virtchnl.h"
 #include "idpf_ptp.h"
+#include "idpf_psp.h"
 
 static const struct net_device_ops idpf_netdev_ops_splitq;
 static const struct net_device_ops idpf_netdev_ops_singleq;
@@ -1981,6 +1982,9 @@ static int idpf_vport_open(struct idpf_vport *vport)
 		goto deinit_rss;
 	}
 
+	/* Send the PSP requests queued while the vport was down */
+	idpf_queue_psp_work(adapter);
+
 	return 0;
 
 deinit_rss:
@@ -2328,6 +2332,9 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 
 	dev_info(dev, "Device HW Reset initiated\n");
 
+	/* Stop sending PSP requests */
+	idpf_cancel_psp_work(adapter);
+
 	/* Reset has already happened, skip to recovery. */
 	if (test_and_clear_bit(IDPF_PCI_CB_RESET, adapter->flags))
 		goto check_rst_complete;
@@ -2452,6 +2459,11 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	if (!new_vport)
 		return -ENOMEM;
 
+	/* No PSP packet is sent while the queues are reallocated, the PSP
+	 * work is queued again below
+	 */
+	idpf_cancel_psp_work(adapter);
+
 	/* This purposely avoids copying the end of the struct because it
 	 * contains wait_queues and mutexes and other stuff we don't want to
 	 * mess with. Nothing below should use those variables from new_vport
@@ -2552,6 +2564,7 @@ err_open:
 		idpf_vport_open(vport);
 free_vport:
 	kfree(new_vport);
+	idpf_queue_psp_work(adapter);
 
 	if (reset_cause == IDPF_SR_MTU_CHANGE)
 		idpf_idc_vdev_mtu_event(vport->vdev_info,

@@ -688,6 +688,7 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 	const void *payload = NULL;
 	size_t payload_size = 0;
 	struct idpf_vc_xn *xn;
+	bool late = false;
 	u16 msg_info;
 	int err = 0;
 	u16 xn_idx;
@@ -719,7 +720,7 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 	case IDPF_VC_XN_IDLE:
 		dev_err_ratelimited(idpf_adapter_to_dev(adapter), "Unexpected or belated VC reply (op %d)\n",
 				    ctlq_msg->cookie.mbx.chnl_opcode);
-		idpf_psp_recv_late_reply(adapter, ctlq_msg);
+		late = true;
 		err = -EINVAL;
 		goto out_unlock;
 	case IDPF_VC_XN_SHUTDOWN:
@@ -777,6 +778,10 @@ out_unlock:
 	idpf_vc_xn_unlock(xn);
 	/* we _cannot_ hold lock while calling complete */
 	complete(&xn->completed);
+
+	/* Late replies can allocate memory */
+	if (late)
+		idpf_psp_recv_late_reply(adapter, ctlq_msg);
 
 	return err;
 }
@@ -3909,6 +3914,9 @@ void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 	idpf_intr_rel(adapter);
 
 	idpf_vc_xn_shutdown(adapter->vcxn_mngr);
+
+	/* The mailbox transactions were shut down */
+	idpf_psp_quiesce(adapter);
 
 	cancel_delayed_work_sync(&adapter->serv_task);
 
