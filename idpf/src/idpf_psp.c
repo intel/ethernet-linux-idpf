@@ -498,6 +498,128 @@ int idpf_psp_queue_insert(struct idpf_adapter *adapter,
 }
 
 /**
+ * idpf_psp_assoc_key - Get the location of the TX key of a PSP association
+ * @pas: the PSP association
+ *
+ * Return: the driver data of @pas, which holds a pointer to its TX key, see
+ * idpf_psp_register().
+ */
+static struct idpf_psp_tx_key __rcu **idpf_psp_assoc_key(struct psp_assoc *pas)
+{
+	return (struct idpf_psp_tx_key __rcu **)pas->drv_data;
+}
+
+/**
+ * idpf_psp_tx_key_delete - Delete a TX key
+ * @adapter: private data struct
+ * @key: the TX key
+ *
+ * Mark the key deleted, so that the TX path drops its packets, and delete its
+ * SA index from the SADB, or cancel its insertion.
+ */
+static void idpf_psp_tx_key_delete(struct idpf_adapter *adapter,
+				   struct idpf_psp_tx_key *key)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	bool queued, inserted;
+
+	/* Cancel the insertion if the key is still queued for it */
+	spin_lock_bh(&psp->insert_lock);
+	queued = !list_empty(&key->ins_node);
+	if (queued) {
+		list_del_init(&key->ins_node);
+		WRITE_ONCE(psp->ins_queued, psp->ins_queued - 1);
+	}
+	spin_unlock_bh(&psp->insert_lock);
+
+	if (queued) {
+		atomic_dec(&psp->sadb_used);
+		idpf_psp_tx_key_put(key);
+	}
+
+	spin_lock_bh(&key->lock);
+	WRITE_ONCE(key->idx, IDPF_PSP_IDX_DELETED);
+	/* If the insertion is pending, its SA index is deleted once it
+	 * completes, see idpf_psp_tx_key_inserted()
+	 */
+	inserted = idpf_psp_idx_valid(key->hw_idx);
+	spin_unlock_bh(&key->lock);
+
+	if (inserted)
+		idpf_psp_queue_delete(adapter, key);
+}
+
+/**
+ * idpf_psp_tx_key_add - Add a PSP TX key
+ * @psd: PSP device
+ * @pas: PSP association of the key
+ * @extack: netlink extended ack for error reporting
+ *
+ * Queue the TX key for insertion into the SADB and store its state in the
+ * driver data of @pas. The SA index is used by the TX path once the insertion
+ * completed, see idpf_psp_tx_key_inserted(), the packets transmitted before
+ * are queued until then.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int idpf_psp_tx_key_add(struct psp_dev *psd, struct psp_assoc *pas,
+			       struct netlink_ext_ack *extack)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(psd->main_netdev);
+	struct idpf_psp_tx_key *key;
+	int err;
+
+	/* Only version 0 keys are inserted, see idpf_psp_register() */
+	if (psp_key_size(pas->version) != sizeof(key->key)) {
+		NL_SET_ERR_MSG_MOD(extack, "Unsupported PSP version");
+		return -EOPNOTSUPP;
+	}
+
+	key = idpf_psp_tx_key_alloc();
+	if (!key)
+		return -ENOMEM;
+
+	key->spi = pas->tx.spi;
+	memcpy(key->key, pas->tx.key, sizeof(key->key));
+
+	err = idpf_psp_queue_insert(adapter, key);
+	if (err) {
+		NL_SET_ERR_MSG_MOD(extack, "PSP SADB full");
+		idpf_psp_tx_key_put(key);
+		return err;
+	}
+
+	/* The reference of the association */
+	rcu_assign_pointer(*idpf_psp_assoc_key(pas), key);
+
+	return 0;
+}
+
+/**
+ * idpf_psp_tx_key_del - Delete a PSP TX key
+ * @psd: PSP device
+ * @pas: PSP association of the key
+ */
+static void idpf_psp_tx_key_del(struct psp_dev *psd, struct psp_assoc *pas)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(psd->main_netdev);
+	struct idpf_psp_tx_key __rcu **slot = idpf_psp_assoc_key(pas);
+	struct idpf_psp_tx_key *key;
+
+	key = rcu_dereference_protected(*slot, lockdep_is_held(&psd->lock));
+	if (!key)
+		return;
+
+	/* The TX path may still see the key, it is freed after an RCU grace
+	 * period, see idpf_psp_tx_key_free()
+	 */
+	RCU_INIT_POINTER(*slot, NULL);
+
+	idpf_psp_tx_key_delete(adapter, key);
+	idpf_psp_tx_key_put(key);
+}
+
+/**
  * idpf_psp_set_config - Set the PSP device configuration
  * @psd: PSP device
  * @conf: new configuration
@@ -679,6 +801,8 @@ static void idpf_psp_get_stats(struct psp_dev *psd, struct psp_dev_stats *stats)
 static struct psp_dev_ops idpf_psp_ops = {
 	.set_config	= idpf_psp_set_config,
 	.rx_spi_alloc	= idpf_psp_rx_spi_alloc,
+	.tx_key_add	= idpf_psp_tx_key_add,
+	.tx_key_del	= idpf_psp_tx_key_del,
 	.key_rotate	= idpf_psp_key_rotate,
 	.get_stats	= idpf_psp_get_stats,
 };
@@ -702,6 +826,8 @@ void idpf_psp_register(struct idpf_adapter *adapter)
 	    !test_bit(IDPF_VPORT_REG_NETDEV, adapter->vport_config[0]->flags))
 		return;
 
+	/* The driver data of an association holds a pointer to its TX key */
+	adapter->psp.caps.assoc_drv_spc = sizeof(struct idpf_psp_tx_key *);
 	/* The driver only allocates and inserts PSP version 0 keys */
 	adapter->psp.caps.versions = BIT(PSP_VERSION_HDR0_AES_GCM_128);
 
