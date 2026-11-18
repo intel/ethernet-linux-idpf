@@ -39,6 +39,11 @@ static void idpf_remove(struct pci_dev *pdev)
 	 */
 	cancel_delayed_work_sync(&adapter->vc_event_task);
 
+	/* Unregister the PSP device while the netdevs are up, its TX keys are
+	 * deleted, see idpf_psp_tx_key_del()
+	 */
+	idpf_psp_unregister(adapter);
+
 #if IS_ENABLED(CONFIG_VFIO_MDEV) && defined(HAVE_PASID_SUPPORT)
 	if (adapter->dev_ops.vdcm_deinit)
 		adapter->dev_ops.vdcm_deinit(pdev);
@@ -142,6 +147,7 @@ static void idpf_shutdown(struct pci_dev *pdev)
 
 	cancel_delayed_work_sync(&adapter->serv_task);
 	cancel_delayed_work_sync(&adapter->vc_event_task);
+	idpf_psp_unregister(adapter);
 	if (adapter->vcxn_mngr)
 		idpf_vc_xn_shutdown(adapter->vcxn_mngr);
 	idpf_vc_core_deinit(adapter);
