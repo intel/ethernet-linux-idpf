@@ -407,6 +407,57 @@ void idpf_psp_rotation_event(struct idpf_adapter *adapter,
 }
 
 /**
+ * idpf_send_get_psp_stats - Send VIRTCHNL2_OP_GET_PSP_STATS
+ * @adapter: Driver specific private structure
+ * @stats: Output buffer for virtchnl2_psp_stats_response
+ *
+ * Request the common and add-on PSP statistics. Only the stat groups set in
+ * @stats->supported_stats are valid: a group is only reported as supported if
+ * it was requested and is present in the reply, which may leave out trailing
+ * groups that are not supported.
+ *
+ * Return: 0 on success, negative on failure.
+ */
+int idpf_send_get_psp_stats(struct idpf_adapter *adapter,
+			    struct virtchnl2_psp_stats_response *stats)
+{
+	const u32 requested = VIRTCHNL2_PSP_STAT_COMMON | VIRTCHNL2_PSP_STAT_ADDON;
+	struct virtchnl2_psp_stats_request req = {
+		.requested_stats = cpu_to_le32(requested),
+	};
+	struct kvec recv_mem = { };
+	size_t reply_sz;
+	u32 supported;
+	int err;
+
+	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_GET_PSP_STATS,
+			       idpf_get_vc_xn_default_timeout(adapter),
+			       &req, sizeof(req), &recv_mem);
+	if (err)
+		return err;
+
+	reply_sz = recv_mem.iov_len;
+	if (reply_sz < offsetof(typeof(*stats), common_stats)) {
+		err = -EIO;
+		goto release_rx;
+	}
+
+	memset(stats, 0, sizeof(*stats));
+	memcpy(stats, recv_mem.iov_base, min(reply_sz, sizeof(*stats)));
+
+	supported = le32_to_cpu(stats->supported_stats) & requested;
+	if (reply_sz < offsetofend(typeof(*stats), common_stats))
+		supported &= ~VIRTCHNL2_PSP_STAT_COMMON;
+	if (reply_sz < offsetofend(typeof(*stats), addon_stats))
+		supported &= ~VIRTCHNL2_PSP_STAT_ADDON;
+	stats->supported_stats = cpu_to_le32(supported);
+
+release_rx:
+	idpf_psp_release_rx_buf(&recv_mem);
+	return err;
+}
+
+/**
  * idpf_psp_recv_reply - Wipe the RX keys of a reply from the mailbox buffer
  * @adapter: Driver specific private structure
  * @ctlq_msg: reply, its receive buffer is posted back by the caller

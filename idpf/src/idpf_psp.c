@@ -252,11 +252,62 @@ static int idpf_psp_key_rotate(struct psp_dev *psd,
 	return 0;
 }
 
+/**
+ * idpf_psp_get_stats - Get the PSP device statistics
+ * @psd: PSP device
+ * @stats: statistics to fill in
+ *
+ * Read the PSP statistics with VIRTCHNL2_OP_GET_PSP_STATS. The last
+ * statistics read are reported if they can't be read, e.g. during reset.
+ */
+static void idpf_psp_get_stats(struct psp_dev *psd, struct psp_dev_stats *stats)
+{
+	struct idpf_adapter *adapter = idpf_netdev_to_adapter(psd->main_netdev);
+	struct idpf_psp_dev_stats *cur = &adapter->psp.stats;
+	struct virtchnl2_psp_stats_response resp;
+	u32 supported;
+
+	if (!idpf_send_get_psp_stats(adapter, &resp)) {
+		supported = le32_to_cpu(resp.supported_stats);
+
+		if (supported & VIRTCHNL2_PSP_STAT_COMMON) {
+			const struct virtchnl2_psp_common_stats *cs =
+				&resp.common_stats;
+
+			cur->rx_packets = le64_to_cpu(cs->rx_decrypted_packets);
+			cur->rx_bytes = le64_to_cpu(cs->rx_decrypted_bytes);
+			cur->rx_auth_fail = le32_to_cpu(cs->rx_auth_failures);
+			/* PSP spec: rx_error counts length/framing errors,
+			 * rx_bad miscellaneous errors.
+			 */
+			cur->rx_error = le32_to_cpu(cs->rx_bad_packets);
+			cur->rx_bad = le32_to_cpu(cs->rx_misc_errors);
+			cur->tx_packets = le64_to_cpu(cs->tx_encrypted_packets);
+			cur->tx_bytes = le64_to_cpu(cs->tx_encrypted_bytes);
+			cur->tx_error = (u64)le32_to_cpu(cs->tx_misc_errors) +
+					le32_to_cpu(cs->tx_bad_packets);
+			if (supported & VIRTCHNL2_PSP_STAT_ADDON)
+				cur->tx_error +=
+					le32_to_cpu(resp.addon_stats.tx_inv_sa_packets);
+		}
+	}
+
+	stats->rx_packets = cur->rx_packets;
+	stats->rx_bytes = cur->rx_bytes;
+	stats->rx_auth_fail = cur->rx_auth_fail;
+	stats->rx_error = cur->rx_error;
+	stats->rx_bad = cur->rx_bad;
+	stats->tx_packets = cur->tx_packets;
+	stats->tx_bytes = cur->tx_bytes;
+	stats->tx_error = cur->tx_error;
+}
+
 /* PSP device operations, see idpf_psp_register() */
 static struct psp_dev_ops idpf_psp_ops = {
 	.set_config	= idpf_psp_set_config,
 	.rx_spi_alloc	= idpf_psp_rx_spi_alloc,
 	.key_rotate	= idpf_psp_key_rotate,
+	.get_stats	= idpf_psp_get_stats,
 };
 
 /**
