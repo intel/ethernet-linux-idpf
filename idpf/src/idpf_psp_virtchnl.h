@@ -20,5 +20,6 @@ int idpf_send_get_psp_stats(struct idpf_adapter *adapter,
 			    struct virtchnl2_psp_stats_response *stats);
 bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter);
 void idpf_psp_insert_check_timeout(struct idpf_adapter *adapter);
+void idpf_send_insert_psp_keys(struct idpf_adapter *adapter);
 
 #endif /* !_IDPF_PSP_VIRTCHNL_H_ */

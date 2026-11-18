@@ -43,6 +43,9 @@
  * @idx: SA index the TX path uses, or IDPF_PSP_IDX_IN_PROG,
  *	 IDPF_PSP_IDX_ERROR or IDPF_PSP_IDX_DELETED. Read without @lock.
  * @hw_idx: SA index of the key in the SADB, IDPF_PSP_IDX_NONE if it has none
+ * @spi: SPI of the key
+ * @key: the key, wiped once copied into the insert request
+ * @ins_node: entry in the insert queue, see idpf_psp_queue_insert()
  * @del_node: entry in the delete queue, see idpf_psp_queue_delete()
  * @del_single: delete @hw_idx in a request of its own, after a request that
  *		failed
@@ -53,6 +56,9 @@ struct idpf_psp_tx_key {
 	spinlock_t lock;		/* protects the SA indexes and tx_queue */
 	u32 idx;
 	u32 hw_idx;
+	__be32 spi;
+	u8 key[VIRTCHNL2_PSP_KEY_SIZE_V0];
+	struct list_head ins_node;
 	struct list_head del_node;
 	bool del_single;
 	struct rcu_head rcu;
@@ -143,10 +149,12 @@ struct idpf_psp_dev_stats {
  * @del_list: TX keys whose SA index is queued for deletion
  * @wq: workqueue of @work
  * @work: sends the insertion and deletion requests
- * @insert_lock: protects @insert_req
+ * @insert_lock: protects @insert_req, @ins_list and @ins_queued
  * @insert_req: the VIRTCHNL2_OP_PSP_INSERT_KEYS request in flight, if any
  * @insert_timer: queues @work to time out a lost insert request, see
  *		  idpf_psp_insert_timeout()
+ * @ins_list: TX keys queued for insertion
+ * @ins_queued: number of keys in @ins_list
  * @keys_allocated: RX keys allocated
  * @keys_inserted: TX keys inserted into the SADB
  * @insert_errors: TX keys whose insertion failed
@@ -174,6 +182,8 @@ struct idpf_adapter_psp {
 	spinlock_t insert_lock;		/* protects the insertions */
 	struct idpf_psp_insert_req *insert_req;
 	struct timer_list insert_timer;
+	struct list_head ins_list;
+	u32 ins_queued;
 	atomic_t keys_allocated;
 	atomic_t keys_inserted;
 	atomic_t insert_errors;
