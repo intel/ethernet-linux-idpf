@@ -1166,6 +1166,7 @@ static struct psp_dev_ops idpf_psp_ops = {
  * and the netdev is registered.
  * Only the splitq TX path encrypts PSP packets: the PSP device is only
  * registered if vport 0 uses the splitq queue model.
+ * Called from the virtchnl event task, see idpf_init_hard_reset().
  */
 void idpf_psp_register(struct idpf_adapter *adapter)
 {

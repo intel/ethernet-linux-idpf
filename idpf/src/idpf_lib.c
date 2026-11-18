@@ -1214,6 +1214,9 @@ static void idpf_decfg_netdev(struct idpf_vport *vport)
 
 	if (test_and_clear_bit(IDPF_VPORT_REG_NETDEV,
 			       adapter->vport_config[idx]->flags)) {
+		/* The PSP device uses the first netdev, see idpf_psp_register() */
+		if (!idx)
+			idpf_psp_unregister(adapter);
 		unregister_netdev(vport->netdev);
 		free_netdev(vport->netdev);
 	}
@@ -2327,6 +2330,11 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 	struct device *dev = idpf_adapter_to_dev(adapter);
 	int err;
 
+	/* The PSP state doesn't survive a hard reset: unregister the PSP
+	 * device, which deletes the TX keys of all the associations, and
+	 * register it again once the reset completed, see below
+	 */
+	idpf_psp_unregister(adapter);
 	idpf_detach_and_close(adapter);
 	mutex_lock(&adapter->vport_ctrl_lock);
 
@@ -2386,6 +2394,12 @@ unlock_mutex:
 
 	if (!err) {
 		idpf_attach_and_open(adapter);
+		/* Register the PSP device on load, and again after a hard
+		 * reset. It is only registered here, in the virtchnl event
+		 * task: idpf_remove() and idpf_shutdown() cancel the task
+		 * before they unregister it.
+		 */
+		idpf_psp_register(adapter);
 		/* Wait until all vports are created to init RDMA CORE AUX */
 		err = idpf_idc_init(adapter);
 	}
