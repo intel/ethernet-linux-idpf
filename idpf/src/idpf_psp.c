@@ -257,6 +257,7 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	atomic_set(&psp->sadb_used, 0);
 	atomic_set(&psp->keys_refused, 0);
 	atomic_set(&psp->tx_drops, 0);
+	atomic_set(&psp->rx_drops, 0);
 
 	WRITE_ONCE(psp->enabled, true);
 }
@@ -973,7 +974,9 @@ bool idpf_psp_tx_encap(struct idpf_queue *tx_q, struct sk_buff *skb,
  * @conf: new configuration
  * @extack: netlink extended ack for error reporting
  *
- * The configuration is applied by the PSP core.
+ * The configuration is applied by the PSP core. The HW decrypts the PSP
+ * packets in any case: the decrypted packets are dropped while no PSP version
+ * is enabled, see idpf_psp_rx_process_skb().
  *
  * Return: 0.
  */
@@ -1225,4 +1228,74 @@ void idpf_psp_unregister(struct idpf_adapter *adapter)
 	 * next
 	 */
 	idpf_cancel_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_rx_process_skb - Decapsulate a decrypted PSP packet
+ * @rxq: RX queue the packet was received on
+ * @skb: received packet, skb->data points to the network header
+ * @rx_ptype: splitq ptype of the packet
+ *
+ * Remove the UDP and PSP headers of a packet decrypted by the HW with
+ * psp_dev_rcv(), which also attaches the PSP extension of the PSP device of
+ * the netdev. The packet is dropped while no PSP version is enabled: the HW
+ * decrypts it anyway, it must not be delivered as plain UDP.
+ *
+ * Return: 0 on success or if the packet isn't a decrypted PSP packet,
+ * negative error code if the packet must be dropped.
+ */
+int idpf_psp_rx_process_skb(struct idpf_queue *rxq, struct sk_buff *skb,
+			    u16 rx_ptype)
+{
+	struct idpf_adapter_psp *psp = &rxq->vport->adapter->psp;
+	struct idpf_vport *vport = rxq->vport;
+	struct psp_skb_ext *pse;
+	struct psp_dev *psd;
+	u16 dev_id;
+	int err;
+	u8 gen;
+
+	/* Only decapsulate the decrypted PSP packets (MAC, IPV6, UDP, PSP, TCP,
+	 * PAY). psp_rx_ptype is IDPF_INVALID_PTYPE_ID if PSP offload is
+	 * disabled or the CP didn't report the PSP RX ptype.
+	 */
+	if (rx_ptype != rxq->psp_rx_ptype)
+		return 0;
+
+	rcu_read_lock();
+	psd = rcu_dereference(vport->netdev->psp_dev);
+	if (!psd || !READ_ONCE(psd->config.versions)) {
+		rcu_read_unlock();
+		goto drop;
+	}
+	dev_id = psd->id;
+	rcu_read_unlock();
+
+	/* psp_dev_rcv() expects skb->data at the MAC header, which
+	 * eth_type_trans() already pulled. The ICV was removed by the HW.
+	 */
+	skb_push(skb, ETH_HLEN);
+	skb->mac_len = ETH_HLEN;
+	err = psp_dev_rcv(skb, dev_id, IDPF_PSP_GEN_UNKNOWN, false);
+	if (!err) {
+		/* psp_dev_rcv() moved the MAC header over the removed headers */
+		skb_reset_mac_header(skb);
+		skb->decrypted = 1;
+
+		/* The generation of the master key of the SPI */
+		pse = (struct psp_skb_ext *)skb_ext_find(skb, SKB_EXT_PSP);
+		gen = READ_ONCE(psp->rx_gen[be32_to_cpu(pse->spi) >> 31].gen);
+		if (gen == IDPF_PSP_GEN_UNKNOWN)
+			err = -EINVAL;
+		pse->generation = gen;
+	}
+	skb_pull(skb, ETH_HLEN);
+
+	if (!err)
+		return 0;
+
+drop:
+	atomic_inc(&psp->rx_drops);
+
+	return -EINVAL;
 }

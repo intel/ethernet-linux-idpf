@@ -1942,6 +1942,7 @@ skip_splitq_rx_init:
 			idpf_queue_assign(RSC_EN, q, rsc);
 			q->rxq_grp = rx_qgrp;
 			q->rx_ptype_lkup = adapter->splitq_pt_lkup;
+			q->psp_rx_ptype = idpf_psp_rx_ptype(adapter);
 
 setup_rxq:
 			idpf_rxq_init(vport, rsrc, q, (i * num_rxq) + j);
@@ -3897,6 +3898,15 @@ static void idpf_rx_csum(struct idpf_queue *rxq, struct sk_buff *skb,
 	if (csum_bits->l4e)
 		goto checksum_fail;
 
+	/* The HW only reports the PSP RX ptype for packets it decrypted and
+	 * authenticated. The raw checksum covers the UDP and PSP headers that
+	 * were removed, see idpf_psp_rx_process_skb().
+	 */
+	if (idpf_psp_is_offload_rx(skb)) {
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		return;
+	}
+
 #ifdef IDPF_ADD_PROBES
 	u64_stats_update_begin(&port_stats->stats_sync);
 #endif /* IDPF_ADD_PROBES */
@@ -4097,11 +4107,16 @@ int idpf_rx_process_skb_fields(struct idpf_queue *rxq,
 	struct idpf_rx_csum_decoded csum_bits = { };
 	struct idpf_rx_ptype_decoded decoded;
 	u16 rx_ptype;
+	int err;
 
 	rx_ptype = le16_get_bits(rx_desc->ptype_err_fflags0,
 				 VIRTCHNL2_RX_FLEX_DESC_ADV_PTYPE_M);
 
 	skb->protocol = eth_type_trans(skb, rxq->vport->netdev);
+
+	err = idpf_psp_rx_process_skb(rxq, skb, rx_ptype);
+	if (err)
+		return err;
 
 	decoded = rxq->rx_ptype_lkup[rx_ptype];
 #ifdef IDPF_ADD_PROBES

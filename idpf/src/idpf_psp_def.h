@@ -192,6 +192,9 @@ struct idpf_psp_dev_stats {
  * @drain_lock: protects @drain_list
  * @drain_list: TX keys with packets to transmit before their SA index can be
  *		used, see idpf_psp_tx_drain()
+ * @rx_ptype: splitq ptype of decrypted PSP RX packets reported by
+ *	      VIRTCHNL2_OP_GET_PTYPE_INFO, IDPF_INVALID_PTYPE_ID if there is
+ *	      none, see idpf_psp_set_rx_ptype()
  * @keys_allocated: RX keys allocated
  * @keys_inserted: TX keys inserted into the SADB
  * @insert_errors: TX keys whose insertion failed
@@ -201,6 +204,7 @@ struct idpf_psp_dev_stats {
  * @del_retries: SA indexes retried after a failed deletion request
  * @keys_refused: RX and TX keys refused, SADB or insertion queue full
  * @tx_drops: PSP packets dropped on transmit
+ * @rx_drops: decrypted PSP packets dropped on receive
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -226,6 +230,7 @@ struct idpf_adapter_psp {
 	atomic_t sadb_used;
 	spinlock_t drain_lock;		/* protects drain_list */
 	struct list_head drain_list;
+	u16 rx_ptype;
 	atomic_t keys_allocated;
 	atomic_t keys_inserted;
 	atomic_t insert_errors;
@@ -235,6 +240,7 @@ struct idpf_adapter_psp {
 	atomic_t del_retries;
 	atomic_t keys_refused;
 	atomic_t tx_drops;
+	atomic_t rx_drops;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;

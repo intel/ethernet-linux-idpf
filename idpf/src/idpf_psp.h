@@ -77,6 +77,22 @@ void idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
 			  u32 saidx);
 bool idpf_psp_tx_encap(struct idpf_queue *tx_q, struct sk_buff *skb,
 		       const struct idpf_psp_tx *psp);
+int idpf_psp_rx_process_skb(struct idpf_queue *rxq, struct sk_buff *skb,
+			    u16 rx_ptype);
+bool idpf_psp_is_rx_ptype(const struct virtchnl2_ptype *ptype);
+void idpf_psp_set_rx_ptype(struct idpf_adapter *adapter, u16 ptype);
+
+/**
+ * idpf_psp_is_offload_rx - Check if a received packet was decrypted
+ * @skb: the packet
+ *
+ * Return: true if the packet was decrypted and decapsulated, see
+ * idpf_psp_rx_process_skb()
+ */
+static inline bool idpf_psp_is_offload_rx(const struct sk_buff *skb)
+{
+	return skb_ext_find(skb, SKB_EXT_PSP);
+}
 
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP
@@ -139,6 +155,25 @@ idpf_psp_tx_ctx_desc(union idpf_flex_tx_ctx_desc *desc,
 static inline bool idpf_psp_tx_encap(struct idpf_queue *tx_q,
 				     struct sk_buff *skb,
 				     const struct idpf_psp_tx *psp)
+{
+	return false;
+}
+
+static inline int idpf_psp_rx_process_skb(struct idpf_queue *rxq,
+					  struct sk_buff *skb, u16 rx_ptype)
+{
+	return 0;
+}
+
+static inline bool idpf_psp_is_rx_ptype(const struct virtchnl2_ptype *ptype)
+{
+	return false;
+}
+
+static inline void idpf_psp_set_rx_ptype(struct idpf_adapter *adapter,
+					 u16 ptype) { }
+
+static inline bool idpf_psp_is_offload_rx(const struct sk_buff *skb)
 {
 	return false;
 }

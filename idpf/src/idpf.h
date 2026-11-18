@@ -1047,6 +1047,20 @@ static inline bool idpf_is_psp_ena(const struct idpf_adapter *adapter)
 	return IS_ENABLED(CONFIG_INET_PSP) && READ_ONCE(adapter->psp.enabled);
 }
 
+/**
+ * idpf_psp_rx_ptype - Get the ptype of decrypted PSP Rx packets
+ * @adapter: private data struct
+ *
+ * Return: the splitq ptype of decrypted PSP Rx packets reported by
+ * VIRTCHNL2_OP_GET_PTYPE_INFO, IDPF_INVALID_PTYPE_ID if PSP offload is disabled
+ * or the CP didn't report it
+ */
+static inline u16 idpf_psp_rx_ptype(const struct idpf_adapter *adapter)
+{
+	return idpf_is_psp_ena(adapter) ? adapter->psp.rx_ptype :
+					  IDPF_INVALID_PTYPE_ID;
+}
+
 #define IDPF_CAP_RSS (\
 	VIRTCHNL2_FLOW_IPV4_TCP		|\
 	VIRTCHNL2_FLOW_IPV4_TCP		|\
