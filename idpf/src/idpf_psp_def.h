@@ -8,6 +8,7 @@
 
 #include <linux/kref.h>
 #include <linux/list.h>
+#include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
@@ -49,6 +50,8 @@
  * @del_node: entry in the delete queue, see idpf_psp_queue_delete()
  * @del_single: delete @hw_idx in a request of its own, after a request that
  *		failed
+ * @tx_queue: packets waiting for the SA index, see idpf_psp_tx_queue_skb()
+ * @drain_node: entry in the drain list, see idpf_psp_tx_drain()
  * @rcu: for freeing the key after the RCU readers of the TX path
  */
 struct idpf_psp_tx_key {
@@ -61,6 +64,8 @@ struct idpf_psp_tx_key {
 	struct list_head ins_node;
 	struct list_head del_node;
 	bool del_single;
+	struct sk_buff_head tx_queue;
+	struct list_head drain_node;
 	struct rcu_head rcu;
 };
 
@@ -83,6 +88,28 @@ struct idpf_psp_insert_req {
 	u16 cookie;
 	u32 num_keys;
 	struct idpf_psp_tx_key *keys[] __counted_by(num_keys);
+};
+
+/**
+ * struct idpf_psp_tx - PSP parameters of a TX packet
+ * @saidx: SA index of the TX key
+ */
+struct idpf_psp_tx {
+	u32 saidx;
+};
+
+/**
+ * enum idpf_psp_tx_verdict - What to do with a TX packet, see
+ * idpf_psp_tx_prep()
+ * @IDPF_PSP_TX_PLAIN: not a PSP packet
+ * @IDPF_PSP_TX_SEND: PSP packet with a valid SA index
+ * @IDPF_PSP_TX_CONSUMED: PSP packet queued until its SA index is known, or
+ *			  dropped
+ */
+enum idpf_psp_tx_verdict {
+	IDPF_PSP_TX_PLAIN,
+	IDPF_PSP_TX_SEND,
+	IDPF_PSP_TX_CONSUMED,
 };
 
 /**
@@ -156,6 +183,9 @@ struct idpf_psp_dev_stats {
  * @ins_list: TX keys queued for insertion
  * @ins_queued: number of keys in @ins_list
  * @sadb_used: SADB entries used, or reserved by keys queued for insertion
+ * @drain_lock: protects @drain_list
+ * @drain_list: TX keys with packets to transmit before their SA index can be
+ *		used, see idpf_psp_tx_drain()
  * @keys_allocated: RX keys allocated
  * @keys_inserted: TX keys inserted into the SADB
  * @insert_errors: TX keys whose insertion failed
@@ -164,6 +194,7 @@ struct idpf_psp_dev_stats {
  * @keys_lost: SA indexes that couldn't be deleted
  * @del_retries: SA indexes retried after a failed deletion request
  * @keys_refused: RX and TX keys refused, SADB or insertion queue full
+ * @tx_drops: PSP packets dropped on transmit
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -187,6 +218,8 @@ struct idpf_adapter_psp {
 	struct list_head ins_list;
 	u32 ins_queued;
 	atomic_t sadb_used;
+	spinlock_t drain_lock;		/* protects drain_list */
+	struct list_head drain_list;
 	atomic_t keys_allocated;
 	atomic_t keys_inserted;
 	atomic_t insert_errors;
@@ -195,6 +228,7 @@ struct idpf_adapter_psp {
 	atomic_t keys_lost;
 	atomic_t del_retries;
 	atomic_t keys_refused;
+	atomic_t tx_drops;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;

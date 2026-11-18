@@ -5,6 +5,7 @@
 #include <linux/prefetch.h>
 #include "idpf.h"
 #include "idpf_lan_txrx.h"
+#include "idpf_psp.h"
 
 /**
  * idpf_tx_singleq_csum - Enable tx checksum offloads
@@ -411,6 +412,7 @@ netdev_tx_t idpf_tx_singleq_start(struct sk_buff *skb,
 				  struct net_device *netdev)
 {
 	struct idpf_vport *vport = idpf_netdev_to_vport(netdev);
+	struct idpf_psp_tx psp;
 	struct idpf_queue *tx_q;
 
 	tx_q = vport->txqs[skb_get_queue_mapping(skb)];
@@ -419,6 +421,12 @@ netdev_tx_t idpf_tx_singleq_start(struct sk_buff *skb,
 	 * beyond this point
 	 */
 	if (skb_put_padto(skb, IDPF_TX_MIN_PKT_LEN)) {
+		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+		return NETDEV_TX_OK;
+	}
+
+	/* Only the splitq TX path encrypts: PSP packets are dropped */
+	if (idpf_psp_tx_prep(vport, tx_q, skb, &psp) != IDPF_PSP_TX_PLAIN) {
 		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
 		return NETDEV_TX_OK;
 	}

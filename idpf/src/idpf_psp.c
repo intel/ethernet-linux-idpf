@@ -14,6 +14,9 @@
 /* Maximum number of TX keys queued for insertion */
 #define IDPF_PSP_INS_QUEUE_MAX		1024
 
+/* Maximum number of packets queued per TX key until its SA index is known */
+#define IDPF_PSP_TX_QUEUE_MAX		64
+
 /**
  * idpf_queue_psp_work - Queue the PSP work
  * @adapter: private data struct
@@ -48,13 +51,16 @@ void idpf_cancel_psp_work(struct idpf_adapter *adapter)
 		cancel_delayed_work_sync(&adapter->psp.work);
 }
 
+static void idpf_psp_tx_drain(struct idpf_adapter *adapter);
+
 /**
  * idpf_psp_work - Send the PSP key insertion and deletion requests
  * @work: work of struct idpf_adapter_psp
  *
- * Time out the insert request in flight, then send at most one request of
- * each kind. The work is queued again when there is more to do, or after a
- * delay when a request couldn't be sent.
+ * Transmit the packets of the TX keys whose SA index became known, time out
+ * the insert request in flight, then send at most one request of each kind.
+ * The work is queued again when there is more to do, or after a delay when a
+ * request couldn't be sent.
  */
 static void idpf_psp_work(struct work_struct *work)
 {
@@ -69,6 +75,7 @@ static void idpf_psp_work(struct work_struct *work)
 	    test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
 		return;
 
+	idpf_psp_tx_drain(adapter);
 	idpf_psp_insert_check_timeout(adapter);
 	idpf_send_insert_psp_keys(adapter);
 	if (idpf_send_delete_psp_keys(adapter))
@@ -212,6 +219,8 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 		spin_lock_init(&psp->insert_lock);
 		timer_setup(&psp->insert_timer, idpf_psp_insert_timeout, 0);
 		INIT_LIST_HEAD(&psp->ins_list);
+		spin_lock_init(&psp->drain_lock);
+		INIT_LIST_HEAD(&psp->drain_list);
 		psp->initialized = true;
 	}
 
@@ -241,6 +250,7 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	atomic_set(&psp->insert_late, 0);
 	atomic_set(&psp->sadb_used, 0);
 	atomic_set(&psp->keys_refused, 0);
+	atomic_set(&psp->tx_drops, 0);
 
 	WRITE_ONCE(psp->enabled, true);
 }
@@ -298,6 +308,18 @@ void idpf_psp_quiesce(struct idpf_adapter *adapter)
 		list_del_init(&key->del_node);
 		idpf_psp_tx_key_put(key);
 	}
+
+	/* The keys are deleted when the PSP device is unregistered, which
+	 * happens first, see idpf_init_hard_reset()
+	 */
+	spin_lock_bh(&psp->drain_lock);
+	list_splice_init(&psp->drain_list, &keys);
+	spin_unlock_bh(&psp->drain_lock);
+
+	list_for_each_entry_safe(key, tmp, &keys, drain_node) {
+		list_del_init(&key->drain_node);
+		idpf_psp_tx_key_put(key);
+	}
 }
 
 /**
@@ -337,6 +359,8 @@ struct idpf_psp_tx_key *idpf_psp_tx_key_alloc(void)
 	key->hw_idx = IDPF_PSP_IDX_NONE;
 	INIT_LIST_HEAD(&key->del_node);
 	INIT_LIST_HEAD(&key->ins_node);
+	__skb_queue_head_init(&key->tx_queue);
+	INIT_LIST_HEAD(&key->drain_node);
 
 	return key;
 }
@@ -403,6 +427,137 @@ void idpf_psp_queue_delete(struct idpf_adapter *adapter,
 }
 
 /**
+ * idpf_psp_tx_purge - Drop the PSP packets of a list
+ * @adapter: private data struct
+ * @list: the packets
+ */
+static void idpf_psp_tx_purge(struct idpf_adapter *adapter,
+			      struct sk_buff_head *list)
+{
+	struct sk_buff *skb;
+
+	while ((skb = __skb_dequeue(list))) {
+		atomic_inc(&adapter->psp.tx_drops);
+		kfree_skb_reason(skb, SKB_DROP_REASON_PSP_OUTPUT);
+	}
+}
+
+/**
+ * idpf_psp_tx_drain_queue - Schedule the transmission of queued packets
+ * @adapter: private data struct
+ * @key: TX key whose SA index is known, with packets queued
+ *
+ * Called with @key->lock held. The SA index is published to the TX path once
+ * the queued packets are transmitted, see idpf_psp_tx_drain_key(), so that
+ * they aren't overtaken by later packets.
+ */
+static void idpf_psp_tx_drain_queue(struct idpf_adapter *adapter,
+				    struct idpf_psp_tx_key *key)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+
+	spin_lock_bh(&psp->drain_lock);
+	if (list_empty(&key->drain_node)) {
+		idpf_psp_tx_key_get(key);
+		list_add_tail(&key->drain_node, &psp->drain_list);
+	}
+	spin_unlock_bh(&psp->drain_lock);
+
+	idpf_queue_psp_work(adapter);
+}
+
+/**
+ * idpf_psp_tx_drain_cancel - Take a deleted TX key off the drain list
+ * @adapter: private data struct
+ * @key: the TX key
+ */
+static void idpf_psp_tx_drain_cancel(struct idpf_adapter *adapter,
+				     struct idpf_psp_tx_key *key)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	bool queued;
+
+	spin_lock_bh(&psp->drain_lock);
+	queued = !list_empty(&key->drain_node);
+	list_del_init(&key->drain_node);
+	spin_unlock_bh(&psp->drain_lock);
+
+	if (queued)
+		idpf_psp_tx_key_put(key);
+}
+
+/**
+ * idpf_psp_tx_drain_key - Transmit the queued packets of a TX key
+ * @adapter: private data struct
+ * @key: TX key taken off the drain list
+ *
+ * Transmit the packets queued until the SA index of the key was known, then
+ * publish the SA index when the queue is empty: the packets transmitted
+ * meanwhile are queued behind the drained ones.
+ */
+static void idpf_psp_tx_drain_key(struct idpf_adapter *adapter,
+				  struct idpf_psp_tx_key *key)
+{
+	struct idpf_psp_tx psp = { };
+	struct sk_buff_head batch;
+	struct sk_buff *skb;
+
+	__skb_queue_head_init(&batch);
+
+	for (;;) {
+		spin_lock_bh(&key->lock);
+		/* Unless the key was deleted meanwhile, which purged the queue */
+		if (key->idx != IDPF_PSP_IDX_IN_PROG) {
+			spin_unlock_bh(&key->lock);
+			return;
+		}
+
+		if (skb_queue_empty(&key->tx_queue)) {
+			WRITE_ONCE(key->idx, key->hw_idx);
+			spin_unlock_bh(&key->lock);
+			return;
+		}
+
+		skb_queue_splice_init(&key->tx_queue, &batch);
+		psp.saidx = key->hw_idx;
+		spin_unlock_bh(&key->lock);
+
+		while ((skb = __skb_dequeue(&batch))) {
+			if (!idpf_tx_psp_xmit(skb, &psp))
+				atomic_inc(&adapter->psp.tx_drops);
+		}
+	}
+}
+
+/**
+ * idpf_psp_tx_drain - Transmit the packets of the TX keys of the drain list
+ * @adapter: private data struct
+ *
+ * Called from the PSP work.
+ */
+static void idpf_psp_tx_drain(struct idpf_adapter *adapter)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct idpf_psp_tx_key *key;
+
+	for (;;) {
+		spin_lock_bh(&psp->drain_lock);
+		key = list_first_entry_or_null(&psp->drain_list,
+					       struct idpf_psp_tx_key,
+					       drain_node);
+		if (key)
+			list_del_init(&key->drain_node);
+		spin_unlock_bh(&psp->drain_lock);
+
+		if (!key)
+			return;
+
+		idpf_psp_tx_drain_key(adapter, key);
+		idpf_psp_tx_key_put(key);
+	}
+}
+
+/**
  * idpf_psp_tx_key_inserted - Complete the insertion of a TX key
  * @adapter: private data struct
  * @key: TX key of an insert request
@@ -420,8 +575,13 @@ void idpf_psp_tx_key_inserted(struct idpf_adapter *adapter,
 	spin_lock_bh(&key->lock);
 	key->hw_idx = saidx;
 	deleted = key->idx == IDPF_PSP_IDX_DELETED;
-	if (!deleted)
-		WRITE_ONCE(key->idx, saidx);
+	if (!deleted) {
+		/* Packets were queued: use the SA index once they are sent */
+		if (skb_queue_empty(&key->tx_queue))
+			WRITE_ONCE(key->idx, saidx);
+		else
+			idpf_psp_tx_drain_queue(adapter, key);
+	}
 	spin_unlock_bh(&key->lock);
 
 	/* The key was deleted while its insertion was pending */
@@ -439,6 +599,9 @@ void idpf_psp_tx_key_inserted(struct idpf_adapter *adapter,
 void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
 			    struct idpf_psp_tx_key *key)
 {
+	struct sk_buff_head drop;
+
+	__skb_queue_head_init(&drop);
 	atomic_inc(&adapter->psp.insert_errors);
 	/* The SADB entry reserved for the key wasn't used */
 	atomic_dec(&adapter->psp.sadb_used);
@@ -446,7 +609,10 @@ void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
 	spin_lock_bh(&key->lock);
 	if (key->idx == IDPF_PSP_IDX_IN_PROG)
 		WRITE_ONCE(key->idx, IDPF_PSP_IDX_ERROR);
+	skb_queue_splice_init(&key->tx_queue, &drop);
 	spin_unlock_bh(&key->lock);
+
+	idpf_psp_tx_purge(adapter, &drop);
 }
 
 /**
@@ -521,6 +687,7 @@ static void idpf_psp_tx_key_delete(struct idpf_adapter *adapter,
 				   struct idpf_psp_tx_key *key)
 {
 	struct idpf_adapter_psp *psp = &adapter->psp;
+	struct sk_buff_head drop;
 	bool queued, inserted;
 
 	/* Cancel the insertion if the key is still queued for it */
@@ -537,13 +704,18 @@ static void idpf_psp_tx_key_delete(struct idpf_adapter *adapter,
 		idpf_psp_tx_key_put(key);
 	}
 
+	__skb_queue_head_init(&drop);
 	spin_lock_bh(&key->lock);
 	WRITE_ONCE(key->idx, IDPF_PSP_IDX_DELETED);
 	/* If the insertion is pending, its SA index is deleted once it
 	 * completes, see idpf_psp_tx_key_inserted()
 	 */
 	inserted = idpf_psp_idx_valid(key->hw_idx);
+	skb_queue_splice_init(&key->tx_queue, &drop);
 	spin_unlock_bh(&key->lock);
+
+	idpf_psp_tx_drain_cancel(adapter, key);
+	idpf_psp_tx_purge(adapter, &drop);
 
 	if (inserted)
 		idpf_psp_queue_delete(adapter, key);
@@ -617,6 +789,97 @@ static void idpf_psp_tx_key_del(struct psp_dev *psd, struct psp_assoc *pas)
 
 	idpf_psp_tx_key_delete(adapter, key);
 	idpf_psp_tx_key_put(key);
+}
+
+/**
+ * idpf_psp_tx_queue_skb - Queue a PSP packet until its SA index is known
+ * @adapter: private data struct
+ * @tx_q: TX queue of the packet
+ * @key: TX key of the packet
+ * @skb: the packet
+ * @psp: PSP parameters of the packet
+ *
+ * Return: IDPF_PSP_TX_SEND with the SA index in @psp if it was published
+ * meanwhile, IDPF_PSP_TX_CONSUMED if the packet was queued or dropped.
+ */
+static enum idpf_psp_tx_verdict
+idpf_psp_tx_queue_skb(struct idpf_adapter *adapter, struct idpf_queue *tx_q,
+		      struct idpf_psp_tx_key *key, struct sk_buff *skb,
+		      struct idpf_psp_tx *psp)
+{
+	u32 idx;
+
+	spin_lock_bh(&key->lock);
+	idx = key->idx;
+	if (idpf_psp_idx_valid(idx)) {
+		spin_unlock_bh(&key->lock);
+		psp->saidx = idx;
+
+		return IDPF_PSP_TX_SEND;
+	}
+
+	if (idx == IDPF_PSP_IDX_IN_PROG &&
+	    skb_queue_len(&key->tx_queue) < IDPF_PSP_TX_QUEUE_MAX) {
+		__skb_queue_tail(&key->tx_queue, skb);
+		spin_unlock_bh(&key->lock);
+
+		return IDPF_PSP_TX_CONSUMED;
+	}
+	spin_unlock_bh(&key->lock);
+
+	/* The queue is full, the insertion failed or the key was deleted */
+	atomic_inc(&adapter->psp.tx_drops);
+	idpf_tx_drop_skb(tx_q, skb);
+
+	return IDPF_PSP_TX_CONSUMED;
+}
+
+/**
+ * __idpf_psp_tx_prep - Get the PSP parameters of a TX packet
+ * @vport: vport the packet is transmitted on
+ * @tx_q: TX queue of the packet
+ * @skb: the packet
+ * @pas: PSP association of the packet
+ * @psp: filled with the PSP parameters of the packet
+ *
+ * Called from the TX path with the RCU read lock held, see
+ * idpf_psp_tx_prep().
+ *
+ * Return: IDPF_PSP_TX_SEND if the packet can be transmitted with @psp,
+ * IDPF_PSP_TX_CONSUMED if it was queued until the SA index of its TX key is
+ * known, or dropped.
+ */
+enum idpf_psp_tx_verdict
+__idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
+		   struct sk_buff *skb, struct psp_assoc *pas,
+		   struct idpf_psp_tx *psp)
+{
+	struct idpf_psp_tx_key *key;
+	u32 idx;
+
+	/* Only the splitq TX path encrypts, see idpf_psp_register() */
+	if (unlikely(!idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model)))
+		goto drop;
+
+	key = rcu_dereference(*idpf_psp_assoc_key(pas));
+	if (unlikely(!key))
+		goto drop;
+
+	/* Read the SA index once, it can be published concurrently */
+	idx = READ_ONCE(key->idx);
+	if (likely(idpf_psp_idx_valid(idx))) {
+		psp->saidx = idx;
+
+		return IDPF_PSP_TX_SEND;
+	}
+
+	return idpf_psp_tx_queue_skb(vport->adapter, tx_q, key, skb, psp);
+
+drop:
+	atomic_inc(&vport->adapter->psp.tx_drops);
+	idpf_tx_drop_skb(tx_q, skb);
+
+	return IDPF_PSP_TX_CONSUMED;
 }
 
 /**
@@ -860,4 +1123,10 @@ void idpf_psp_unregister(struct idpf_adapter *adapter)
 
 	psp_dev_unregister(psd);
 	adapter->psp.psp_dev = NULL;
+
+	/* The PSP work may still transmit the packets it took off a TX key
+	 * before the key was deleted: wait for it, as the netdev may be freed
+	 * next
+	 */
+	idpf_cancel_psp_work(adapter);
 }

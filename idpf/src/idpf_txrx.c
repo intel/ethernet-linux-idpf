@@ -10,6 +10,7 @@
 #include "idpf_virtchnl.h"
 #include "idpf_lan_txrx.h"
 #include "idpf_ptp.h"
+#include "idpf_psp.h"
 
 #ifdef CONFIG_TX_TIMEOUT_VERBOSE
 static void idpf_dump_tx_data_flow_desc(struct idpf_queue *txq, u16 i)
@@ -3461,11 +3462,13 @@ static void idpf_tx_prepare_vlan_tag(struct idpf_queue *tx_q,
  * idpf_tx_splitq_frame - Sends buffer on Tx ring using flex descriptors
  * @skb: send buffer
  * @tx_q: queue to send buffer on
+ * @psp: PSP parameters of the packet, NULL if it isn't a PSP packet
  *
  * Returns NETDEV_TX_OK if sent, else an error code
  */
 static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
-					struct idpf_queue *tx_q)
+					struct idpf_queue *tx_q,
+					const struct idpf_psp_tx *psp)
 {
 	struct idpf_tx_splitq_params tx_params = {
 		.prev_ntu = tx_q->next_to_use,
@@ -3613,6 +3616,7 @@ netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 				 struct net_device *netdev)
 {
 	struct idpf_vport *vport = idpf_netdev_to_vport(netdev);
+	struct idpf_psp_tx psp;
 	struct idpf_queue *tx_q;
 
 	if (unlikely(skb_get_queue_mapping(skb) >= vport->num_txq)) {
@@ -3630,8 +3634,80 @@ netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 		return NETDEV_TX_OK;
 	}
 
-	return idpf_tx_splitq_frame(skb, tx_q);
+	switch (idpf_psp_tx_prep(vport, tx_q, skb, &psp)) {
+	case IDPF_PSP_TX_SEND:
+		return idpf_tx_splitq_frame(skb, tx_q, &psp);
+	case IDPF_PSP_TX_CONSUMED:
+		/* Queued until its SA index is known, or dropped: kick the HW
+		 * for the packets sent before it, see idpf_tx_splitq_map()
+		 */
+		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+
+		return NETDEV_TX_OK;
+	default:
+		break;
+	}
+
+	return idpf_tx_splitq_frame(skb, tx_q, NULL);
 }
+
+#if IS_ENABLED(CONFIG_INET_PSP)
+
+/**
+ * idpf_tx_psp_xmit - Transmit a PSP packet that waited for its SA index
+ * @skb: the packet, transmitted on the TX queue the stack selected for it
+ * @psp: PSP parameters of the packet
+ *
+ * Called from the PSP work, see idpf_psp_tx_drain_key(). Like the stack calls
+ * idpf_tx_splitq_start(): with bottom halves disabled and the TX queue locked.
+ *
+ * Return: true if the packet was transmitted, false if it was dropped.
+ */
+bool idpf_tx_psp_xmit(struct sk_buff *skb, const struct idpf_psp_tx *psp)
+{
+	u16 qidx = skb_get_queue_mapping(skb);
+	struct net_device *netdev = skb->dev;
+	netdev_tx_t ret = NETDEV_TX_BUSY;
+	struct idpf_vport *vport;
+	struct netdev_queue *nq;
+
+	if (unlikely(qidx >= netdev->real_num_tx_queues))
+		goto drop;
+
+	nq = netdev_get_tx_queue(netdev, qidx);
+
+	local_bh_disable();
+	__netif_tx_lock(nq, smp_processor_id());
+
+	/* The vport and its queues are only stable while the queue runs. Like
+	 * netpoll, ignore the BQL limit, which only applies to the qdisc: the
+	 * packet is only dropped if the TX ring is full.
+	 */
+	vport = idpf_netdev_to_vport(netdev);
+	if (netif_running(netdev) && !netif_xmit_frozen_or_drv_stopped(nq) &&
+	    vport && qidx < vport->num_txq) {
+		struct idpf_queue *tx_q = vport->txqs[qidx];
+
+		ret = idpf_tx_splitq_frame(skb, tx_q, psp);
+		if (ret == NETDEV_TX_OK) {
+			/* netdev_xmit_more() only applies to the stack */
+			idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+			txq_trans_cond_update(nq);
+		}
+	}
+
+	__netif_tx_unlock(nq);
+	local_bh_enable();
+
+	if (ret == NETDEV_TX_OK)
+		return true;
+
+drop:
+	kfree_skb_reason(skb, SKB_DROP_REASON_PSP_OUTPUT);
+
+	return false;
+}
+#endif /* CONFIG_INET_PSP */
 
 /**
  * idpf_ptype_to_htype - get a hash type

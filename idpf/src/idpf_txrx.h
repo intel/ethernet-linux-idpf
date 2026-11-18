@@ -1219,6 +1219,8 @@ void idpf_tx_timeout(struct net_device *netdev);
 #endif /* HAVE_TX_TIMEOUT_TXQUEUE */
 netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 				 struct net_device *netdev);
+struct idpf_psp_tx;
+bool idpf_tx_psp_xmit(struct sk_buff *skb, const struct idpf_psp_tx *psp);
 netdev_tx_t idpf_tx_singleq_start(struct sk_buff *skb,
 				  struct net_device *netdev);
 #ifdef IDPF_ADD_PROBES

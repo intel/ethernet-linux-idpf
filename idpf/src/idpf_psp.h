@@ -39,6 +39,39 @@ void idpf_psp_tx_key_failed(struct idpf_adapter *adapter,
 int idpf_psp_queue_insert(struct idpf_adapter *adapter,
 			  struct idpf_psp_tx_key *key);
 
+enum idpf_psp_tx_verdict
+__idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
+		   struct sk_buff *skb, struct psp_assoc *pas,
+		   struct idpf_psp_tx *psp);
+
+/**
+ * idpf_psp_tx_prep - Get the PSP parameters of a TX packet
+ * @vport: vport the packet is transmitted on
+ * @tx_q: TX queue of the packet
+ * @skb: the packet
+ * @psp: filled with the PSP parameters of the packet
+ *
+ * Return: IDPF_PSP_TX_PLAIN if @skb is not a PSP packet, IDPF_PSP_TX_SEND if
+ * it can be transmitted with @psp, IDPF_PSP_TX_CONSUMED if it was queued until
+ * the SA index of its TX key is known, or dropped.
+ */
+static inline enum idpf_psp_tx_verdict
+idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
+		 struct sk_buff *skb, struct idpf_psp_tx *psp)
+{
+	enum idpf_psp_tx_verdict ret = IDPF_PSP_TX_PLAIN;
+	struct psp_assoc *pas;
+
+	/* The stack only holds rcu_read_lock_bh() */
+	rcu_read_lock();
+	pas = psp_skb_get_assoc_rcu(skb);
+	if (unlikely(pas))
+		ret = __idpf_psp_tx_prep(vport, tx_q, skb, pas, psp);
+	rcu_read_unlock();
+
+	return ret;
+}
+
 /**
  * idpf_psp_saidx_ok - Check an SA index returned by the CP
  * @adapter: private data struct
@@ -84,6 +117,13 @@ idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 static inline void idpf_queue_psp_work(struct idpf_adapter *adapter) { }
 static inline void idpf_cancel_psp_work(struct idpf_adapter *adapter) { }
 static inline void idpf_psp_quiesce(struct idpf_adapter *adapter) { }
+
+static inline enum idpf_psp_tx_verdict
+idpf_psp_tx_prep(const struct idpf_vport *vport, struct idpf_queue *tx_q,
+		 struct sk_buff *skb, struct idpf_psp_tx *psp)
+{
+	return IDPF_PSP_TX_PLAIN;
+}
 
 static inline void
 idpf_psp_rotation_event(struct idpf_adapter *adapter,
