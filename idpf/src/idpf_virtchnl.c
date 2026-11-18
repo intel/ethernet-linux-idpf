@@ -3207,6 +3207,7 @@ static int idpf_send_get_rx_ptype_msg(struct idpf_adapter *adapter)
 	struct idpf_vc_xn_params xn_params = { };
 	int ptypes_recvd = 0, ptype_offset;
 	u32 max_ptype = IDPF_RX_MAX_PTYPE;
+	u16 psp_rx_ptype = IDPF_INVALID_PTYPE_ID;
 	u16 next_ptype_id = 0;
 	ssize_t reply_sz;
 	int err = 0, i;
@@ -3297,6 +3298,8 @@ static int idpf_send_get_rx_ptype_msg(struct idpf_adapter *adapter)
 				rx_pt.known = 1;
 
 			idpf_parse_protocol_ids(ptype, &rx_pt);
+			if (idpf_psp_is_rx_ptype(ptype))
+				psp_rx_ptype = pt_10;
 
 			/* For a given protocol ID stack, the ptype value
 			 * might vary between ptype_id_10 and ptype_id_8.
@@ -3311,6 +3314,7 @@ static int idpf_send_get_rx_ptype_msg(struct idpf_adapter *adapter)
 	}
 
 out:
+	idpf_psp_set_rx_ptype(adapter, psp_rx_ptype);
 	adapter->splitq_pt_lkup = splitq_pt_lkup;
 	adapter->singleq_pt_lkup = singleq_pt_lkup;
 

@@ -890,6 +890,8 @@ struct idpf_queue {
 	u8 tx_min_pkt_len;
 
 	struct idpf_rx_ptype_decoded *rx_ptype_lkup;
+	/* splitq ptype of decrypted PSP packets, see idpf_psp_rx_ptype() */
+	u16 psp_rx_ptype;
 	struct xarray reinject_timers;
 } ____cacheline_internodealigned_in_smp;
 

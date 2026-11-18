@@ -964,3 +964,54 @@ void idpf_psp_recv_reply(struct idpf_adapter *adapter,
 		break;
 	}
 }
+
+/* Protocols of the PSP Rx ptype in VIRTCHNL2_OP_GET_PTYPE_INFO */
+static const u16 idpf_psp_rx_ptype_protos[] = {
+	VIRTCHNL2_PROTO_HDR_MAC,
+	VIRTCHNL2_PROTO_HDR_IPV6,
+	VIRTCHNL2_PROTO_HDR_UDP,
+	VIRTCHNL2_PROTO_HDR_PSP,
+	VIRTCHNL2_PROTO_HDR_TCP,
+	VIRTCHNL2_PROTO_HDR_PAY,
+};
+
+/**
+ * idpf_psp_is_rx_ptype - Check if a ptype is the one of decrypted PSP packets
+ * @ptype: ptype received in VIRTCHNL2_OP_GET_PTYPE_INFO
+ *
+ * Return: true if @ptype has the protocol ids of decrypted PSP Rx packets
+ */
+bool idpf_psp_is_rx_ptype(const struct virtchnl2_ptype *ptype)
+{
+	u32 i;
+
+	if (ptype->proto_id_count != ARRAY_SIZE(idpf_psp_rx_ptype_protos))
+		return false;
+
+	for (i = 0; i < ARRAY_SIZE(idpf_psp_rx_ptype_protos); i++) {
+		if (le16_to_cpu(ptype->proto_id[i]) !=
+		    idpf_psp_rx_ptype_protos[i])
+			return false;
+	}
+
+	return true;
+}
+
+/**
+ * idpf_psp_set_rx_ptype - Set the ptype of decrypted PSP Rx packets
+ * @adapter: Driver specific private structure
+ * @ptype: splitq ptype with the PSP Rx protocol ids in
+ *	   VIRTCHNL2_OP_GET_PTYPE_INFO, IDPF_INVALID_PTYPE_ID if there is none
+ *
+ * The driver doesn't guess the ptype: if the CP granted VIRTCHNL2_CAP_CRYPTO
+ * but didn't report the PSP Rx ptype, PSP Rx packets are not decapsulated.
+ */
+void idpf_psp_set_rx_ptype(struct idpf_adapter *adapter, u16 ptype)
+{
+	if (ptype == IDPF_INVALID_PTYPE_ID &&
+	    idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_CRYPTO))
+		dev_warn(&adapter->pdev->dev,
+			 "PSP Rx ptype not reported by CP, PSP Rx packets are not decapsulated\n");
+
+	adapter->psp.rx_ptype = ptype;
+}
