@@ -1041,20 +1041,38 @@ static int idpf_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
  * associations using it, see idpf_psp_rx_process_skb(). The CP master key
  * generation tells when a master key was replaced, including by a rotation
  * the PSP core didn't request, see idpf_psp_rotation_event().
+ *
+ * Return: 0 on success, -EAGAIN if @spi has the master key of the last SPI of
+ * its phase but the PSP device generation changed: the CP didn't apply the
+ * rotation assumed by idpf_psp_key_rotate(), the generation is restored. The
+ * CP processes the mailbox requests in order, so it won't apply a timed-out
+ * rotation after answering this later allocation.
  */
-static void idpf_psp_rx_gen_update(struct idpf_adapter *adapter,
-				   struct psp_dev *psd, __be32 spi, u32 cp_gen)
+static int idpf_psp_rx_gen_update(struct idpf_adapter *adapter,
+				  struct psp_dev *psd, __be32 spi, u32 cp_gen)
 {
 	struct idpf_psp_rx_gen *rx_gen;
 
 	lockdep_assert_held(&psd->lock);
 
 	rx_gen = &adapter->psp.rx_gen[be32_to_cpu(spi) >> 31];
-	if (rx_gen->gen != IDPF_PSP_GEN_UNKNOWN && rx_gen->cp_gen == cp_gen)
-		return;
+	if (rx_gen->gen != IDPF_PSP_GEN_UNKNOWN && rx_gen->cp_gen == cp_gen) {
+		if (rx_gen->gen == psd->generation)
+			return 0;
+
+		netdev_warn(psd->main_netdev,
+			    "PSP key rotation not applied by CP, generation restored to %u\n",
+			    rx_gen->gen);
+		psd->generation = rx_gen->gen;
+		adapter->psp.generation = rx_gen->gen;
+
+		return -EAGAIN;
+	}
 
 	rx_gen->cp_gen = cp_gen;
 	WRITE_ONCE(rx_gen->gen, psd->generation);
+
+	return 0;
 }
 
 /**
@@ -1096,7 +1114,13 @@ static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 		return err;
 	}
 
-	idpf_psp_rx_gen_update(adapter, psd, rx_key.spi, rx_key.generation);
+	err = idpf_psp_rx_gen_update(adapter, psd, rx_key.spi, rx_key.generation);
+	if (err) {
+		memzero_explicit(&rx_key, sizeof(rx_key));
+		NL_SET_ERR_MSG_MOD(extack,
+				   "PSP key rotation not applied by CP, generation restored");
+		return err;
+	}
 
 	key->spi = rx_key.spi;
 	memcpy(key->key, rx_key.key, sizeof(rx_key.key));
@@ -1112,7 +1136,13 @@ static int idpf_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
  *
  * The PSP core increments the PSP device generation before calling this op
  * and doesn't restore it if the op fails, see psp_nl_key_rotate_doit(): restore
- * it then, the master keys didn't change.
+ * it then, the master keys didn't change. If the request timed out, the CP may
+ * have rotated: report the rotation, as an association reported stale too
+ * early is better than one that can no longer decrypt without being reported
+ * stale. If the CP didn't rotate, the next RX SPI allocation restores the
+ * generation, see idpf_psp_rx_gen_update(). -ENXIO is a failure: the mailbox
+ * was shut down, before the request was sent or for a reset that unregisters
+ * the PSP device.
  *
  * Return: 0 on success, negative error code on failure.
  */
@@ -1123,6 +1153,12 @@ static int idpf_psp_key_rotate(struct psp_dev *psd,
 	int err;
 
 	err = idpf_psp_rotation_request(adapter);
+	if (err == -ETIME) {
+		netdev_warn(psd->main_netdev,
+			    "PSP key rotation outcome unknown (%d), assuming rotated\n",
+			    err);
+		err = 0;
+	}
 	if (err) {
 		psd->generation = adapter->psp.generation;
 
