@@ -2395,9 +2395,9 @@ unlock_mutex:
 	if (!err) {
 		idpf_attach_and_open(adapter);
 		/* Register the PSP device on load, and again after a hard
-		 * reset. It is only registered here, in the virtchnl event
-		 * task: idpf_remove() and idpf_shutdown() cancel the task
-		 * before they unregister it.
+		 * reset. idpf_remove() and idpf_shutdown() cancel this task
+		 * before they unregister it, idpf_reset_prepare() blocks the
+		 * registration, see idpf_psp_block_register().
 		 */
 		idpf_psp_register(adapter);
 		/* Wait until all vports are created to init RDMA CORE AUX */

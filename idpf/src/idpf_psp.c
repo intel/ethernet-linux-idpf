@@ -1215,19 +1215,26 @@ void idpf_psp_register(struct idpf_adapter *adapter)
 	struct idpf_vport *vport;
 	struct psp_dev *psd;
 
-	if (!idpf_is_psp_ena(adapter) || adapter->psp.psp_dev)
+	if (!idpf_is_psp_ena(adapter))
 		return;
+
+	/* idpf_decfg_netdev() clears IDPF_VPORT_REG_NETDEV, then waits for the
+	 * lock in idpf_psp_unregister() before freeing the netdev and vports
+	 */
+	mutex_lock(&adapter->psp.psp_dev_lock);
+	if (adapter->psp.psp_dev || adapter->psp.reg_blocked)
+		goto unlock;
 
 	if (!adapter->netdevs || !adapter->netdevs[0] ||
 	    !test_bit(IDPF_VPORT_REG_NETDEV, adapter->vport_config[0]->flags))
-		return;
+		goto unlock;
 
 	vport = adapter->vports ? adapter->vports[0] : NULL;
 	if (!vport ||
 	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model) ||
 	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.rxq_model)) {
 		dev_notice(dev, "PSP disabled, vport 0 doesn't use the splitq queue model\n");
-		return;
+		goto unlock;
 	}
 
 	/* The driver data of an association holds a pointer to its TX key */
@@ -1239,12 +1246,29 @@ void idpf_psp_register(struct idpf_adapter *adapter)
 			     &adapter->psp.caps, NULL);
 	if (IS_ERR(psd)) {
 		dev_err(dev, "PSP failed to register: %pe\n", psd);
-		return;
+		goto unlock;
 	}
 
 	adapter->psp.psp_dev = psd;
 	dev_info(dev, "PSP Netlink device registered successfully: id=%u\n",
 		 psd->id);
+unlock:
+	mutex_unlock(&adapter->psp.psp_dev_lock);
+}
+
+/**
+ * idpf_psp_block_register - Block or allow the registration of the PSP device
+ * @adapter: private data struct
+ * @block: true from idpf_reset_prepare(), false once the PCI reset is done
+ *
+ * A hard reset racing with idpf_reset_prepare() would register the PSP device
+ * again while the mailbox its ops use is torn down.
+ */
+void idpf_psp_block_register(struct idpf_adapter *adapter, bool block)
+{
+	mutex_lock(&adapter->psp.psp_dev_lock);
+	adapter->psp.reg_blocked = block;
+	mutex_unlock(&adapter->psp.psp_dev_lock);
 }
 
 /**
@@ -1253,23 +1277,28 @@ void idpf_psp_register(struct idpf_adapter *adapter)
  *
  * The PSP core deletes the TX keys of all the associations, see
  * idpf_psp_tx_key_del(). Called before the netdev of the PSP device is
- * unregistered.
+ * unregistered. A concurrent caller, e.g. a hard reset racing with
+ * idpf_reset_prepare(), returns once the PSP device ops are done.
  */
 void idpf_psp_unregister(struct idpf_adapter *adapter)
 {
-	struct psp_dev *psd = adapter->psp.psp_dev;
+	struct psp_dev *psd;
 
+	mutex_lock(&adapter->psp.psp_dev_lock);
+	psd = adapter->psp.psp_dev;
 	if (!psd)
-		return;
+		goto unlock;
 
-	psp_dev_unregister(psd);
 	adapter->psp.psp_dev = NULL;
+	psp_dev_unregister(psd);
 
 	/* The PSP work may still transmit the packets it took off a TX key
 	 * before the key was deleted: wait for it, as the netdev may be freed
 	 * next
 	 */
 	idpf_cancel_psp_work(adapter);
+unlock:
+	mutex_unlock(&adapter->psp.psp_dev_lock);
 }
 
 /**
