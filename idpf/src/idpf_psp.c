@@ -284,6 +284,10 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	psp->rx_gen[0].gen = IDPF_PSP_GEN_UNKNOWN;
 	psp->rx_gen[1].gen = IDPF_PSP_GEN_UNKNOWN;
 
+	spin_lock_bh(&psp->del_lock);
+	psp->del_stopped = false;
+	spin_unlock_bh(&psp->del_lock);
+
 	/* The counters cover the time since the core init */
 	atomic_set(&psp->keys_allocated, 0);
 	atomic_set(&psp->keys_removed, 0);
@@ -345,7 +349,9 @@ void idpf_psp_quiesce(struct idpf_adapter *adapter)
 		idpf_psp_tx_key_put(key);
 	}
 
+	/* The mailbox task can still queue deletions, e.g. of late insertions */
 	spin_lock_bh(&psp->del_lock);
+	psp->del_stopped = true;
 	list_splice_init(&psp->del_list, &keys);
 	spin_unlock_bh(&psp->del_lock);
 
@@ -454,24 +460,29 @@ void idpf_psp_tx_key_put(struct idpf_psp_tx_key *key)
  * The deletion requests are sent by the PSP work, which releases the
  * reference taken on @key once the SA index was deleted, see
  * idpf_send_delete_psp_keys(). No deletion is queued during a reset or
- * remove: the SADB is flushed by the reset, and by the function reset on
- * remove.
+ * remove, nor once idpf_psp_quiesce() dropped the queued ones: the SADB is
+ * flushed by the reset, and by the function reset on remove.
  */
 void idpf_psp_queue_delete(struct idpf_adapter *adapter,
 			   struct idpf_psp_tx_key *key)
 {
 	struct idpf_adapter_psp *psp = &adapter->psp;
+	bool queued;
 
 	if (idpf_is_reset_in_prog(adapter) ||
 	    test_bit(IDPF_REMOVE_IN_PROG, adapter->flags))
 		return;
 
-	idpf_psp_tx_key_get(key);
 	spin_lock_bh(&psp->del_lock);
-	list_add_tail(&key->del_node, &psp->del_list);
+	queued = !psp->del_stopped;
+	if (queued) {
+		idpf_psp_tx_key_get(key);
+		list_add_tail(&key->del_node, &psp->del_list);
+	}
 	spin_unlock_bh(&psp->del_lock);
 
-	idpf_queue_psp_work(adapter);
+	if (queued)
+		idpf_queue_psp_work(adapter);
 }
 
 /**
