@@ -907,11 +907,13 @@ static void idpf_psp_insert_late(struct idpf_adapter *adapter,
  * for anymore, e.g. after the request timed out. The SA indexes deleted by a
  * deletion reply were counted as lost, see idpf_send_delete_psp_keys(): they
  * are counted as removed. The SA indexes of an insertion reply are deleted,
- * see idpf_psp_insert_late().
+ * see idpf_psp_insert_late(). A key rotation reply is reported: the rotation
+ * was assumed, see idpf_psp_key_rotate().
  */
 void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 			      const struct idpf_ctlq_msg *ctlq_msg)
 {
+	const struct virtchnl2_psp_rotate_keygen_response *rot_resp;
 	const struct virtchnl2_psp_delete_keys_response *del_resp;
 	u32 deleted;
 
@@ -937,6 +939,20 @@ void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
 		if (idpf_is_psp_ena(adapter) && !ctlq_msg->cookie.mbx.chnl_retval)
 			idpf_psp_insert_late(adapter, ctlq_msg);
+		break;
+	case VIRTCHNL2_OP_PSP_ROTATE_KEYGEN_REQUEST:
+		if (ctlq_msg->cookie.mbx.chnl_retval) {
+			net_warn_ratelimited("PSP key rotation failed after timeout\n");
+			break;
+		}
+		if (!ctlq_msg->ctx.indirect.payload ||
+		    ctlq_msg->data_len < sizeof(*rot_resp))
+			break;
+
+		rot_resp = (const struct virtchnl2_psp_rotate_keygen_response *)
+			   ctlq_msg->ctx.indirect.payload->va;
+		net_warn_ratelimited("PSP key rotation applied after timeout, master key generation %u\n",
+				     le32_to_cpu(rot_resp->master_key_generation_id));
 		break;
 	default:
 		break;
