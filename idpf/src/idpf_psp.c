@@ -223,9 +223,11 @@ static void idpf_psp_debugfs_init(struct idpf_adapter *adapter)
  *
  * Called on each core init, including after a hard reset: PSP offload is
  * negotiated again, the CP may grant different capabilities. PSP offload uses
- * the virtchnl2 crypto offload API: if VIRTCHNL2_CAP_CRYPTO was not granted or
- * the negotiation fails, PSP stays disabled for the adapter instead of failing
- * the core init, see idpf_is_psp_ena().
+ * the virtchnl2 crypto offload API: if VIRTCHNL2_CAP_CRYPTO was not granted,
+ * the negotiation fails or the CP didn't report the PSP RX ptype, PSP stays
+ * disabled for the adapter instead of failing the core init, see
+ * idpf_is_psp_ena(). The RX ptypes must be queried before, see
+ * idpf_psp_set_rx_ptype().
  */
 void idpf_psp_init(struct idpf_adapter *adapter)
 {
@@ -244,6 +246,12 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 	if (err) {
 		dev_warn(dev, "PSP disabled, capability negotiation failed: %d\n",
 			 err);
+		return;
+	}
+
+	/* Decrypted packets would otherwise reach the stack as plain UDP */
+	if (psp->rx_ptype == IDPF_INVALID_PTYPE_ID) {
+		dev_warn(dev, "PSP disabled, PSP RX ptype not reported by CP\n");
 		return;
 	}
 
