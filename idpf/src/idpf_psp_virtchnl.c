@@ -1036,15 +1036,10 @@ bool idpf_psp_is_rx_ptype(const struct virtchnl2_ptype *ptype)
  * @ptype: splitq ptype with the PSP Rx protocol ids in
  *	   VIRTCHNL2_OP_GET_PTYPE_INFO, IDPF_INVALID_PTYPE_ID if there is none
  *
- * The driver doesn't guess the ptype: if the CP granted VIRTCHNL2_CAP_CRYPTO
- * but didn't report the PSP Rx ptype, PSP Rx packets are not decapsulated.
+ * The driver doesn't guess the ptype: if the CP didn't report the PSP Rx
+ * ptype, PSP stays disabled, see idpf_psp_init().
  */
 void idpf_psp_set_rx_ptype(struct idpf_adapter *adapter, u16 ptype)
 {
-	if (ptype == IDPF_INVALID_PTYPE_ID &&
-	    idpf_is_cap_ena(adapter, IDPF_OTHER_CAPS, VIRTCHNL2_CAP_CRYPTO))
-		dev_warn(&adapter->pdev->dev,
-			 "PSP Rx ptype not reported by CP, PSP Rx packets are not decapsulated\n");
-
 	adapter->psp.rx_ptype = ptype;
 }
