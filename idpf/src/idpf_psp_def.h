@@ -8,6 +8,7 @@
 
 #include <linux/kref.h>
 #include <linux/list.h>
+#include <linux/mutex.h>
 #include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/timer.h>
@@ -206,6 +207,9 @@ struct idpf_psp_dev_stats {
  * @tx_drops: PSP packets dropped on transmit
  * @rx_drops: decrypted PSP packets dropped on receive
  * @debugfs: debugfs directory of the counters, see idpf_psp_debugfs_init()
+ * @psp_dev_lock: serializes idpf_psp_register() and idpf_psp_unregister()
+ * @reg_blocked: no PSP device is registered, from idpf_reset_prepare() until
+ *		 the PCI reset is done, see idpf_psp_block_register()
  * @psp_dev: the PSP device, see idpf_psp_register()
  * @caps: capabilities of @psp_dev
  */
@@ -243,6 +247,8 @@ struct idpf_adapter_psp {
 	atomic_t tx_drops;
 	atomic_t rx_drops;
 	struct dentry *debugfs;
+	struct mutex psp_dev_lock;	/* serializes register/unregister */
+	bool reg_blocked;
 	struct psp_dev *psp_dev;
 #if IS_ENABLED(CONFIG_INET_PSP)
 	struct psp_dev_caps caps;

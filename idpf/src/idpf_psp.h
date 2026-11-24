@@ -14,6 +14,7 @@ void idpf_psp_init(struct idpf_adapter *adapter);
 void idpf_psp_free(struct idpf_adapter *adapter);
 void idpf_psp_register(struct idpf_adapter *adapter);
 void idpf_psp_unregister(struct idpf_adapter *adapter);
+void idpf_psp_block_register(struct idpf_adapter *adapter, bool block);
 void idpf_psp_recv_reply(struct idpf_adapter *adapter,
 			 const struct idpf_ctlq_msg *ctlq_msg);
 void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
@@ -127,6 +128,8 @@ static inline void idpf_psp_init(struct idpf_adapter *adapter) { }
 static inline void idpf_psp_free(struct idpf_adapter *adapter) { }
 static inline void idpf_psp_register(struct idpf_adapter *adapter) { }
 static inline void idpf_psp_unregister(struct idpf_adapter *adapter) { }
+static inline void idpf_psp_block_register(struct idpf_adapter *adapter,
+					   bool block) { }
 
 static inline void
 idpf_psp_recv_reply(struct idpf_adapter *adapter,

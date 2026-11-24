@@ -116,6 +116,7 @@ destroy_wqs:
 	mutex_destroy(&adapter->vport_ctrl_lock);
 	mutex_destroy(&adapter->vector_lock);
 	mutex_destroy(&adapter->queue_lock);
+	mutex_destroy(&adapter->psp.psp_dev_lock);
 #ifdef DEVLINK_ENABLED
 	mutex_destroy(&adapter->sf_mutex);
 #endif /* DEVLINK_ENABLED */
@@ -350,6 +351,7 @@ static int idpf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	mutex_init(&adapter->vport_ctrl_lock);
 	mutex_init(&adapter->vector_lock);
 	mutex_init(&adapter->queue_lock);
+	mutex_init(&adapter->psp.psp_dev_lock);
 #ifdef DEVLINK_ENABLED
 	/* Taken from mailbox receive context, so it must be live before the
 	 * mailbox starts and stay live until after it is cancelled.
@@ -624,6 +626,12 @@ static void idpf_reset_prepare(struct idpf_adapter *adapter)
 	cancel_delayed_work_sync(&adapter->vc_event_task);
 	cancel_delayed_work_sync(&adapter->init_task);
 	set_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
+	/* Wait for the PSP device ops, which use the mailbox torn down below.
+	 * The hard reset of the recovery registers it again. After the flag:
+	 * no SA index deletion is queued, the reset flushes the SADB.
+	 */
+	idpf_psp_block_register(adapter, true);
+	idpf_psp_unregister(adapter);
 	idpf_detach_and_close(adapter);
 	idpf_idc_issue_reset_event(adapter->cdev_info);
 	mutex_lock(&adapter->vport_ctrl_lock);
@@ -703,6 +711,7 @@ static void idpf_pci_err_resume(struct pci_dev *pdev)
 		adapter->dev_ops.reg_ops.trigger_reset(adapter,
 						       IDPF_HR_FUNC_RESET);
 
+	idpf_psp_block_register(adapter, false);
 	queue_delayed_work(adapter->vc_event_wq,
 			   &adapter->vc_event_task,
 			   msecs_to_jiffies(300));
