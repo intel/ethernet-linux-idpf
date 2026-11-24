@@ -738,16 +738,31 @@ static void idpf_psp_insert_requeue(struct idpf_adapter *adapter,
 				    struct idpf_psp_insert_req *req)
 {
 	struct idpf_adapter_psp *psp = &adapter->psp;
-	u32 i;
+	struct idpf_psp_tx_key *key;
+	u32 i, j = req->num_keys;
 
 	spin_lock_bh(&psp->insert_lock);
 	if (psp->insert_req == req)
 		psp->insert_req = NULL;
 	/* In request order, at the head of the queue */
-	for (i = req->num_keys; i; i--)
-		list_add(&req->keys[i - 1]->ins_node, &psp->ins_list);
-	WRITE_ONCE(psp->ins_queued, psp->ins_queued + req->num_keys);
+	for (i = req->num_keys; i; i--) {
+		key = req->keys[i - 1];
+		/* Deleted meanwhile, see idpf_psp_tx_key_delete(): moved to the
+		 * end of the request, whose slots from i on were processed
+		 */
+		if (READ_ONCE(key->idx) == IDPF_PSP_IDX_DELETED) {
+			req->keys[--j] = key;
+			continue;
+		}
+		list_add(&key->ins_node, &psp->ins_list);
+	}
+	WRITE_ONCE(psp->ins_queued, psp->ins_queued + j);
 	spin_unlock_bh(&psp->insert_lock);
+
+	for (i = j; i < req->num_keys; i++) {
+		atomic_dec(&psp->sadb_used);
+		idpf_psp_tx_key_put(req->keys[i]);
+	}
 
 	kfree(req);
 	idpf_retry_psp_work(adapter);
