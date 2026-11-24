@@ -41,6 +41,8 @@ static int idpf_psp_vc_send(struct idpf_adapter *adapter, u32 vc_op,
 
 	reply_sz = idpf_vc_xn_exec(adapter, &xn_params);
 	if (reply_sz < 0) {
+		/* A reset can fail the request after the reply was copied */
+		memzero_explicit(buf, IDPF_CTLQ_MAX_BUF_LEN);
 		kfree(buf);
 		return reply_sz;
 	}
