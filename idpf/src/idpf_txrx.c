@@ -3502,8 +3502,18 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 		return NETDEV_TX_BUSY;
 	}
 
-	if (psp && !idpf_psp_tx_encap(tx_q, skb, psp))
-		return idpf_tx_drop_skb(tx_q, skb);
+	if (psp) {
+		if (!idpf_psp_tx_encap(tx_q, skb, psp))
+			return idpf_tx_drop_skb(tx_q, skb);
+
+		/* After the encapsulation, so that the IP and UDP lengths
+		 * match. skb_put_padto() frees the packet on failure.
+		 */
+		if (skb_put_padto(skb, tx_q->tx_min_pkt_len)) {
+			idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+			return NETDEV_TX_OK;
+		}
+	}
 
 	tso = idpf_tso(skb, &tx_params.offload);
 	if (unlikely(tso < 0))
@@ -3656,14 +3666,7 @@ netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 
 	tx_q = vport->txqs[skb_get_queue_mapping(skb)];
 
-	/* hardware can't handle really short frames, hardware padding works
-	 * beyond this point
-	 */
-	if (skb_put_padto(skb, tx_q->tx_min_pkt_len)) {
-		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
-		return NETDEV_TX_OK;
-	}
-
+	/* PSP packets are padded once encapsulated, see idpf_tx_splitq_frame() */
 	switch (idpf_psp_tx_prep(vport, tx_q, skb, &psp)) {
 	case IDPF_PSP_TX_SEND:
 		return idpf_tx_splitq_frame(skb, tx_q, &psp);
@@ -3676,6 +3679,14 @@ netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 		return NETDEV_TX_OK;
 	default:
 		break;
+	}
+
+	/* hardware can't handle really short frames, hardware padding works
+	 * beyond this point
+	 */
+	if (skb_put_padto(skb, tx_q->tx_min_pkt_len)) {
+		idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+		return NETDEV_TX_OK;
 	}
 
 	return idpf_tx_splitq_frame(skb, tx_q, NULL);
