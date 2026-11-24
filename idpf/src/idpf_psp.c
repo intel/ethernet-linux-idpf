@@ -752,7 +752,19 @@ static void idpf_psp_tx_key_delete(struct idpf_adapter *adapter,
 	struct sk_buff_head drop;
 	bool queued, inserted;
 
-	/* Cancel the insertion if the key is still queued for it */
+	__skb_queue_head_init(&drop);
+	spin_lock_bh(&key->lock);
+	WRITE_ONCE(key->idx, IDPF_PSP_IDX_DELETED);
+	/* If the insertion is pending, its SA index is deleted once it
+	 * completes, see idpf_psp_tx_key_inserted()
+	 */
+	inserted = idpf_psp_idx_valid(key->hw_idx);
+	skb_queue_splice_init(&key->tx_queue, &drop);
+	spin_unlock_bh(&key->lock);
+
+	/* Cancel the insertion if the key is still queued for it. Marked
+	 * deleted first: idpf_psp_insert_requeue() doesn't queue it again.
+	 */
 	spin_lock_bh(&psp->insert_lock);
 	queued = !list_empty(&key->ins_node);
 	if (queued) {
@@ -765,16 +777,6 @@ static void idpf_psp_tx_key_delete(struct idpf_adapter *adapter,
 		atomic_dec(&psp->sadb_used);
 		idpf_psp_tx_key_put(key);
 	}
-
-	__skb_queue_head_init(&drop);
-	spin_lock_bh(&key->lock);
-	WRITE_ONCE(key->idx, IDPF_PSP_IDX_DELETED);
-	/* If the insertion is pending, its SA index is deleted once it
-	 * completes, see idpf_psp_tx_key_inserted()
-	 */
-	inserted = idpf_psp_idx_valid(key->hw_idx);
-	skb_queue_splice_init(&key->tx_queue, &drop);
-	spin_unlock_bh(&key->lock);
 
 	idpf_psp_tx_drain_cancel(adapter, key);
 	idpf_psp_tx_purge(adapter, &drop);
