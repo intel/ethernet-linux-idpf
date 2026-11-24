@@ -294,17 +294,20 @@ void idpf_psp_init(struct idpf_adapter *adapter)
 
 	spin_lock_bh(&psp->del_lock);
 	psp->del_stopped = false;
+	psp->del_in_flight = false;
+	psp->del_late = 0;
+	/* Under del_lock: a late deletion reply may be handled meanwhile */
+	atomic_set(&psp->keys_removed, 0);
+	atomic_set(&psp->keys_lost, 0);
+	atomic_set(&psp->sadb_used, 0);
 	spin_unlock_bh(&psp->del_lock);
 
 	/* The counters cover the time since the core init */
 	atomic_set(&psp->keys_allocated, 0);
-	atomic_set(&psp->keys_removed, 0);
-	atomic_set(&psp->keys_lost, 0);
 	atomic_set(&psp->del_retries, 0);
 	atomic_set(&psp->keys_inserted, 0);
 	atomic_set(&psp->insert_errors, 0);
 	atomic_set(&psp->insert_late, 0);
-	atomic_set(&psp->sadb_used, 0);
 	atomic_set(&psp->keys_refused, 0);
 	atomic_set(&psp->tx_drops, 0);
 	atomic_set(&psp->rx_drops, 0);

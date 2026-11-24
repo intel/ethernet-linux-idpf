@@ -179,10 +179,15 @@ struct idpf_psp_dev_stats {
  *	   protected by the PSP device lock, see idpf_psp_get_stats()
  * @initialized: the locks and lists below were initialized, the first time
  *		 PSP was negotiated
- * @del_lock: protects @del_list and @del_stopped
+ * @del_lock: protects @del_list, @del_stopped, @del_in_flight and @del_late
  * @del_list: TX keys whose SA index is queued for deletion
  * @del_stopped: no deletion is queued, from idpf_psp_quiesce() until the next
  *		 core init
+ * @del_in_flight: a deletion request is in flight, see
+ *		   idpf_send_delete_psp_keys()
+ * @del_late: SA indexes reported deleted by late replies received while
+ *	      @del_in_flight beyond the ones counted as lost, see
+ *	      idpf_psp_recv_late_reply()
  * @wq: workqueue of @work
  * @work: sends the insertion and deletion requests
  * @insert_lock: protects @insert_req, @ins_list and @ins_queued
@@ -225,9 +230,11 @@ struct idpf_adapter_psp {
 	struct idpf_psp_rx_gen rx_gen[2];
 	struct idpf_psp_dev_stats stats;
 	bool initialized;
-	spinlock_t del_lock;		/* protects del_list, del_stopped */
+	spinlock_t del_lock;		/* protects the deletions */
 	struct list_head del_list;
 	bool del_stopped;
+	bool del_in_flight;
+	u32 del_late;
 	struct workqueue_struct *wq;
 	struct delayed_work work;
 	spinlock_t insert_lock;		/* protects the insertions */
