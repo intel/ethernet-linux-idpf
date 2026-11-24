@@ -460,25 +460,76 @@ release_rx:
 }
 
 /**
+ * idpf_psp_keys_deleted - Count SA indexes counted as lost as deleted
+ * @adapter: Driver specific private structure
+ * @deleted: number of SA indexes the CP deleted
+ *
+ * Called with del_lock held, which serializes it with the reset of the
+ * counters by idpf_psp_init().
+ *
+ * Return: number of SA indexes counted as deleted, at most the ones counted
+ * as lost.
+ */
+static u32 idpf_psp_keys_deleted(struct idpf_adapter *adapter, u32 deleted)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+	u32 sub;
+
+	lockdep_assert_held(&psp->del_lock);
+
+	sub = min_t(u32, deleted, max(atomic_read(&psp->keys_lost), 0));
+	atomic_sub(sub, &psp->keys_lost);
+	atomic_add(sub, &psp->keys_removed);
+	atomic_sub(sub, &psp->sadb_used);
+
+	return sub;
+}
+
+/**
+ * idpf_psp_delete_settled - End a deletion request
+ * @adapter: Driver specific private structure
+ * @lost: number of SA indexes of the request that are lost
+ * @timed_out: the request timed out
+ *
+ * The SA indexes reported deleted by the late replies received while the
+ * request was in flight may only be the ones of the request if it timed out:
+ * count them once its SA indexes are counted as lost. Otherwise its own reply
+ * was received, the late replies were stray and are discarded.
+ */
+static void idpf_psp_delete_settled(struct idpf_adapter *adapter, u32 lost,
+				    bool timed_out)
+{
+	struct idpf_adapter_psp *psp = &adapter->psp;
+
+	spin_lock_bh(&psp->del_lock);
+	atomic_add(lost, &psp->keys_lost);
+	psp->del_in_flight = false;
+	if (timed_out)
+		idpf_psp_keys_deleted(adapter, psp->del_late);
+	psp->del_late = 0;
+	spin_unlock_bh(&psp->del_lock);
+}
+
+/**
  * idpf_psp_delete_done - Release the TX keys of a deletion request
  * @adapter: Driver specific private structure
  * @batch: TX keys of the request
  * @removed: number of SA indexes the CP deleted
  * @lost: number of SA indexes that couldn't be deleted
+ * @timed_out: the request timed out
  */
 static void idpf_psp_delete_done(struct idpf_adapter *adapter,
 				 struct list_head *batch, u32 removed,
-				 u32 lost)
+				 u32 lost, bool timed_out)
 {
 	struct idpf_psp_tx_key *key, *tmp;
 
 	atomic_add(removed, &adapter->psp.keys_removed);
 	atomic_sub(removed, &adapter->psp.sadb_used);
-	if (lost) {
-		atomic_add(lost, &adapter->psp.keys_lost);
+	idpf_psp_delete_settled(adapter, lost, timed_out);
+	if (lost)
 		net_warn_ratelimited("%s: %u SA indexes couldn't be deleted\n",
 				     __func__, lost);
-	}
 
 	list_for_each_entry_safe(key, tmp, batch, del_node) {
 		list_del_init(&key->del_node);
@@ -553,6 +604,13 @@ bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter)
 	list_for_each_entry(key, &batch, del_node)
 		del_req->sa_indexes[i++] = cpu_to_le32(key->hw_idx);
 
+	/* A late reply received until the request settles may be the one of
+	 * the request once it timed out: it is counted once the SA indexes of
+	 * the request are, see idpf_psp_recv_late_reply()
+	 */
+	spin_lock_bh(&psp->del_lock);
+	psp->del_in_flight = true;
+	spin_unlock_bh(&psp->del_lock);
 	err = idpf_psp_vc_send(adapter, VIRTCHNL2_OP_PSP_DELETE_KEYS,
 			       idpf_get_vc_xn_default_timeout(adapter),
 			       del_req, buf_size, &recv_mem);
@@ -574,7 +632,7 @@ bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter)
 		idpf_psp_release_rx_buf(&recv_mem);
 
 		idpf_psp_delete_done(adapter, &batch, removed,
-				     num_keys - removed);
+				     num_keys - removed, false);
 		return more;
 	case -EIO:
 		/* The CP failed the request, e.g. because of an invalid SA
@@ -583,6 +641,7 @@ bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter)
 		if (single)
 			break;
 
+		idpf_psp_delete_settled(adapter, 0, false);
 		list_for_each_entry(key, &batch, del_node)
 			key->del_single = true;
 		atomic_add(num_keys, &psp->del_retries);
@@ -594,11 +653,12 @@ bool idpf_send_delete_psp_keys(struct idpf_adapter *adapter)
 	case -ETIME:
 		break;
 	default:
+		idpf_psp_delete_settled(adapter, 0, false);
 		goto requeue;
 	}
 
 	/* The request timed out, or failed again on its own */
-	idpf_psp_delete_done(adapter, &batch, 0, num_keys);
+	idpf_psp_delete_done(adapter, &batch, 0, num_keys, err == -ETIME);
 
 	return more;
 
@@ -921,15 +981,18 @@ static void idpf_psp_insert_late(struct idpf_adapter *adapter,
  * Called by idpf_vc_xn_forward_reply() for the replies no transaction waits
  * for anymore, e.g. after the request timed out. The SA indexes deleted by a
  * deletion reply were counted as lost, see idpf_send_delete_psp_keys(): they
- * are counted as removed. The SA indexes of an insertion reply are deleted,
- * see idpf_psp_insert_late(). A key rotation reply is reported: the rotation
- * was assumed, see idpf_psp_key_rotate().
+ * are counted as removed. The ones beyond the SA indexes counted as lost may
+ * be the ones of the deletion request in flight: they are counted once it
+ * settled. The SA indexes of an insertion reply are deleted, see
+ * idpf_psp_insert_late(). A key rotation reply is reported: the rotation was
+ * assumed, see idpf_psp_key_rotate().
  */
 void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 			      const struct idpf_ctlq_msg *ctlq_msg)
 {
 	const struct virtchnl2_psp_rotate_keygen_response *rot_resp;
 	const struct virtchnl2_psp_delete_keys_response *del_resp;
+	struct idpf_adapter_psp *psp = &adapter->psp;
 	u32 deleted;
 
 	switch (ctlq_msg->cookie.mbx.chnl_opcode) {
@@ -942,14 +1005,16 @@ void idpf_psp_recv_late_reply(struct idpf_adapter *adapter,
 
 		del_resp = (const struct virtchnl2_psp_delete_keys_response *)
 			   ctlq_msg->ctx.indirect.payload->va;
-		/* Only the SA indexes counted as lost since the last core
-		 * init, the counters were reset by a reset meanwhile
-		 */
 		deleted = min_t(u32, le32_to_cpu(del_resp->num_sa_indexes_deleted),
-				max(atomic_read(&adapter->psp.keys_lost), 0));
-		atomic_sub(deleted, &adapter->psp.keys_lost);
-		atomic_add(deleted, &adapter->psp.keys_removed);
-		atomic_sub(deleted, &adapter->psp.sadb_used);
+				IDPF_PSP_DELETE_KEYS_MAX);
+
+		spin_lock_bh(&psp->del_lock);
+		deleted -= idpf_psp_keys_deleted(adapter, deleted);
+		/* The rest may be the SA indexes of the request in flight */
+		if (psp->del_in_flight)
+			psp->del_late = min_t(u64, (u64)psp->del_late + deleted,
+					      U32_MAX);
+		spin_unlock_bh(&psp->del_lock);
 		break;
 	case VIRTCHNL2_OP_PSP_INSERT_KEYS:
 		if (idpf_is_psp_ena(adapter) && !ctlq_msg->cookie.mbx.chnl_retval)
