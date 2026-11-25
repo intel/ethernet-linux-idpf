@@ -98,11 +98,13 @@ struct idpf_psp_insert_req {
  * @saidx: SA index of the TX key
  * @spi: SPI of the TX key
  * @version: PSP version of the association
+ * @queued: sent by the PSP work, see idpf_psp_tx_drain_key()
  */
 struct idpf_psp_tx {
 	u32 saidx;
 	__be32 spi;
 	u8 version;
+	bool queued;
 };
 
 /**
