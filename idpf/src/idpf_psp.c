@@ -1290,8 +1290,12 @@ void idpf_psp_register(struct idpf_adapter *adapter)
 		goto unlock;
 
 	vport = adapter->vports ? adapter->vports[0] : NULL;
-	if (!vport ||
-	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model) ||
+	if (!vport) {
+		dev_notice(dev, "PSP disabled, vport 0 not created\n");
+		goto unlock;
+	}
+
+	if (!idpf_is_queue_model_split(vport->dflt_qv_rsrc.txq_model) ||
 	    !idpf_is_queue_model_split(vport->dflt_qv_rsrc.rxq_model)) {
 		dev_notice(dev, "PSP disabled, vport 0 doesn't use the splitq queue model\n");
 		goto unlock;

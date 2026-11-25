@@ -2102,6 +2102,7 @@ void idpf_init_task(struct work_struct *work)
 	}
 
 	/* Clear the reset and load bits as all vports are created */
+	smp_mb__before_atomic();	/* see idpf_reset_recover() */
 	clear_bit(IDPF_HR_RESET_IN_PROG, adapter->flags);
 	clear_bit(IDPF_HR_DRV_LOAD, adapter->flags);
 	if (!IS_SILICON_DEVICE(adapter->hw.subsystem_device_id))
