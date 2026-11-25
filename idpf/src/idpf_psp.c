@@ -571,6 +571,7 @@ static void idpf_psp_tx_drain_key(struct idpf_adapter *adapter,
 	struct idpf_psp_tx psp = {
 		.spi		= key->spi,
 		.version	= key->version,
+		.queued		= true,
 	};
 	struct sk_buff_head batch;
 	struct sk_buff *skb;

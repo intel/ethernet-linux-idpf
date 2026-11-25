@@ -262,6 +262,8 @@ struct idpf_tx_offload_params {
  * @prev_ntu: stored TxQ next_to_use in case of rollback
  * @prev_refill_ntc: stored refillq next_to_clean in case of packet rollback
  * @prev_refill_gen: stored refillq generation bit in case of packet rollback
+ * @flush: write the tail even if netdev_xmit_more(), which only applies to
+ *	   the packets of the stack
  */
 struct idpf_tx_splitq_params {
 	enum idpf_tx_desc_dtype_value dtype;
@@ -275,6 +277,7 @@ struct idpf_tx_splitq_params {
 	u16 prev_ntu;
 	u16 prev_refill_ntc;
 	bool prev_refill_gen;
+	bool flush;
 };
 
 /**

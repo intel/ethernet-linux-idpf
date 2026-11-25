@@ -3142,7 +3142,7 @@ static void idpf_tx_splitq_map(struct idpf_queue *tx_q,
 	nq = netdev_get_tx_queue(tx_q->vport->netdev, tx_q->idx);
 	netdev_tx_sent_queue(nq, first->bytes);
 
-	idpf_tx_buf_hw_update(tx_q, i, netdev_xmit_more());
+	idpf_tx_buf_hw_update(tx_q, i, netdev_xmit_more() && !params->flush);
 }
 
 /**
@@ -3478,6 +3478,7 @@ static netdev_tx_t idpf_tx_splitq_frame(struct sk_buff *skb,
 {
 	struct idpf_tx_splitq_params tx_params = {
 		.prev_ntu = tx_q->next_to_use,
+		.flush = psp && psp->queued,
 	};
 	int vlan_tag = skb_vlan_tag_present(skb);
 	union idpf_flex_tx_ctx_desc *ctx_desc;
@@ -3656,7 +3657,7 @@ netdev_tx_t idpf_tx_splitq_start(struct sk_buff *skb,
 				 struct net_device *netdev)
 {
 	struct idpf_vport *vport = idpf_netdev_to_vport(netdev);
-	struct idpf_psp_tx psp;
+	struct idpf_psp_tx psp = {};
 	struct idpf_queue *tx_q;
 
 	if (unlikely(skb_get_queue_mapping(skb) >= vport->num_txq)) {
@@ -3730,11 +3731,8 @@ bool idpf_tx_psp_xmit(struct sk_buff *skb, const struct idpf_psp_tx *psp)
 		struct idpf_queue *tx_q = vport->txqs[qidx];
 
 		ret = idpf_tx_splitq_frame(skb, tx_q, psp);
-		if (ret == NETDEV_TX_OK) {
-			/* netdev_xmit_more() only applies to the stack */
-			idpf_tx_buf_hw_update(tx_q, tx_q->next_to_use, false);
+		if (ret == NETDEV_TX_OK)
 			txq_trans_cond_update(nq);
-		}
 	}
 
 	__netif_tx_unlock(nq);
