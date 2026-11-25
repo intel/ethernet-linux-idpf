@@ -581,6 +581,8 @@ int idpf_reset_recover(struct idpf_adapter *adapter)
 	 */
 	while (test_bit(IDPF_HR_RESET_IN_PROG, adapter->flags))
 		msleep(100);
+	/* See the registered netdevs, e.g. in idpf_psp_register() */
+	smp_rmb();
 
 	return 0;
 
