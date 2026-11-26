@@ -49,7 +49,7 @@ struct idpf_rss_data;
 #endif
 
 #define IDPF_DRV_NAME "idpf"
-#define IDPF_DRV_VER "1.0.16"
+#define IDPF_DRV_VER "1.0.17"
 
 #define IDPF_M(m, s)	((m) << (s))
 
